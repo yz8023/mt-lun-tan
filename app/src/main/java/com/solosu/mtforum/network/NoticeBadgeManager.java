@@ -35,6 +35,19 @@ public final class NoticeBadgeManager {
 
     private NoticeBadgeManager() {}
 
+    /** build83: 分类被查看时回调. MainActivity 注册后可在本地即时清零红点, 无需等 60s 轮询, 零额外请求 */
+    public interface OnViewedListener { void onViewed(String viewType); }
+
+    private static volatile OnViewedListener sViewedListener;
+
+    public static void setOnViewedListener(OnViewedListener listener) { sViewedListener = listener; }
+
+    private static void fireViewed(String viewType) {
+        OnViewedListener listener = sViewedListener;
+        if (listener == null) return;
+        try { listener.onViewed(viewType); } catch (Exception ignored) {}
+    }
+
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
     }
@@ -169,6 +182,7 @@ public final class NoticeBadgeManager {
                     .putBoolean(KEY_PENDING_PREFIX + viewType, false);
         }
         editor.apply();
+        fireViewed(viewType);
     }
 
     /** 手动“全部已读”时同步重置所有分类基线。 */
@@ -176,6 +190,7 @@ public final class NoticeBadgeManager {
         if (context == null) return;
         String[] types = {"pm", "follower", "mypost", "interactive", "system", "app"};
         for (String type : types) markViewed(context, type);
+        fireViewed("*");
     }
 
     private static int calculateNewCount(String viewType, String baseline, String current) {

@@ -244,59 +244,9 @@ public class CommunityFragment extends Fragment implements com.solosu.mtforum.ui
                 // 桌面统计失败不影响后续描述补充
             }
 
-            // ---- 第二步:线程池逐个抓版块头部补齐描述与精确热度 ----
-            ExecutorService pool = Executors.newFixedThreadPool(3);
-            for (int i = 0; i < forums.size(); i++) {
-                final ForumCategory.Forum f = forums.get(i);
-                final int index = i;
-                pool.execute(() -> {
-                    try {
-                        String url = ForumParser.getBaseDomain() + "forum-" + f.getFid() + "-1.html";
-                        String page = null;
-                        // 失败重试一次(网络抖动/服务器限流)
-                        for (int attempt = 0; attempt < 2; attempt++) {
-                            try {
-                                page = httpClient.get(url);
-                                break;
-                            } catch (Exception ex) {
-                                ex.printStackTrace();
-                                try { Thread.sleep(800); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
-                            }
-                        }
-                        if (page == null) return;
-                        String[] info = ForumParser.parseForumHeaderInfo(page);
-                        if (info == null) return;
-                        boolean changed = false;
-                        if (!TextUtils.isEmpty(info[0])) {
-                            f.setDescription(info[0]);
-                            changed = true;
-                        }
-                        if (!TextUtils.isEmpty(info[1])) {
-                            int today = Integer.parseInt(info[1]);
-                            if (today > 0) { f.setTodayPosts(today); changed = true; }
-                        }
-                        if (!TextUtils.isEmpty(info[2])) {
-                            long posts = Long.parseLong(info[2]);
-                            if (posts > 0) { f.setTotalPosts((int) Math.min(posts, Integer.MAX_VALUE)); changed = true; }
-                        }
-                        if (changed) {
-                            requireActivity().runOnUiThread(() -> {
-                                if (binding != null && forumGridAdapter != null) {
-                                    forumGridAdapter.updateForumAt(index, f);
-                                }
-                            });
-                        }
-                    } catch (Exception ignored) {
-                        // 单版块抓取失败静默跳过
-                    }
-                });
-            }
-            pool.shutdown();
-            try {
-                pool.awaitTermination(30, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // build68(分支): 已移除"逐版块抓头部"的第二步。
+            //   每进一次社区页就是 12 个请求，而版块描述字段 UI 里是 GONE 的，纯浪费。
+            //   卡片的"热度/新帖"仍来自上面的桌面版统计，外观不变。
         }).start();
     }
 

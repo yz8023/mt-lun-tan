@@ -75,6 +75,10 @@ public class MainActivity extends AppCompatActivity {
      * 未读角标没有秒级实时的必要，60 秒足够。
      */
     private static final long BADGE_REFRESH_INTERVAL_MS = 60_000;
+    /** build68(分支): onResume 即时刷新节流，防频繁返回重复拉 6 类 */
+    private static final long BADGE_RESUME_THROTTLE_MS = 60_000;
+    private long lastBadgeRefreshAt = 0L;
+    private static final String[] BADGE_TYPES = {"pm", "follower", "mypost", "interactive", "system", "app"};
     private final java.util.Map<String, Integer> previousUnreadCounts = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, String> previousUnreadFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicBoolean badgeRefreshInFlight = new AtomicBoolean(false);
@@ -126,6 +130,20 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化侧边栏
         initDrawer();
+
+        // build66: 非默认主题色时，把视图树里用了默认主色的地方换成所选主色
+        findViewById(android.R.id.content).post(() ->
+                com.solosu.mtforum.ui.theme.ThemeManager.applyAccent(
+                        findViewById(android.R.id.content), this));
+
+        // build83(分支): 进入某个消息分类后本地即时清红点，零额外请求
+        com.solosu.mtforum.network.NoticeBadgeManager.setOnViewedListener(viewType -> {
+            if (mainHandler == null) return;
+            mainHandler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (tvMessageBadge != null) tvMessageBadge.setVisibility(View.GONE);
+            });
+        });
     }
 
     // ==================== 侧边栏 ====================
@@ -1268,6 +1286,12 @@ public class MainActivity extends AppCompatActivity {
      */
     private void refreshMessageBadge() {
         if (isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastBadgeRefreshAt < BADGE_RESUME_THROTTLE_MS && lastBadgeRefreshAt > 0) {
+            scheduleNextBadgeRefresh();
+            return;
+        }
+        lastBadgeRefreshAt = nowMs;
         if (!HttpClient.getInstance().isLoggedIn()) {
             badgeRefreshInFlight.set(false);
             if (tvMessageBadge != null) tvMessageBadge.setVisibility(View.GONE);

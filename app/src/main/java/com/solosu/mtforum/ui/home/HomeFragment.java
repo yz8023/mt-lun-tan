@@ -325,10 +325,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
                                 threadAdapter.addThreads(threads);
                             }
                             hasMore = threads.size() >= PAGE_SIZE;
-                            // 预取收藏数:列表加载完成后异步补齐第四格
-                            com.solosu.mtforum.session.FavoritePrefetcher.prefetch(
-                                    requireContext(), threads,
-                                    (tid, count) -> threadAdapter.notifyItemChangedByTid(tid));
+                            // build63(分支): 取消列表页收藏数预取。原来每加载一页要发 20 个请求，
+                            //   是 403 风控的第二大来源；改为进详情页时回填缓存。
                         } else {
                             hasMore = false;
                             if (isRefresh) {
@@ -361,6 +359,9 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         if (consumeAccountSwitched()) { onTabReselected(); }
         if (threadAdapter != null && threadAdapter.getItemCount() == 0) {
             refreshThreads();
+        } else if (threadAdapter != null) {
+            // build80(分支): 从详情页返回时用点赞缓存刷新卡片，零额外请求
+            applyCachedLikes();
         }
     }
 
@@ -391,5 +392,25 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
             return true;
         }
         return false;
+    }
+
+    /** build80(分支): 用详情页点赞缓存回填列表卡片点赞数 */
+    private void applyCachedLikes() {
+        if (threadAdapter == null) return;
+        try {
+            int n = threadAdapter.getItemCount();
+            boolean changed = false;
+            for (int i = 0; i < n; i++) {
+                com.solosu.mtforum.model.Thread t = threadAdapter.getItem(i);
+                if (t == null || android.text.TextUtils.isEmpty(t.getTid())) continue;
+                Integer likes = com.solosu.mtforum.session.PostCountsCache.getLikes(t.getTid());
+                if (likes != null && likes != t.getLikes()) {
+                    t.setLikes(likes);
+                    changed = true;
+                }
+            }
+            if (changed) threadAdapter.notifyDataSetChanged();
+        } catch (Exception ignore) {
+        }
     }
 }

@@ -22,6 +22,9 @@ public class MyApplication extends Application {
 
         // 恢复持久化的 Cookie —— 在任何 Activity 启动前执行
         // 防止从最近任务直接恢复 SearchActivity 等非 MainActivity 时登录态丢失
+        // build66: 先应用用户选择的深色模式，避免首屏闪一下
+        com.solosu.mtforum.ui.theme.ThemeManager.applySaved(this);
+
         HttpClient.getInstance().init(this);
 
         // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登

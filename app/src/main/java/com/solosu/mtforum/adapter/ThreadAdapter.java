@@ -18,7 +18,6 @@ import com.bumptech.glide.Glide;
 import com.solosu.mtforum.R;
 import com.solosu.mtforum.model.Thread;
 import com.solosu.mtforum.session.FollowStateManager;
-import com.solosu.mtforum.session.FavoritesCache;
 import com.solosu.mtforum.ui.space.UserProfileActivity;
 import com.solosu.mtforum.ui.widget.FrostedGlassDrawable;
 
@@ -195,9 +194,6 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         holder.tvViews.setText(formatCount(thread.getViews()));
         holder.tvReplies.setText(formatCount(thread.getReplies()));
         holder.tvLikes.setText(formatCount(thread.getLikes()));
-        // 收藏数:列表页DOM无此数据;进过详情后由 FavoritesCache 回填
-        Integer cachedFav = FavoritesCache.get(context, thread.getTid());
-        holder.tvFavorites.setText(cachedFav != null ? formatCount(cachedFav) : "0");
 
     // 关注状态统一从服务端关注列表恢复；网络确认失败时才使用已有本地状态。
          if (!TextUtils.isEmpty(thread.getAuthorUid())) {
@@ -393,7 +389,6 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         TextView btnFollow;
         TextView tvTitle, tvAuthor, tvLevel, tvTime, tvForum, tvSummary;
         TextView tvViews, tvReplies, tvLikes, tvSticky;
-        TextView tvFavorites;
         TextView btnAiSummarize;
 
         ViewHolder(View itemView) {
@@ -412,7 +407,6 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             tvViews = itemView.findViewById(R.id.tv_views);
             tvReplies = itemView.findViewById(R.id.tv_replies);
             tvLikes = itemView.findViewById(R.id.tv_likes);
-            tvFavorites = itemView.findViewById(R.id.tv_favorites);
             tvSticky = itemView.findViewById(R.id.tv_sticky);
             btnAiSummarize = itemView.findViewById(R.id.btn_ai_summary);
         }

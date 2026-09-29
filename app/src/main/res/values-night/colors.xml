@@ -54,4 +54,30 @@
     <color name="reply_quote_content">#A08840</color>
     <color name="reply_op_badge_background">#1E2A3A</color>
     <color name="follow_bg">#2A2F38</color>
+    <!-- ========== build66: 补齐会漏到夜间的浅色值 ========== -->
+    <!-- 这几个在 values/colors.xml 里是接近纯白的，夜间必须覆盖，否则会出现刺眼白块 -->
+    <color name="sticky_card_bg">#2B2226</color>
+    <color name="sticky_stroke">#5A3A45</color>
+    <color name="sticky_text">#FF8A8A</color>
+    <color name="image_placeholder_bg">#2A2F38</color>
+    <color name="image_placeholder_stroke">#3A4049</color>
+    <!-- 主色 alpha 版要跟着夜间主色(#60A5FA)走 -->
+    <color name="primary_alpha_30">#4D60A5FA</color>
+    <color name="primary_alpha_19">#3060A5FA</color>
+    <!-- 消息分类淡底在深色上要更实一点才看得出 -->
+    <color name="notice_chat_bg">#3060A5FA</color>
+    <color name="notice_fans_bg">#304ADE80</color>
+    <color name="notice_posts_bg">#30FB923C</color>
+    <color name="notice_interactive_bg">#30A78BFA</color>
+    <color name="notice_system_bg">#30F87171</color>
+    <color name="notice_app_bg">#3022D3EE</color>
+    <color name="notice_chat">#60A5FA</color>
+    <color name="notice_fans">#4ADE80</color>
+    <color name="notice_posts">#FB923C</color>
+    <color name="notice_interactive">#A78BFA</color>
+    <color name="notice_system">#F87171</color>
+    <color name="notice_app">#22D3EE</color>
+    <color name="gray_alpha_09">#18FFFFFF</color>
+    <color name="gray_alpha_25">#30FFFFFF</color>
+    <color name="scrim_light">#22FFFFFF</color>
 </resources>

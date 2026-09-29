@@ -38,6 +38,9 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
     private static final int REQUEST_CODE_DETAIL = 1001;
 
     private FragmentNoticeBinding binding;
+    /** build68: 六类角标 onResume 拉取节流，频繁返回不再重复全量拉 6 类（防 ESA 403） */
+    private static final long BADGE_RESUME_THROTTLE_MS = 60000;
+    private long lastBadgeLoadAt = 0L;
     private TextView badgeMessages, badgeFans, badgePosts, badgeInteractive, badgeSystem, badgeApp;
     private TextView tvClearAll;
     private HttpClient httpClient;
@@ -74,6 +77,9 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
         if (mainHandler != null) {
             mainHandler.removeCallbacksAndMessages(null);
         }
+        long now = System.currentTimeMillis();
+        if (now - lastBadgeLoadAt < BADGE_RESUME_THROTTLE_MS) return;
+        lastBadgeLoadAt = now;
         if (executor != null && !executor.isShutdown()) {
             loadAllBadgeCounts();
         }

@@ -1,6 +1,7 @@
 package com.solosu.mtforum.ui.space;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Toast;
 
 
@@ -51,6 +52,9 @@ public class SettingsActivity extends AppCompatActivity {
         // build60: 账号与签到管理入口
         binding.layoutAccountManager.setOnClickListener(v -> startActivity(
                 new Intent(this, com.solosu.mtforum.ui.account.AccountManagerActivity.class)));
+
+        // build66: 应用主题
+        setupThemeSection();
 
         binding.toolbar.setNavigationIcon(R.drawable.ic_arrow_left);
         binding.toolbar.setNavigationOnClickListener(v -> finish());
@@ -194,5 +198,78 @@ public class SettingsActivity extends AppCompatActivity {
                 })
                 .show();
         DialogHelper.applyToAlertDialog(alertDialog4, this);
+    }
+
+    // ==================== build66: 应用主题 ====================
+
+    private void setupThemeSection() {
+        updateThemeTexts();
+
+        binding.layoutNightMode.setOnClickListener(v -> {
+            final String[] items = {"跟随系统", "浅色", "深色"};
+            android.app.Dialog d = new AlertDialog.Builder(this)
+                    .setTitle("深色模式")
+                    .setSingleChoiceItems(items,
+                            com.solosu.mtforum.ui.theme.ThemeManager.getNightMode(this),
+                            (dlg, which) -> {
+                                dlg.dismiss();
+                                com.solosu.mtforum.ui.theme.ThemeManager.setNightMode(this, which);
+                                recreate();   // 立刻换肤
+                            })
+                    .setNegativeButton("取消", null)
+                    .show();
+            DialogHelper.applyToAlertDialog(d, this);
+        });
+
+        buildAccentSwatches();
+    }
+
+    /** 主题色圆形色板，选中的加一圈描边 */
+    private void buildAccentSwatches() {
+        android.widget.LinearLayout box = binding.llAccentSwatches;
+        box.removeAllViews();
+        int current = com.solosu.mtforum.ui.theme.ThemeManager.getAccentIndex(this);
+        float density = getResources().getDisplayMetrics().density;
+        int size = (int) (34 * density);
+        int gap = (int) (12 * density);
+
+        for (int i = 0; i < com.solosu.mtforum.ui.theme.ThemeManager.ACCENT_NAMES.length; i++) {
+            final int index = i;
+            View dot = new View(this);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(size, size);
+            lp.rightMargin = gap;
+            dot.setLayoutParams(lp);
+
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            bg.setColor(com.solosu.mtforum.ui.theme.ThemeManager.accentAt(this, index));
+            if (index == current) {
+                bg.setStroke((int) (3 * density),
+                        getResources().getColor(R.color.text_primary, getTheme()));
+            }
+            dot.setBackground(bg);
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(dot, 0.88f);
+            dot.setOnClickListener(v -> {
+                com.solosu.mtforum.ui.theme.ThemeManager.setAccentIndex(this, index);
+                updateThemeTexts();
+                buildAccentSwatches();
+                com.solosu.mtforum.ui.theme.ThemeManager.applyAccent(
+                        findViewById(android.R.id.content), this);
+                Toast.makeText(this,
+                        "主题色已切换为 "
+                                + com.solosu.mtforum.ui.theme.ThemeManager.ACCENT_NAMES[index],
+                        Toast.LENGTH_SHORT).show();
+            });
+            box.addView(dot);
+        }
+    }
+
+    private void updateThemeTexts() {
+        binding.tvNightModeValue.setText(
+                com.solosu.mtforum.ui.theme.ThemeManager.nightModeName(this));
+        binding.tvAccentName.setText(
+                com.solosu.mtforum.ui.theme.ThemeManager.accentName(this));
     }
 }

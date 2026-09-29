@@ -123,12 +123,20 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private String currentReplyTarget = "";
     private boolean isLoadingMore = false;
     private String currentReplyPid = "";
+    private String currentLoginUid = null; // build73: 当前登录 uid(判定是否本人)
+    // build74b: 打赏目标(空=主楼;有值=评论楼层)
+    private String rewardTargetPid = "";
+    private String rewardTargetName = "";
+    private String rewardTargetAvatar = "";
     private Uri pendingImageUri = null;
     private final List<String> pendingUploadAids = new ArrayList();
     private boolean imageUploadInProgress = false;
+    // build71: 多选图片排队,避免上一张上传中时后续图片被静默丢弃
+    private final java.util.List<android.net.Uri> imageUploadPendingQueue = new java.util.ArrayList<>();
     private final java.util.List<android.net.Uri> pendingImageUris = new java.util.ArrayList<>();
     private final java.util.Map<android.net.Uri, String> uploadedAidMap = new java.util.HashMap<>();
     private static final int REQUEST_IMAGE_PICK = 1002;
+    private static final int REQUEST_EDIT_THREAD = 1003; // build73: 编辑帖子
 
     @Override // androidx.fragment.app.FragmentActivity, androidx.activity.ComponentActivity, androidx.core.app.ComponentActivity, android.app.Activity
     protected void onCreate(Bundle savedInstanceState) {
@@ -238,6 +246,20 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 ThreadDetailActivity.this.lambda$onCreate$14(view);
             }
         });
+        // build64: AI 总结(详情页入口,与列表卡片行为一致)
+        // 注意: 本文件是反编译产物,手写 lambda$onCreate$N 合成方法名,
+        // 新代码不能用 lambda(会撞名),必须用匿名内部类
+        this.binding.btnAiSummary.setOnClickListener(new View.OnClickListener() {
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                Intent it = new Intent(ThreadDetailActivity.this,
+                        com.solosu.mtforum.ai.AiSummarizeActivity.class);
+                it.putExtra("tid", ThreadDetailActivity.this.tid);
+                it.putExtra("title", ThreadDetailActivity.this.binding.tvThreadTitle.getText() != null
+                        ? ThreadDetailActivity.this.binding.tvThreadTitle.getText().toString() : "");
+                startActivity(it);
+            }
+        });
         loadPostDetail();
     }
 
@@ -325,6 +347,13 @@ public class ThreadDetailActivity extends AppCompatActivity {
 
     private void setupRecyclerView() {
         this.replyAdapter = new ReplyAdapter(new ArrayList());
+        // build73: 评论长按 -> 回复 / 举报 / (本人)删除
+        this.replyAdapter.setOnReplyLongClickListener(new ReplyAdapter.OnReplyLongClickListener() {
+            @Override
+            public void onReplyLongClick(ReplyItem replyItem, int i) {
+                showReplyActionMenu(replyItem);
+            }
+        });
         this.replyAdapter.setOnReplyClickListener(new ReplyAdapter.OnReplyClickListener() {
             @Override // com.solosu.mtforum.ui.detail.ReplyAdapter.OnReplyClickListener
             public final void onReplyClick(ReplyItem replyItem, int i) {
@@ -345,7 +374,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
         String author = item != null ? item.getAuthor() : "";
         if (!TextUtils.isEmpty(author)) {
             this.currentReplyPid = item != null ? item.getPid() : "";
-            this.currentReplyTarget = "回复 " + author + ":";
+            // build71: 不再把"回复 xx:"当预填文本塞进输入框(它会被一起发出去)
+            this.currentReplyTarget = "";
         } else {
             this.currentReplyPid = "";
             this.currentReplyTarget = "";
@@ -364,6 +394,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
     }
 
     private void loadPostDetail() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         this.binding.progressBar.setVisibility(0);
         this.binding.swipeRefresh.setEnabled(false);
         new java.lang.Thread(new Runnable() {
@@ -388,6 +421,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
             enrichGoodReviewAvatars(detail);
             refreshServerActionState(detail);
+            // build61: 进帖触发解锁——只记录页面,渲染后在后台线程执行(不阻塞首屏)
+            this.pendingUnlockHtml = html;
             if (!TextUtils.isEmpty(detail.getAuthorUid())) {
                 detail.setFollowed(FollowStateManager.resolve(this, detail.getAuthorUid(), detail.isFollowed()));
             }
@@ -408,10 +443,46 @@ public class ThreadDetailActivity extends AppCompatActivity {
     }
 
     private void lambda$loadPostDetail$17(PostDetail detail) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         bindData(detail, true);
+        // build61: 渲染完成后,后台线程执行解锁检测→回帖→成功再刷新
+        runUnlockInBackground(detail);
+    }
+    /* build61: 待解锁页面快照(加载线程写,渲染后读一次即清) */
+    private String pendingUnlockHtml;
+    /** build61: 渲染后异步解锁——16 秒节流在后台线程里等,不卡首屏 */
+    private void runUnlockInBackground(final PostDetail detail) {
+        if (detail == null || !detail.isHasHiddenContent()) return;
+        final String pageHtml = this.pendingUnlockHtml;
+        this.pendingUnlockHtml = null;
+        if (TextUtils.isEmpty(pageHtml)) return;
+        // 注意: 本文件 import 了 model.Thread, 必须写全限定名 java.lang.Thread
+        new java.lang.Thread(new Runnable() {
+            @Override // java.lang.Runnable
+            public final void run() {
+                boolean ok = com.solosu.mtforum.ai.AutoReplyEngine
+                        .tryUnlockOnOpen(ThreadDetailActivity.this, detail, pageHtml);
+                if (ok) {
+                    runOnUiThread(new Runnable() {
+                        @Override // java.lang.Runnable
+                        public final void run() {
+                            if (isFinishing() || isDestroyed()) return;
+                            Toast.makeText(ThreadDetailActivity.this,
+                                    "已自动回帖解锁，正在刷新…", 0).show();
+                            refreshPostDetail();
+                        }
+                    });
+                }
+            }
+        }, "unlock-on-open").start();
     }
 
     private void lambda$loadPostDetail$18(Exception e) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         this.binding.progressBar.setVisibility(8);
         this.binding.swipeRefresh.setEnabled(true);
         String message = TextUtils.isEmpty(e.getMessage()) ? "网络异常，请下拉刷新重试" : e.getMessage();
@@ -424,6 +495,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void refreshPostDetail() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         new java.lang.Thread(new Runnable() {
             @Override // java.lang.Runnable
             public final void run() {
@@ -446,6 +520,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
             enrichGoodReviewAvatars(detail);
             refreshServerActionState(detail);
+            // build61: 下拉刷新链同样只记录页面,渲染后异步解锁(同加载链)
+            this.pendingUnlockHtml = html;
             if (!TextUtils.isEmpty(detail.getAuthorUid())) {
                 detail.setFollowed(FollowStateManager.resolve(this, detail.getAuthorUid(), detail.isFollowed()));
             }
@@ -466,8 +542,13 @@ public class ThreadDetailActivity extends AppCompatActivity {
     }
 
     private void lambda$refreshPostDetail$20(PostDetail postDetail) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         this.binding.swipeRefresh.setRefreshing(false);
         applyServerActionState(postDetail);
+        // build61: 渲染完成后,后台线程执行解锁检测(同加载链)
+        runUnlockInBackground(postDetail);
         this.likeCount = Math.max(0, postDetail.getLikeCount());
         updateLikeIcon();
         updateFavoriteIcon();
@@ -477,12 +558,22 @@ public class ThreadDetailActivity extends AppCompatActivity {
     }
 
     private void lambda$refreshPostDetail$21(Exception e) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         this.binding.swipeRefresh.setRefreshing(false);
         String message = TextUtils.isEmpty(e.getMessage()) ? "网络异常，请稍后重试" : e.getMessage();
         Toast.makeText(this, "刷新失败: " + message, 0).show();
     }
 
     private void bindData(final PostDetail postDetail, boolean z) {
+        // build66 崩溃修复：loadPostDetail 是异步的，用户在加载完成前退出时
+        // Activity 已销毁，这里的 Glide.with(this) 会抛
+        // IllegalArgumentException: You cannot start a load for a destroyed activity
+        if (isFinishing() || isDestroyed()) return;
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
         if (postDetail == null) {
             this.binding.progressBar.setVisibility(8);
             this.binding.swipeRefresh.setEnabled(true);
@@ -499,6 +590,15 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.binding.tvForumName.setVisibility(8);
         }
         this.binding.tvThreadTitle.setText(!TextUtils.isEmpty(postDetail.getTitle()) ? postDetail.getTitle() : "");
+        // build75: 长按标题 -> 举报帖子
+        this.binding.tvThreadTitle.setLongClickable(true);
+        this.binding.tvThreadTitle.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View view) {
+                reportPost(null);
+                return true;
+            }
+        });
         String avatarUrl = postDetail.getAvatarUrl();
         if (!TextUtils.isEmpty(avatarUrl)) {
             Glide.with((FragmentActivity) this).load(avatarUrl).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(this.binding.ivAuthorAvatar);
@@ -535,13 +635,24 @@ public class ThreadDetailActivity extends AppCompatActivity {
         }
         if (this.httpClient.isLoggedIn() && !TextUtils.isEmpty(postDetail.getAuthor())) {
             this.binding.btnFollow.setVisibility(0);
-            this.binding.btnFollow.setText(getString(postDetail.isFollowed() ? R.string.action_followed : R.string.action_follow));
-            this.binding.btnFollow.setOnClickListener(new View.OnClickListener() {
-                @Override // android.view.View.OnClickListener
-                public final void onClick(View view) {
-                    ThreadDetailActivity.this.lambda$bindData$25(view);
-                }
-            });
+            if (isOwnThread(postDetail)) {
+                // build73: 自己的帖子 -> 右上角是「编辑」(不是关注)
+                this.binding.btnFollow.setText("编辑");
+                this.binding.btnFollow.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        openEditThread();
+                    }
+                });
+            } else {
+                this.binding.btnFollow.setText(getString(postDetail.isFollowed() ? R.string.action_followed : R.string.action_follow));
+                this.binding.btnFollow.setOnClickListener(new View.OnClickListener() {
+                    @Override // android.view.View.OnClickListener
+                    public final void onClick(View view) {
+                        ThreadDetailActivity.this.lambda$bindData$25(view);
+                    }
+                });
+            }
         } else {
             this.binding.btnFollow.setVisibility(8);
         }
@@ -579,21 +690,16 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // 收集当前帖全部图片供全屏翻页
             this.currentImageList = new ArrayList<>(arrayList);
             strArrReplaceHiddenQuoteWithPlaceholder = replaceHiddenQuoteWithPlaceholder(strExtractAndSeparateImages);
-            boolean z2 = true;
-
-            // build64: 把代码块从主楼正文里摘出来，单独渲染成可折叠 + 可复制的卡片。
-            // 复制拿到的是剥掉行号的干净代码（行号只做显示用的装订线）。
-            String bodyHtml = strArrReplaceHiddenQuoteWithPlaceholder[0];
-            // build65: 留一份带标签的原文，复制 BBCode 时用（可见文本会丢掉代码/图片/链接）
+            // build65: 留一份带标签的原文，复制 BBCode 时用
             this.currentContentHtmlForCopy = strConvertBBCodeToHtml;
+            boolean z2 = true;
+            // build64: 把代码块从主楼正文里摘出来，单独渲染成可折叠 + 可复制的卡片
+            String bodyHtmlForRender = strArrReplaceHiddenQuoteWithPlaceholder[0];
             com.solosu.mtforum.util.BBCodeUtil.Extracted extractedMain =
-                    com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(bodyHtml);
+                    com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(bodyHtmlForRender);
             renderMainCodeBlocks(extractedMain);
-            if (extractedMain.hasBlocks()) {
-                bodyHtml = extractedMain.html;
-            }
-
-            this.binding.tvContent.setText(safeFromHtml(bodyHtml, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+            if (extractedMain.hasBlocks()) bodyHtmlForRender = extractedMain.html;
+            this.binding.tvContent.setText(safeFromHtml(bodyHtmlForRender, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
             boolean unlocked = postDetail.isHasHiddenContent() && this.httpClient.isLoggedIn()
                     && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                     && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
@@ -802,6 +908,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
                         isOp = opName.equals(item.getAuthor());
                     }
                     if (!isOp) {
+                        // build71: 之前这里是空块,过滤动作被挖空,导致"只看楼主"点了没效果
+                        continue;
                     }
                 }
                 result.add(item);
@@ -1016,6 +1124,15 @@ public class ThreadDetailActivity extends AppCompatActivity {
             params.put("formhash", fh);
             params.put("message", replyText);
             params.put("replysubmit", "yes");
+            // build71: 上传得到的 aid 必须随回复一起提交 attachnew,否则附件不会被关联
+            //        (发帖页 attemptPost 有这一步,回复页之前漏了 -> "图片传上去了但发不出去")
+            synchronized (pendingUploadAids) {
+                for (String aid : pendingUploadAids) {
+                    if (!TextUtils.isEmpty(aid)) {
+                        params.put("attachnew[" + aid + "][description]", "");
+                    }
+                }
+            }
             if (!TextUtils.isEmpty(this.currentReplyPid)) {
                 params.put("reppid", this.currentReplyPid);
                 params.put("reppost", this.currentReplyPid);
@@ -1085,6 +1202,20 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.currentReplyPid = "";
         this.currentReplyTarget = "";
         this.binding.tilReply.setError(null);
+        // build80: 回复已发出 -> 清空待发送图片队列与残留的 [attachimg] 标签,
+        //          否则图片会一直留在回复栏里(已提交成功却看着像没发出去)
+        this.pendingImageUris.clear();
+        this.uploadedAidMap.clear();
+        synchronized (this.pendingUploadAids) {
+            this.pendingUploadAids.clear();
+        }
+        synchronized (this.imageUploadPendingQueue) {
+            this.imageUploadPendingQueue.clear();
+        }
+        if (this.binding != null && this.binding.etReply != null) {
+            this.binding.etReply.setText("");
+        }
+        refreshAllImagePreviews();
         Toast.makeText(this, R.string.reply_success, 0).show();
         if (this.mBottomSheetDialog != null && this.mBottomSheetDialog.isShowing()) {
             this.mBottomSheetDialog.dismiss();
@@ -1159,50 +1290,16 @@ public class ThreadDetailActivity extends AppCompatActivity {
         return containsAny(result, "recommendv", "recommendc", "点赞成功", "推荐成功", "succeedhandle_recommend", "评价成功");
     }
 
-    private Boolean queryServerLikeStateWithRetry(boolean targetState) {
-        Boolean lastState = null;
-        long[] delays = {0, 250, 600, 1200, 2000};
-        for (long delay : delays) {
-            if (delay > 0) {
-                try {
-                    java.lang.Thread.sleep(delay);
-                } catch (InterruptedException e) {
-                    java.lang.Thread.currentThread().interrupt();
-                }
-            }
-            Boolean detailState = queryServerLikeDetailState();
-            if (detailState != null) {
-                lastState = detailState;
-                if (detailState.booleanValue() == targetState) {
-                    return detailState;
-                }
-            }
-        }
-        return lastState;
-    }
-
-    private Boolean queryServerLikeDetailState() {
-        PostDetail server;
-        try {
-            String html = this.httpClient.get(ForumParser.getThreadDetailUrl(this.tid) + "&_like_verify=" + System.currentTimeMillis());
-            if (!ForumParser.isLoginPage(html) && (server = ForumParser.parseThreadDetail(html)) != null && server.isLikedStateKnown()) {
-                return Boolean.valueOf(server.isLiked());
-            }
-        } catch (Exception e) {
-        }
-        return null;
-    }
-
     private void updateLikeIcon() {
-        int i;
         ImageButton imageButton = this.binding.btnLike;
-        if (this.isLiked) {
-            i = R.drawable.forum_like_on;
-        } else {
-            i = R.drawable.forum_like_off;
-        }
-        imageButton.setImageResource(i);
+        // build66: 改用与列表页一致的拇指标(原 forum_like 是心形),用颜色区分已赞/未赞
+        imageButton.setImageResource(R.drawable.ic_like_detail);
+        imageButton.setColorFilter(getColor(this.isLiked ? R.color.primary : R.color.icon_secondary));
         updateCountBadge(this.binding.tvLikeBadge, Math.max(0, this.likeCount));
+        // build80: 点赞数回写缓存, 返回列表页时按 tid 回填, 及时同步
+        if (!TextUtils.isEmpty(this.tid)) {
+            com.solosu.mtforum.session.PostCountsCache.setLikes(this.tid, Math.max(0, this.likeCount));
+        }
     }
 
     private void updateFavoriteIcon() {
@@ -1221,7 +1318,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             return;
         }
         if (count > 0) {
-            badge.setText(count > 99 ? "99+" : String.valueOf(count));
+            // build65: 帖子内角标显示真实数字(原 99+ 截断),超大值才用 999+
+            badge.setText(count > 999 ? "999+" : String.valueOf(count));
             badge.setVisibility(0);
         } else {
             badge.setVisibility(8);
@@ -1609,10 +1707,6 @@ public class ThreadDetailActivity extends AppCompatActivity {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private Boolean queryServerFavoriteState() {
-        return queryServerFavoriteListState();
     }
 
     private String[] replaceHiddenQuoteWithPlaceholder(String html) {
@@ -2527,25 +2621,88 @@ private void viewHiddenContent() {
         ScrollView.LayoutParams sp = new ScrollView.LayoutParams(-1, -1);
         scroll.setLayoutParams(sp);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // build67: 收集每行引用, 供接口回填真实昵称/头像
+        java.util.List<TextView> nameViews = new java.util.ArrayList<>();
+        java.util.List<com.google.android.material.imageview.ShapeableImageView> imgViews = new java.util.ArrayList<>();
+        java.util.List<LinearLayout> rowViews = new java.util.ArrayList<>();
         for (int i = 0; i < uids.size(); i++) {
             final String uid = uids.get(i);
-            String name = i < names.size() && names.get(i) != null ? names.get(i) : "用户" + uid;
+            String name = i < names.size() && names.get(i) != null && !names.get(i).isEmpty()
+                    ? names.get(i) : "用户" + uid;
+            final String avatar = i < avatars.size() ? avatars.get(i) : null;
+            // build65: 每行 = 头像 + 名字(原来只有 TextView,头像数据白拿)
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(6));
+            com.google.android.material.imageview.ShapeableImageView iv =
+                    new com.google.android.material.imageview.ShapeableImageView(this);
+            int av = dpToPx(36);
+            LinearLayout.LayoutParams ivLp = new LinearLayout.LayoutParams(av, av);
+            ivLp.setMarginEnd(dpToPx(10));
+            iv.setLayoutParams(ivLp);
+            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            iv.setImageResource(R.drawable.ic_account);
+            if (!TextUtils.isEmpty(avatar)) {
+                com.bumptech.glide.Glide.with(this).load(avatar).circleCrop()
+                        .placeholder(new android.graphics.drawable.ColorDrawable(0xFFE0E0E0))
+                        .error(new android.graphics.drawable.ColorDrawable(0xFFBDBDBD))
+                        .into(iv);
+            }
             TextView tv = new TextView(this);
             tv.setText(name);
             tv.setTextSize(15);
             tv.setTextColor(getColor(R.color.text_primary));
-            tv.setPadding(dpToPx(4), dpToPx(10), dpToPx(4), dpToPx(10));
-            tv.setOnClickListener(v -> {
+            tv.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(iv);
+            row.addView(tv);
+            row.setOnClickListener(v -> {
                 sheet.dismiss();
                 Intent intent = new Intent(this, (Class<?>) UserProfileActivity.class);
                 intent.putExtra(ChatActivity.EXTRA_UID, uid);
                 intent.putExtra("username", name);
                 startActivity(intent);
             });
-            list.addView(tv);
+            list.addView(row);
+            rowViews.add(row);
+            imgViews.add(iv);
+            nameViews.add(tv);
         }
         sheet.setContentView(root);
         sheet.show();
+        // build67: 弹窗先用详情页数据即时渲染, 后台拉独立接口补"真实昵称+头像"
+        // (接口免登录、一次性返回全部点赞人, 只在用户点"查看全部"时发 1 发)
+        final String tidForLikers = this.tid;
+        new java.lang.Thread(new Runnable() {
+            @Override
+            public void run() {
+                final java.util.List<com.solosu.mtforum.ui.detail.LikeUserFetcher.Item> items =
+                        com.solosu.mtforum.ui.detail.LikeUserFetcher.fetch(tidForLikers);
+                if (items == null || items.isEmpty()) {
+                    return;
+                }
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        for (int k = 0; k < rowViews.size() && k < items.size(); k++) {
+                            com.solosu.mtforum.ui.detail.LikeUserFetcher.Item it = items.get(k);
+                            nameViews.get(k).setText(it.name);
+                            if (!TextUtils.isEmpty(it.avatar)) {
+                                com.bumptech.glide.Glide.with(ThreadDetailActivity.this)
+                                        .load(it.avatar).circleCrop()
+                                        .placeholder(new android.graphics.drawable.ColorDrawable(0xFFE0E0E0))
+                                        .error(new android.graphics.drawable.ColorDrawable(0xFFBDBDBD))
+                                        .into(imgViews.get(k));
+                            }
+                        }
+                    }
+                });
+            }
+        }, "like-user-fetch").start();
     }
 
     /** 当前帖全部图片(正文+附件+隐藏区,按 bindData 收集顺序) */
@@ -2691,13 +2848,22 @@ private void viewHiddenContent() {
 
     /** 上传单张待发送图片,上传成功后 aid 存入 uploadedAidMap */
     private void uploadPendingImage(android.net.Uri uri) {
-        if (imageUploadInProgress) return;
+        if (imageUploadInProgress) {
+            synchronized (imageUploadPendingQueue) {
+                if (!imageUploadPendingQueue.contains(uri)) imageUploadPendingQueue.add(uri);
+            }
+            return;
+        }
         imageUploadInProgress = true;
         new java.lang.Thread(() -> {
             try {
                 java.io.File file = transcodeReplyImageToJpeg(uri);
                 if (file == null || !file.exists() || file.length() == 0) {
-                    runOnUiThread(() -> imageUploadInProgress = false);
+                    runOnUiThread(() -> {
+                        imageUploadInProgress = false;
+                        drainUploadQueue();
+                        Toast.makeText(ThreadDetailActivity.this, "图片读取失败,请换一张试试", Toast.LENGTH_SHORT).show();
+                    });
                     return;
                 }
                 if (!httpClient.isLoggedIn()) {
@@ -2721,7 +2887,11 @@ private void viewHiddenContent() {
                     if (android.text.TextUtils.isEmpty(hash)) hash = extractUploadValue(postHtml, "hash");
                 }
                 if (!isValidUploadUid(uid) || android.text.TextUtils.isEmpty(hash)) {
-                    runOnUiThread(() -> imageUploadInProgress = false);
+                    runOnUiThread(() -> {
+                        imageUploadInProgress = false;
+                        drainUploadQueue();
+                        Toast.makeText(ThreadDetailActivity.this, "图片上传授权失败,请重新登录后重试", Toast.LENGTH_SHORT).show();
+                    });
                     return;
                 }
                 java.util.Map<String, String> extra = new java.util.HashMap<>();
@@ -2746,9 +2916,22 @@ private void viewHiddenContent() {
                 }
             } catch (Exception e) {
             } finally {
-                runOnUiThread(() -> imageUploadInProgress = false);
+                runOnUiThread(() -> {
+                    imageUploadInProgress = false;
+                    drainUploadQueue();
+                });
             }
         }).start();
+    }
+
+    /** build71: 上一张传完后,从排队队列里取下一张继续上传 */
+    private void drainUploadQueue() {
+        android.net.Uri next;
+        synchronized (imageUploadPendingQueue) {
+            if (imageUploadInProgress || imageUploadPendingQueue.isEmpty()) return;
+            next = imageUploadPendingQueue.remove(0);
+        }
+        uploadPendingImage(next);
     }
 
     /** 构建回复文本中的 [attachimg] 标签前缀 */
@@ -2764,6 +2947,11 @@ private void viewHiddenContent() {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_EDIT_THREAD && resultCode == RESULT_OK) {
+            // build73: 编辑保存成功 -> 重新拉一次帖子
+            refreshPostDetail();
+            return;
+        }
         if (requestCode == REQUEST_IMAGE_PICK && resultCode == RESULT_OK && data != null) {
             java.util.List<android.net.Uri> imageUris = new java.util.ArrayList<>();
             if (data.getClipData() != null) {
@@ -3142,11 +3330,15 @@ private void viewHiddenContent() {
             promptLogin();
             return;
         }
-        String currentUid = UserSessionManager.getInstance().getUid(getApplicationContext());
-        String authorUid = postDetail != null ? postDetail.getAuthorUid() : null;
-        if (!TextUtils.isEmpty(currentUid) && !TextUtils.isEmpty(authorUid) && currentUid.equals(authorUid)) {
-            Toast.makeText(this, "不能给自己打赏", Toast.LENGTH_SHORT).show();
-            return;
+        // build74b: 目标可以是主楼(空)或某条评论(评论菜单已排除本人,无需再判)
+        final boolean isReplyTarget = !TextUtils.isEmpty(rewardTargetPid);
+        if (!isReplyTarget) {
+            String currentUid = UserSessionManager.getInstance().getUid(getApplicationContext());
+            String authorUid = postDetail != null ? postDetail.getAuthorUid() : null;
+            if (!TextUtils.isEmpty(currentUid) && !TextUtils.isEmpty(authorUid) && currentUid.equals(authorUid)) {
+                Toast.makeText(this, "不能给自己打赏", Toast.LENGTH_SHORT).show();
+                return;
+            }
         }
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         View view = getLayoutInflater().inflate(R.layout.dialog_reward, null);
@@ -3167,12 +3359,17 @@ private void viewHiddenContent() {
         final Spinner spinnerAmount = view.findViewById(R.id.spinner_reward_amount);
         final SwitchCompat switchNotify = view.findViewById(R.id.switch_notify_author);
         Button btnSubmit = view.findViewById(R.id.btn_submit_reward);
-        if (postDetail != null && !TextUtils.isEmpty(postDetail.getAuthor())) {
-            tvAuthorName.setText(postDetail.getAuthor());
-            tvHint.setText("给 " + postDetail.getAuthor() + " 打赏鼓励吧");
-            String avatarUrl = postDetail.getAvatarUrl();
-            if (!TextUtils.isEmpty(avatarUrl)) {
-                Glide.with(this).load(avatarUrl).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(ivAvatar);
+        String displayName = !TextUtils.isEmpty(rewardTargetName)
+                ? rewardTargetName
+                : (postDetail != null ? postDetail.getAuthor() : "");
+        String displayAvatar = !TextUtils.isEmpty(rewardTargetAvatar)
+                ? rewardTargetAvatar
+                : (postDetail != null ? postDetail.getAvatarUrl() : null);
+        if (!TextUtils.isEmpty(displayName)) {
+            tvAuthorName.setText(displayName);
+            tvHint.setText("给 " + displayName + " 打赏鼓励吧");
+            if (!TextUtils.isEmpty(displayAvatar)) {
+                Glide.with(this).load(displayAvatar).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(ivAvatar);
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_account);
             }
@@ -3192,6 +3389,335 @@ private void viewHiddenContent() {
         dialog.show();
     }
 
+    // ==================== build73: 编辑 / 举报 / 删除 ====================
+
+    /** 当前登录 uid(带缓存) */
+    private String loginUid() {
+        if (currentLoginUid == null) {
+            currentLoginUid = UserSessionManager.getInstance().getUid(getApplicationContext());
+            if (TextUtils.isEmpty(currentLoginUid)) currentLoginUid = "";
+        }
+        return currentLoginUid;
+    }
+
+    /** 是否本人在看自己的帖子 */
+    private boolean isOwnThread(PostDetail d) {
+        if (d == null) return false;
+        String me = loginUid();
+        if (TextUtils.isEmpty(me)) return false;
+        if (!TextUtils.isEmpty(d.getAuthorUid()) && me.equals(d.getAuthorUid())) return true;
+        return false;
+    }
+
+    /** 打开编辑页(复用发帖页,编辑模式) */
+    private void openEditThread() {
+        if (postDetail == null) return;
+        if (!httpClient.isLoggedIn()) {
+            promptLogin();
+            return;
+        }
+        if (TextUtils.isEmpty(postDetail.getPostPid())) {
+            Toast.makeText(this, "缺少帖子编号,无法编辑", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent it = new Intent(this, com.solosu.mtforum.ui.post.PostActivity.class);
+        it.putExtra("edit_tid", tid);
+        it.putExtra("edit_pid", postDetail.getPostPid());
+        it.putExtra("edit_fid", postDetail.getForumFid());
+        it.putExtra("edit_forum_name", postDetail.getForumName());
+        it.putExtra("edit_title", postDetail.getTitle());
+        it.putExtra("edit_message", stripContentHtml(postDetail.getContentHtml()));
+        startActivityForResult(it, REQUEST_EDIT_THREAD);
+    }
+
+    /** 正文 HTML -> 可编辑的 BBCode/纯文本(交给 BBCodeUtil 反向处理,失败则剥标签) */
+    private String stripContentHtml(String html) {
+        if (TextUtils.isEmpty(html)) return "";
+        // build73c: BBCodeUtil 没有 html->bbcode 的反解能力,改为剥标签但保留附件标记
+        String attachmentMarks = "";
+        try {
+            java.util.regex.Matcher am = java.util.regex.Pattern.compile(
+                    "(?is)\\[attach(?:img)?\\]\\d+\\[/attach(?:img)?\\]").matcher(html);
+            StringBuilder amsb = new StringBuilder();
+            while (am.find()) amsb.append("\n").append(am.group());
+            attachmentMarks = amsb.toString();
+        } catch (Exception ignored) {
+        }
+        String t = html.replaceAll("(?is)<br\\s*/?>", "\n");
+        t = t.replaceAll("(?is)<script[^>]*>.*?</script>", "");
+        t = t.replaceAll("(?is)<[^>]+>", "");
+        t = android.text.Html.fromHtml(t).toString().trim();
+        return (t + attachmentMarks).trim();
+    }
+
+    /** build77: 举报入口 -> 弹理由输入窗(常用理由下拉 + 补充说明) */
+    private void reportPost(final String pid) {
+        if (!httpClient.isLoggedIn()) {
+            promptLogin();
+            return;
+        }
+        final boolean isThread = TextUtils.isEmpty(pid);
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        View content = getLayoutInflater().inflate(R.layout.dialog_report, null);
+        dialog.setContentView(content);
+        android.view.Window win = dialog.getWindow();
+        if (win != null) {
+            win.setBackgroundDrawable(new ColorDrawable(0));
+            android.view.WindowManager.LayoutParams lp = win.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.88f);
+            win.setAttributes(lp);
+        }
+        TextView tvTarget = content.findViewById(R.id.tv_report_target);
+        tvTarget.setText(isThread ? "举报对象：本帖" : "举报对象：该评论");
+        final com.google.android.material.chip.ChipGroup cgReason = content.findViewById(R.id.cg_report_reason);
+        content.findViewById(R.id.btn_close_report).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dialog.dismiss(); }
+        });
+        final EditText etMessage = content.findViewById(R.id.et_report_message);
+        content.findViewById(R.id.btn_cancel_report).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dialog.dismiss(); }
+        });
+        content.findViewById(R.id.btn_submit_report).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String reason = "其他";
+                int checkedId = cgReason.getCheckedChipId();
+                View checkedView = checkedId != View.NO_ID ? cgReason.findViewById(checkedId) : null;
+                if (checkedView instanceof com.google.android.material.chip.Chip) {
+                    reason = ((com.google.android.material.chip.Chip) checkedView).getText().toString();
+                }
+                String msg = etMessage.getText() != null ? etMessage.getText().toString().trim() : "";
+                dialog.dismiss();
+                submitReport(pid, reason, msg);
+            }
+        });
+        dialog.show();
+    }
+
+    /** build77: 举报提交(理由/说明由弹窗传入) */
+    private void submitReport(final String pid, final String reason, final String userMessage) {
+        final String rtype = TextUtils.isEmpty(pid) ? "thread" : "post";
+        final String rid = TextUtils.isEmpty(pid) ? tid : pid;
+        final String finalPid = pid;
+        final String finalReason = TextUtils.isEmpty(reason) ? "其他" : reason;
+        final String finalMessage = TextUtils.isEmpty(userMessage) ? "该内容涉嫌违规，请核实处理。" : userMessage;
+        new java.lang.Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (TextUtils.isEmpty(tid)) throw new IllegalStateException("缺少帖子编号");
+                    String fid = postDetail != null && !TextUtils.isEmpty(postDetail.getForumFid())
+                            ? postDetail.getForumFid() : "39";
+                    String formUrl = HttpClient.BASE_URL + "misc.php?mod=report&rtype=" + rtype
+                            + "&rid=" + rid + "&tid=" + tid + "&fid=" + fid + "&inajax=1&mobile=2";
+                    String form = httpClient.get(formUrl);
+                    String fh = ForumParser.parseFormhash(form);
+                    if (TextUtils.isEmpty(fh) && postDetail != null) fh = postDetail.getFormhash();
+                    if (TextUtils.isEmpty(fh)) throw new IllegalStateException("获取操作验证失败");
+
+                    Map<String, String> params = new HashMap<>();
+                    params.put("formhash", fh);
+                    if ("thread".equals(rtype)) {
+                        params.put("tid", tid);
+                    } else {
+                        params.put("tid", tid);
+                        params.put("pid", finalPid);
+                    }
+                    params.put("fid", fid);
+                    params.put("rtype", rtype);
+                    params.put("rid", rid);
+                    params.put("reportsubmit", "yes");
+                    params.put("reason", finalReason);
+                    params.put("message", finalMessage);
+                    String url = HttpClient.BASE_URL + "misc.php?mod=report&rtype=" + rtype
+                            + "&rid=" + rid + "&tid=" + tid + "&fid=" + fid + "&reportsubmit=yes&inajax=1&mobile=2";
+                    String resp = httpClient.post(url, params);
+
+                    boolean ok = resp != null && !ForumParser.isLoginPage(resp)
+                            && !resp.contains("举报理由") && !resp.contains("action=login");
+                    final String msg = ok ? "举报已提交，感谢反馈"
+                            : "举报未成功，请稍后重试";
+                    runOnUiThread(() -> Toast.makeText(ThreadDetailActivity.this, msg, Toast.LENGTH_SHORT).show());
+                } catch (final Exception e) {
+                    runOnUiThread(() -> Toast.makeText(ThreadDetailActivity.this,
+                            "举报失败：" + (TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage()),
+                            Toast.LENGTH_SHORT).show());
+                }
+            }
+        }).start();
+    }
+
+    /** 删除自己的回复 */
+    private void deleteReply(final ReplyItem item) {
+        if (item == null || TextUtils.isEmpty(item.getPid())) return;
+        new java.lang.Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String pid = item.getPid();
+                    String formUrl = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&tid=" + tid + "&pid=" + pid + "&mobile=2";
+                    String form = httpClient.get(formUrl);
+                    String fh = ForumParser.parseFormhash(form);
+                    if (TextUtils.isEmpty(fh) && postDetail != null) fh = postDetail.getFormhash();
+                    // build73c: 编辑页 HTML 里带该楼专用删除校验哈希,优先用它
+                    String delHash = extractDeleteHash(form, pid);
+                    if (!TextUtils.isEmpty(delHash)) fh = delHash;
+                    if (TextUtils.isEmpty(fh)) throw new IllegalStateException("获取操作验证失败");
+
+                    Map<String, String> params = new HashMap<>();
+                    params.put("formhash", fh);
+                    params.put("delete", "1");
+                    params.put("pid", pid);
+                    params.put("tid", tid);
+                    String url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&tid=" + tid
+                            + "&pid=" + pid + "&delete=1&deletesubmit=yes&mobile=2";
+                    String resp = httpClient.post(url, params);
+                    runOnUiThread(() -> {
+                        Toast.makeText(ThreadDetailActivity.this, "已删除该回复", Toast.LENGTH_SHORT).show();
+                        refreshPostDetail();
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(() -> Toast.makeText(ThreadDetailActivity.this,
+                            "删除失败：" + (TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage()),
+                            Toast.LENGTH_SHORT).show());
+                }
+            }
+        }).start();
+    }
+
+    /** build73c: 从编辑页 HTML 抽取该楼删除用的校验哈希(找不到返回 null,退回通用 formhash) */
+    private String extractDeleteHash(String html, String pid) {
+        if (TextUtils.isEmpty(html) || TextUtils.isEmpty(pid)) return null;
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "formhash=([0-9a-zA-Z]+)[^\"'<>]{0,200}?pid=" + pid).matcher(html);
+            if (m.find()) return m.group(1);
+            java.util.regex.Matcher m2 = java.util.regex.Pattern.compile(
+                    "pid=" + pid + "[^\"'<>]{0,200}?formhash=([0-9a-zA-Z]+)").matcher(html);
+            if (m2.find()) return m2.group(1);
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** 评论长按菜单 */
+    /** build75: 评论操作菜单(自定义卡片弹窗:图标+文字行) */
+    private void showReplyActionMenu(final ReplyItem item) {
+        if (item == null) return;
+        final String author = TextUtils.isEmpty(item.getAuthor()) ? "匿名" : item.getAuthor();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        View content = getLayoutInflater().inflate(R.layout.dialog_action_menu, null);
+        dialog.setContentView(content);
+        android.view.Window win = dialog.getWindow();
+        if (win != null) {
+            win.setBackgroundDrawable(new ColorDrawable(0));
+            android.view.WindowManager.LayoutParams lp = win.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+            win.setAttributes(lp);
+        }
+        TextView tvMenuTitle = content.findViewById(R.id.tv_menu_title);
+        tvMenuTitle.setText(author + " · 评论操作");
+        LinearLayout container = content.findViewById(R.id.ll_menu_items);
+
+        addActionRow(container, R.drawable.ic_reply, "回复", false, new Runnable() {
+            @Override public void run() {
+                currentReplyPid = item.getPid();
+                currentReplyTarget = "回复 " + author + "：";
+                showReplyBottomSheet("");
+            }
+        }, dialog);
+        if (!isOwnReply(item)) {
+            addActionRow(container, R.drawable.ic_reward, "打赏", false, new Runnable() {
+                @Override public void run() {
+                    rewardTargetPid = item.getPid();
+                    rewardTargetName = author;
+                    rewardTargetAvatar = item.getAvatarUrl();
+                    showRewardDialog();
+                }
+            }, dialog);
+            addActionRow(container, R.drawable.ic_flag, "举报", false, new Runnable() {
+                @Override public void run() {
+                    reportPost(item.getPid());
+                }
+            }, dialog);
+        } else {
+            addActionRow(container, R.drawable.ic_delete, "删除", true, new Runnable() {
+                @Override public void run() {
+                    confirmDeleteReply(item);
+                }
+            }, dialog);
+        }
+        // build66: 复制项并进同一个菜单，避免「长按复制」与「长按操作」两套手势打架
+        addActionRow(container, R.drawable.ic_copy, "复制内容", false, new Runnable() {
+            @Override public void run() {
+                copyReplyText(item, false);
+            }
+        }, dialog);
+        addActionRow(container, R.drawable.ic_copy, "复制 BBCode 原文", false, new Runnable() {
+            @Override public void run() {
+                copyReplyText(item, true);
+            }
+        }, dialog);
+        addActionRow(container, 0, "取消", false, null, dialog);
+        dialog.show();
+    }
+
+    /** build66: 复制某条回复；asBBCode=true 还原成 BBCode 便于转发引用 */
+    private void copyReplyText(ReplyItem item, boolean asBBCode) {
+        if (item == null) return;
+        String text;
+        if (asBBCode) {
+            text = com.solosu.mtforum.util.HtmlToBBCode.convert(item.getContentHtml());
+            if (TextUtils.isEmpty(text)) text = item.getContentText();
+        } else {
+            text = item.getContentText();
+            if (TextUtils.isEmpty(text)) {
+                text = com.solosu.mtforum.util.HtmlToBBCode.convert(item.getContentHtml());
+            }
+        }
+        copyPlainText(this, text, asBBCode ? "已复制 BBCode 原文" : "已复制回复内容");
+    }
+
+    /** build75: 菜单行(图标+文字),action==null 视为取消 */
+    private void addActionRow(LinearLayout container, int iconRes, final String label,
+                              boolean danger, final Runnable action, final Dialog dialog) {
+        View row = getLayoutInflater().inflate(R.layout.item_action_menu, container, false);
+        ImageView iv = row.findViewById(R.id.iv_action_icon);
+        TextView tv = row.findViewById(R.id.tv_action_label);
+        if (iconRes != 0) {
+            iv.setImageResource(iconRes);
+            if (danger) iv.setColorFilter(0xFFE53935);
+        } else {
+            iv.setVisibility(View.GONE);
+        }
+        tv.setText(label);
+        if (danger) tv.setTextColor(0xFFE53935);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                dialog.dismiss();
+                if (action != null) action.run();
+            }
+        });
+        container.addView(row);
+    }
+
+    private boolean isOwnReply(ReplyItem item) {
+        if (item == null) return false;
+        String me = loginUid();
+        if (TextUtils.isEmpty(me)) return false;
+        return me.equals(item.getAuthorUid());
+    }
+
+    private void confirmDeleteReply(final ReplyItem item) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除回复")
+                .setMessage("确定要删除这条回复吗？删除后无法恢复。")
+                .setPositiveButton("删除", (d, w) -> deleteReply(item))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
     private void performReward(final int amount, boolean notifyAuthor, final String goodReview, final String message) {
         new java.lang.Thread(new Runnable() {
             @Override // java.lang.Runnable
@@ -3209,7 +3735,11 @@ private void viewHiddenContent() {
             if (this.postDetail == null) {
                 throw new IllegalStateException("帖子数据为空");
             }
-            String pid = this.postDetail.getPostPid();
+            String pid = TextUtils.isEmpty(rewardTargetPid) ? this.postDetail.getPostPid() : rewardTargetPid;
+            // 用掉即清(下次默认主楼)
+            rewardTargetPid = "";
+            rewardTargetName = "";
+            rewardTargetAvatar = "";
             if (TextUtils.isEmpty(pid)) {
                 String page = this.httpClient.get(ForumParser.getThreadDetailUrl(this.tid));
                 PostDetail latest = ForumParser.parseThreadDetail(page);
@@ -3586,6 +4116,7 @@ private void viewHiddenContent() {
         return (int) ((dp * getResources().getDisplayMetrics().density) + 0.5f);
     }
 
+
     // ==================== build63: 快捷回复 ====================
 
     /**
@@ -3795,4 +4326,5 @@ private void viewHiddenContent() {
             android.widget.Toast.makeText(ctx, "复制失败", android.widget.Toast.LENGTH_SHORT).show();
         }
     }
+
 }

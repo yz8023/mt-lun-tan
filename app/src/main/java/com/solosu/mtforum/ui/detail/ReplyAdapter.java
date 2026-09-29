@@ -53,6 +53,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     private List<ReplyItem> replyList;
     private OnReplyClickListener replyClickListener;
     private OnUserClickListener userClickListener;
+    private OnReplyLongClickListener replyLongClickListener; // build73: 长按出操作菜单
 
     public interface OnReplyClickListener {
         void onReplyClick(ReplyItem item, int position);
@@ -60,6 +61,15 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
     public interface OnUserClickListener {
         void onUserClick(ReplyItem item, int position);
+    }
+
+    /** build73: 长按评论 -> 回复/举报/删除 菜单 */
+    public interface OnReplyLongClickListener {
+        void onReplyLongClick(ReplyItem item, int position);
+    }
+
+    public void setOnReplyLongClickListener(OnReplyLongClickListener listener) {
+        this.replyLongClickListener = listener;
     }
 
     public void setOnReplyClickListener(OnReplyClickListener listener) {
@@ -108,12 +118,13 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         private final TextView tvTime;
         private final TextView tvContent;
         private final LinearLayout layoutReplyQuote;
-        LinearLayout llCodeBlocks;
-        TextView btnQuoteCopy;
-        TextView btnQuoteToggle;
         private final TextView tvReplyQuote;
         private final LinearLayout llReplyImages;
         private final TextView btnReplyTo;
+        private final ImageView ivReplyMore;
+        private final LinearLayout llCodeBlocks;
+        private final TextView btnQuoteCopy;
+        private final TextView btnQuoteToggle;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -131,6 +142,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             btnQuoteToggle = itemView.findViewById(R.id.btn_quote_toggle);
             llReplyImages = itemView.findViewById(R.id.ll_reply_images);
             btnReplyTo = itemView.findViewById(R.id.btn_reply_to);
+            ivReplyMore = itemView.findViewById(R.id.iv_reply_more);
         }
 
         void bind(ReplyItem item) {
@@ -161,8 +173,17 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 }
             });
 
+            // build73: 整项长按 -> 操作菜单(回复/举报/删除)
+            itemView.setOnLongClickListener(v -> {
+                if (replyLongClickListener != null) {
+                    replyLongClickListener.onReplyLongClick(currentItem, getAdapterPosition());
+                    return true;
+                }
+                return false;
+            });
+
             // 楼层标签（沙发/椅子/地毯/报纸/N#）
-            // build65: 楼层文案统一清洗一遍（去零宽字符/控制符/多余空白）
+            // build65: 楼层文案清洗（去零宽/控制字符）
             String floorLabel = com.solosu.mtforum.util.TextClean.floorLabel(item.getFloorLabel());
             if (!TextUtils.isEmpty(floorLabel)) {
                 tvFloorLabel.setVisibility(View.VISIBLE);
@@ -201,7 +222,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
             // 评论区按参考样式仅显示时间，不显示回复项地点，避免与回复按钮并列出现重复灰色定位文字。
 
-            // 回复按钮
+            // 回复按钮 + 更多(⋮)
             String author = item.getAuthor();
             if (!TextUtils.isEmpty(author)) {
                 btnReplyTo.setVisibility(View.VISIBLE);
@@ -210,8 +231,17 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                         replyClickListener.onReplyClick(item, getAdapterPosition());
                     }
                 });
+                if (ivReplyMore != null) {
+                    ivReplyMore.setVisibility(View.VISIBLE);
+                    ivReplyMore.setOnClickListener(v -> {
+                        if (replyLongClickListener != null) {
+                            replyLongClickListener.onReplyLongClick(item, getAdapterPosition());
+                        }
+                    });
+                }
             } else {
                 btnReplyTo.setVisibility(View.GONE);
+                if (ivReplyMore != null) ivReplyMore.setVisibility(View.GONE);
             }
 
             // 内容 - 优先显示纯文本
@@ -222,6 +252,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 layoutReplyQuote.setVisibility(View.VISIBLE);
                 tvReplyQuote.setText(Html.fromHtml(quotedText, Html.FROM_HTML_MODE_COMPACT,
                         createInlineImageGetter(tvReplyQuote), BBCodeUtil.createTagHandler(itemView.getContext())));
+                attachCopyOnLongClick(tvReplyQuote);
                 // build63: 长引用默认折 4 行，可展开；旁边给一键复制
                 setupQuoteControls(tvReplyQuote, btnQuoteToggle, btnQuoteCopy);
             } else {
@@ -232,8 +263,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             String contentText = item.getContentText();
             String htmlContent = item.getContentHtml();
 
-            // build63: 先把 <pre> 代码块摘出来，单独渲染成可折叠 + 可复制的卡片。
-            // 摘完之后正文就没有代码块了，走原来的纯文本分支即可。
+            // build63: 代码块摘出来单独渲染成可折叠 + 可复制的卡片
             boolean hasCodeBlock = false;
             if (htmlContent != null
                     && (htmlContent.contains("comiis_blockcode") || htmlContent.contains("<pre"))) {
@@ -241,11 +271,11 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 if (extracted.hasBlocks()) {
                     renderCodeBlocks(llCodeBlocks, extracted.blocks);
                     htmlContent = extracted.html;
-                    contentText = null;      // 纯文本版仍含代码，弃用，改用摘干净的 html
+                    contentText = null;
                 } else {
-                    hasCodeBlock = true;     // 有 <pre> 但没抽出来，退回旧行为
+                    hasCodeBlock = true;
                 }
-            } else {
+            } else if (llCodeBlocks != null) {
                 llCodeBlocks.setVisibility(View.GONE);
                 llCodeBlocks.removeAllViews();
             }
@@ -257,6 +287,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                         createInlineImageGetter(tvContent), BBCodeUtil.createTagHandler(itemView.getContext())));
                 // ★ 修复2：先设置链接，再配置其他属性（避免 setText 覆盖文本）
                 setupClickableLinks(tvContent);
+                attachCopyOnLongClick(tvContent);
                 // 回复内容中的大图处理
                 if (!TextUtils.isEmpty(htmlContent)) {
                     loadReplyImages(itemView.getContext(), htmlContent, llReplyImages);
@@ -273,6 +304,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                         createInlineImageGetter(tvContent), BBCodeUtil.createTagHandler(itemView.getContext())));
                 // ★ 修复2：先设置链接，再配置其他属性（避免 setText 覆盖文本）
                 setupClickableLinks(tvContent);
+                attachCopyOnLongClick(tvContent);
                 // 加载图片
                 if (!replyImageUrls.isEmpty()) {
                     llReplyImages.removeAllViews();
@@ -307,89 +339,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 tvContent.setVisibility(View.GONE);
                 llReplyImages.setVisibility(View.GONE);
             }
-
-            // build64: 评论区长按复制（正文用按钮、评论用长按）
-            setupLongPressCopy(itemView, tvContent, llCodeBlocks, item);
         }
-    }
-
-    /**
-     * 长按某条回复 → 复制菜单。
-     * 有代码块时多给一个「只复制代码」，因为多数时候人就是来抄那段代码的。
-     */
-    private static void setupLongPressCopy(final View itemView,
-                                           final TextView tvContent,
-                                           final LinearLayout llCodeBlocks,
-                                           final com.solosu.mtforum.model.ReplyItem item) {
-        itemView.setOnLongClickListener(v -> {
-            final android.content.Context ctx = v.getContext();
-
-            final String bodyText = tvContent != null && tvContent.getText() != null
-                    ? tvContent.getText().toString().trim() : "";
-            final StringBuilder codeAll = new StringBuilder();
-            if (llCodeBlocks != null && llCodeBlocks.getVisibility() == View.VISIBLE) {
-                for (int i = 0; i < llCodeBlocks.getChildCount(); i++) {
-                    View child = llCodeBlocks.getChildAt(i);
-                    if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
-                        String c = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
-                        if (!TextUtils.isEmpty(c)) {
-                            if (codeAll.length() > 0) codeAll.append("\n\n");
-                            codeAll.append(c);
-                        }
-                    }
-                }
-            }
-            final boolean hasCode = codeAll.length() > 0;
-
-            java.util.List<String> options = new java.util.ArrayList<>();
-            options.add("复制这条回复");
-            options.add("复制 BBCode 原文");
-            if (hasCode) options.add("只复制代码");
-            options.add("复制含楼层署名");
-
-            final String[] arr = options.toArray(new String[0]);
-            androidx.appcompat.app.AlertDialog dialog =
-                    new androidx.appcompat.app.AlertDialog.Builder(ctx)
-                            .setTitle("复制")
-                            .setItems(arr, (d, which) -> {
-                                String action = arr[which];
-                                if ("复制 BBCode 原文".equals(action)) {
-                                    String bb = com.solosu.mtforum.util.HtmlToBBCode.convert(
-                                            item == null ? null : item.getContentHtml());
-                                    ThreadDetailActivity.copyPlainText(ctx,
-                                            TextUtils.isEmpty(bb) ? bodyText : bb,
-                                            "已复制 BBCode 原文");
-                                } else if ("只复制代码".equals(action)) {
-                                    ThreadDetailActivity.copyPlainText(ctx, codeAll.toString(),
-                                            "代码已复制");
-                                } else if ("复制含楼层署名".equals(action)) {
-                                    StringBuilder sb = new StringBuilder();
-                                    if (item != null && !TextUtils.isEmpty(item.getAuthor())) {
-                                        sb.append(item.getAuthor());
-                                        if (!TextUtils.isEmpty(item.getFloorLabel())) {
-                                            sb.append(" · ").append(item.getFloorLabel());
-                                        }
-                                        sb.append('\n');
-                                    }
-                                    sb.append(bodyText);
-                                    if (hasCode) sb.append("\n\n").append(codeAll);
-                                    ThreadDetailActivity.copyPlainText(ctx, sb.toString(),
-                                            "已复制（含署名）");
-                                } else {
-                                    StringBuilder sb = new StringBuilder(bodyText);
-                                    if (hasCode) {
-                                        if (sb.length() > 0) sb.append("\n\n");
-                                        sb.append(codeAll);
-                                    }
-                                    ThreadDetailActivity.copyPlainText(ctx, sb.toString(),
-                                            "已复制这条回复");
-                                }
-                            })
-                            .setNegativeButton("取消", null)
-                            .show();
-            com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(dialog, ctx);
-            return true;
-        });
     }
 
     /**
@@ -398,6 +348,33 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
      * 
      * 注意：此方法不会覆盖已有文本，只会在现有 Spannable 上添加链接处理
      */
+    /**
+     * build71: 长按复制回复内容。
+     * 之前 setupClickableLinks 里写死 setLongClickable(false)(为了不拦截链接点击),
+     * 导致别人回复根本没法复制。长按和单击是两个事件,挂长按不影响链接跳转。
+     */
+    private static void attachCopyOnLongClick(final TextView textView) {
+        if (textView == null) return;
+        textView.setLongClickable(true);
+        textView.setOnLongClickListener(v -> {
+            CharSequence cs = textView.getText();
+            String text = cs == null ? "" : cs.toString().trim();
+            if (text.isEmpty()) return false;
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        textView.getContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("回复内容", text));
+                    android.widget.Toast.makeText(textView.getContext(), "已复制回复内容",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
+        });
+    }
+
     private static void setupClickableLinks(TextView textView) {
         if (textView == null) return;
         
@@ -699,7 +676,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         return (int) (dp * context.getResources().getDisplayMetrics().density);
     }
 
-    // ==================== build63: 代码块 / 引用 的折叠与复制 ====================
+    // ==================== 代码块 / 引用 折叠与复制 ====================
 
     /** 把抽出来的代码块渲染成一排可折叠卡片 */
     private static void renderCodeBlocks(LinearLayout container,
@@ -780,4 +757,5 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         }
         return n;
     }
+
 }

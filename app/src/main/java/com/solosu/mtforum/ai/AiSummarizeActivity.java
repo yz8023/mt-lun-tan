@@ -1,6 +1,8 @@
 package com.solosu.mtforum.ai;
 
 import android.graphics.Color;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -72,6 +74,14 @@ public class AiSummarizeActivity extends AppCompatActivity {
         tvTitle.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         bar.addView(tvTitle, tp);
+        // build70: 复制按钮
+        TextView btnCopy = new TextView(this);
+        btnCopy.setText("复制");
+        btnCopy.setTextColor(0xFF1A73E8);
+        btnCopy.setTextSize(14);
+        btnCopy.setPadding(dp(10), dp(6), dp(10), dp(6));
+        btnCopy.setOnClickListener(v -> copySummary());
+        bar.addView(btnCopy);
         root.addView(bar);
 
         // 状态行（显示进行中的步骤）
@@ -89,6 +99,7 @@ public class AiSummarizeActivity extends AppCompatActivity {
         contentBox.setPadding(dp(16), dp(4), dp(16), dp(24));
         tvSummary = new TextView(this);
         tvSummary.setText("");
+        tvSummary.setTextIsSelectable(true);
         tvSummary.setTextColor(0xFF333333);
         tvSummary.setTextSize(15);
         tvSummary.setLineSpacing(dp(2), 1f);
@@ -219,10 +230,37 @@ public class AiSummarizeActivity extends AppCompatActivity {
         appendSummary(result.trim());
     }
 
+    /** build70: 复制总结全文到剪贴板 */
+    private void copySummary() {
+        String txt = tvSummary.getText() == null ? "" : tvSummary.getText().toString();
+        if (TextUtils.isEmpty(txt.trim())) {
+            Toast.makeText(this, "暂无内容可复制", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("AI总结", txt));
+            Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private String safe(String s) { return s == null ? "" : s; }
 
     private String clip(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(0, max) + "…" : s;
+    }
+
+    /** build70: 从 AI 输出中剥离【小节】标题与 Markdown 记号, 得到可直接发帖的纯文本 */
+    public static String extractText(String ai) {
+        if (ai == null) return "";
+        String t = ai.trim();
+        t = t.replaceAll("【[^】]{1,30}】", "");
+        t = t.replaceAll("(?m)^#{1,6}\\s*", "");
+        t = t.replaceAll("\\*\\*?", "");
+        t = t.replaceAll("`{1,3}", "");
+        t = t.replaceAll("(?m)^\\s*[-*·]\\s+", "");
+        t = t.replaceAll("\\n{3,}", "\\n\\n");
+        return t.trim();
     }
 }

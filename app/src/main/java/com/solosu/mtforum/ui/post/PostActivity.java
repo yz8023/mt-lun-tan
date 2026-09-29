@@ -61,6 +61,8 @@ public class PostActivity extends AppCompatActivity {
     private TextInputEditText etContent;
     private CheckBox cbAnonymous;
     private MaterialButton btnPublish;
+    private MaterialButton btnAiOptimize;
+    private MaterialButton btnAiPost;
     private TextView tvError;
 
     // 五大功能按钮 + 图片按钮
@@ -79,6 +81,9 @@ public class PostActivity extends AppCompatActivity {
     private String currentHash;
     private long draftId;
     private boolean postedDone;
+    // build73: 编辑模式(本人帖)上下文
+    private String editTid;
+    private String editPid;
 
     // 附件列表
     private final List<AttachFile> attachFiles = new ArrayList<>();
@@ -117,8 +122,12 @@ public class PostActivity extends AppCompatActivity {
         setupCircleSelector();
         setupToolbarButtons();
         setupPublishButton();
+        // build73: 编辑模式优先于草稿恢复
         loadFormhashAndUserInfo();
-        restoreDraft();
+        setupEditMode();
+        if (!isEditMode()) {
+            restoreDraft();
+        }
     }
 
     private void initViews() {
@@ -134,6 +143,8 @@ public class PostActivity extends AppCompatActivity {
         etContent = findViewById(R.id.et_content);
         cbAnonymous = findViewById(R.id.cb_anonymous);
         btnPublish = findViewById(R.id.btn_publish);
+        btnAiOptimize = findViewById(R.id.btn_ai_optimize);
+        btnAiPost = findViewById(R.id.btn_ai_post);
         tvError = findViewById(R.id.tv_error);
 
         // 五大功能按钮
@@ -995,9 +1006,27 @@ private void uploadImages(List<Uri> uris) {
 
     private void setupPublishButton() {
         btnPublish.setOnClickListener(v -> attemptPost());
+        if (btnAiOptimize != null) btnAiOptimize.setOnClickListener(v -> aiOptimizeContent());
+        if (btnAiPost != null) btnAiPost.setOnClickListener(v -> aiAutoPost());
     }
 
     private void attemptPost() {
+        // build73: 编辑模式走 action=edit,与发新帖完全分开
+        if (isEditMode()) {
+            tvError.setVisibility(View.GONE);
+            btnPublish.setEnabled(false);
+            btnPublish.setText("保存中...");
+            new Thread(() -> {
+                try {
+                    attemptEdit();
+                } catch (Exception e) {
+                    final String msg = android.text.TextUtils.isEmpty(e.getMessage())
+                            ? getString(R.string.network_error) : e.getMessage();
+                    runOnUiThread(() -> { showError(msg); resetPublishButton(); });
+                }
+            }).start();
+            return;
+        }
         tvError.setVisibility(View.GONE);
 
         String title = etTitle.getText() != null ? etTitle.getText().toString().trim() : "";
@@ -1096,6 +1125,98 @@ private void uploadImages(List<Uri> uris) {
         }).start();
     }
 
+    // ==================== build73: 编辑帖子模式 ====================
+
+    /** 编辑模式:详情页传入 tid/pid/fid/title/message */
+    private void setupEditMode() {
+        android.content.Intent it = getIntent();
+        editTid = it.getStringExtra("edit_tid");
+        editPid = it.getStringExtra("edit_pid");
+        if (android.text.TextUtils.isEmpty(editTid) || android.text.TextUtils.isEmpty(editPid)) {
+            return; // 普通发帖模式
+        }
+        String fname = it.getStringExtra("edit_forum_name");
+        if (!android.text.TextUtils.isEmpty(fname)) {
+            selectedForumName = fname;
+            if (tvSelectedForum != null) tvSelectedForum.setText(fname);
+        }
+        String fid = it.getStringExtra("edit_fid");
+        if (!android.text.TextUtils.isEmpty(fid)) {
+            selectedFid = fid;
+        }
+        if (etTitle != null) {
+            etTitle.setText(it.getStringExtra("edit_title"));
+            etTitle.setEnabled(false); // 编辑不改标题,避免触发审核
+        }
+        if (etContent != null) {
+            etContent.setText(it.getStringExtra("edit_message"));
+        }
+        if (btnPublish != null) btnPublish.setText("保存修改");
+        if (tvTitleCount != null) tvTitleCount.setVisibility(View.GONE);
+        // 编辑模式:不给改版块,AI 按钮也用不上
+        if (llCircleSelector != null) llCircleSelector.setVisibility(View.GONE);
+        if (btnAiOptimize != null) btnAiOptimize.setVisibility(View.GONE);
+        if (btnAiPost != null) btnAiPost.setVisibility(View.GONE);
+    }
+
+    private boolean isEditMode() {
+        return !android.text.TextUtils.isEmpty(editTid) && !android.text.TextUtils.isEmpty(editPid);
+    }
+
+    /** 编辑模式提交:forum.php?mod=post&action=edit */
+    private void attemptEdit() throws Exception {
+        String message = etContent.getText() != null ? etContent.getText().toString().trim() : "";
+        if (message.isEmpty()) {
+            runOnUiThread(() -> { showError("请输入正文内容"); resetPublishButton(); });
+            return;
+        }
+        String fh = null;
+        try {
+            String form = HttpClient.getInstance().get(HttpClient.BASE_URL
+                    + "forum.php?mod=post&action=edit&tid=" + editTid + "&pid=" + editPid + "&mobile=2");
+            fh = ForumParser.parseFormhash(form);
+        } catch (Exception ignored) {
+        }
+        if (android.text.TextUtils.isEmpty(fh)) fh = currentFormhash;
+        if (android.text.TextUtils.isEmpty(fh)) {
+            runOnUiThread(() -> { showError("获取安全验证失败，请重试"); resetPublishButton(); });
+            return;
+        }
+
+        Map<String, String> params = new HashMap<>();
+        params.put("formhash", fh);
+        params.put("subject", etTitle.getText() == null ? "" : etTitle.getText().toString().trim());
+        params.put("message", message);
+        params.put("editsubmit", "yes");
+        // 附件同样要带上 attachnew,否则编辑会丢附件
+        synchronized (attachFiles) {
+            for (AttachFile af : attachFiles) {
+                if (af != null && af.aid != null && af.aid.matches("\\d+")) {
+                    params.put("attachnew[" + af.aid + "][description]", "");
+                }
+            }
+        }
+
+        String url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&extra=&editsubmit=yes&mobile=2"
+                + "&handlekey=editform&tid=" + editTid + "&pid=" + editPid + "&page=1";
+        String response = HttpClient.getInstance().post(url, params);
+
+        boolean ok = response != null && !ForumParser.isLoginPage(response)
+                && (response.contains("viewthread") || response.contains("thread-" + editTid)
+                    || response.contains("成功") || response.contains("回复"));
+        if (ok) {
+            runOnUiThread(() -> {
+                postedDone = true;
+                Toast.makeText(PostActivity.this, "已保存修改", Toast.LENGTH_SHORT).show();
+                setResult(RESULT_OK);
+                finish();
+            });
+        } else {
+            final String err = extractErrorFromResponse(response);
+            runOnUiThread(() -> { showError(err); resetPublishButton(); });
+        }
+    }
+
     private String extractTid(String html) {
         try {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("tid=(\\d+)").matcher(html);
@@ -1130,5 +1251,120 @@ private void uploadImages(List<Uri> uris) {
     private void resetPublishButton() {
         btnPublish.setEnabled(true);
         btnPublish.setText(R.string.post_publish);
+    }
+
+
+    // ==================== build70: AI 发帖 ====================
+
+    /** 帖子内容最大注入长度(字符) */
+    private static final int AI_POST_CONTENT_MAX = 6000;
+
+    /** 「优化」: 用 AI 把当前标题+正文改写得更规范易读 */
+    private void aiOptimizeContent() {
+        if (!com.solosu.mtforum.ai.AiConfigManager.isConfigured(this)) {
+            showError("请先在 AI 配置中填写接口地址与 API Key");
+            return;
+        }
+        final String title = etTitle.getText() == null ? "" : etTitle.getText().toString().trim();
+        final String content = etContent.getText() == null ? "" : etContent.getText().toString().trim();
+        if (title.isEmpty() && content.isEmpty()) {
+            showError("请先输入标题或正文");
+            return;
+        }
+        setAiButtonsBusy(true, "优化中…");
+        new Thread(() -> {
+            String res = null;
+            try {
+                String sys = "你是论坛发帖优化助手。基于用户给出的标题与正文，在不改变原意、不编造事实的前提下，优化语句使其更通顺、层次更清晰；"
+                        + "可适当补充排版(分段)。输出格式严格如下三行标签：\n"
+                        + "【标题】优化后的标题(仅一行)\n【正文】优化后的正文\n"
+                        + "不要输出除标签外的任何解释。";
+                StringBuilder u = new StringBuilder();
+                u.append("原标题：").append(title).append("\n\n原正文：\n").append(content);
+                res = com.solosu.mtforum.ai.AiClient.simpleChat(this, sys, u.toString());
+            } catch (Exception e) {
+                res = null;
+            }
+            final String out = res;
+            runOnUiThread(() -> {
+                setAiButtonsBusy(false, null);
+                if (TextUtils.isEmpty(out)) { showError("AI 优化失败，请检查 AI 配置或网络"); return; }
+                String nt = extractLabeled(out, "标题");
+                String nb = extractLabeled(out, "正文");
+                if (TextUtils.isEmpty(nt) && TextUtils.isEmpty(nb)) {
+                    // 模型没按标签输出: 整体作为正文
+                    nb = com.solosu.mtforum.ai.AiSummarizeActivity.extractText(out);
+                }
+                if (!TextUtils.isEmpty(nt)) etTitle.setText(nt);
+                if (!TextUtils.isEmpty(nb)) etContent.setText(nb);
+                Toast.makeText(this, "已优化", Toast.LENGTH_SHORT).show();
+            });
+        }, "ai-optimize").start();
+    }
+
+    /** 「AI发帖」: 2. AI 生成标题+正文 → 3. 自动提交 */
+    private void aiAutoPost() {
+        if (selectedFid == null) { showError("请先选择版块"); return; }
+        if (!com.solosu.mtforum.ai.AiConfigManager.isConfigured(this)) {
+            showError("请先在 AI 配置中填写接口地址与 API Key");
+            return;
+        }
+        final String title = etTitle.getText() == null ? "" : etTitle.getText().toString().trim();
+        final String content = etContent.getText() == null ? "" : etContent.getText().toString().trim();
+        if (title.isEmpty() && content.isEmpty()) {
+            showError("请先输入主题或要点，AI 将据此生成帖子");
+            return;
+        }
+        setAiButtonsBusy(true, "AI 生成中…");
+        new Thread(() -> {
+            String res = null;
+            try {
+                String sys = "你是 MT 论坛(技术向)的发帖助手。根据用户给出的主题或要点，生成一篇可直接发布的帖子。要求："
+                        + "1. 标题 <=30 字，概括主题，不要加【】等括号标签；"
+                        + "2. 正文用中文、分段、条理清晰，技术内容可用编号步骤；"
+                        + "3. 允许结合你自己的知识补充，但不得编造与主题无关的信息；"
+                        + "4. 不要使用 Markdown 记号(如 # 、 * 、 ` )；"
+                        + (TextUtils.isEmpty(selectedForumName) ? "" : ("当前版块：" + selectedForumName + "。"))
+                        + "输出格式严格：\n【标题】一行标题\n【正文】帖子正文\n不要输出除标签外的任何解释。";
+                StringBuilder u = new StringBuilder();
+                if (!title.isEmpty()) u.append("主题/标题：").append(title).append("\n");
+                if (!content.isEmpty()) u.append("要点/正文：\n").append(content);
+                res = com.solosu.mtforum.ai.AiClient.simpleChat(this, sys, u.toString());
+            } catch (Exception e) {
+                res = null;
+            }
+            final String out = res;
+            runOnUiThread(() -> {
+                setAiButtonsBusy(false, null);
+                if (TextUtils.isEmpty(out)) { showError("AI 生成失败，请检查 AI 配置或网络"); return; }
+                String nt = extractLabeled(out, "标题");
+                String nb = extractLabeled(out, "正文");
+                if (TextUtils.isEmpty(nb)) nb = com.solosu.mtforum.ai.AiSummarizeActivity.extractText(out);
+                if (TextUtils.isEmpty(nt)) nt = "分享";
+                etTitle.setText(nt);
+                etContent.setText(nb);
+                Toast.makeText(this, "已生成，正在发布…", Toast.LENGTH_SHORT).show();
+                // 立即自动提交
+                if (!btnPublish.isEnabled()) return;
+                attemptPost();
+            });
+        }, "ai-autopost").start();
+    }
+
+    private void setAiButtonsBusy(boolean busy, String label) {
+        if (btnAiOptimize != null) btnAiOptimize.setEnabled(!busy);
+        if (btnAiPost != null) btnAiPost.setEnabled(!busy);
+        if (btnPublish != null) btnPublish.setEnabled(!busy);
+        if (btnAiPost != null) btnAiPost.setText(busy && label != null ? label : "AI发帖");
+    }
+
+    /** 从形如「【标题】xxx【正文】yyy」的输出里取某标签后的内容 */
+    private String extractLabeled(String ai, String label) {
+        if (ai == null) return "";
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("【" + java.util.regex.Pattern.quote(label) + "】\\s*([\\s\\S]*?)(?=【|$)")
+                .matcher(ai);
+        if (m.find()) return m.group(1).trim();
+        return "";
     }
 }

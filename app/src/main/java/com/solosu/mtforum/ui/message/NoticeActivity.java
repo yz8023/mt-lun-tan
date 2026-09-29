@@ -33,6 +33,8 @@ public class NoticeActivity extends AppCompatActivity {
     private HttpClient httpClient;
     private Handler mainHandler;
     private ExecutorService executor;
+    private static final long BADGE_RESUME_THROTTLE_MS = 60000; // build68: 六类角标 onResume 拉取节流
+    private long lastBadgeLoadAt = 0L; // build68: 上次六类角标拉取时间戳(节流用)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,7 +55,11 @@ public class NoticeActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 从详情页返回或从后台回到消息页时，重新同步全部六类服务器数据。
+        // build68: 加 60 秒节流——频繁返回不再重复全量拉 6 类(防 ESA 403)。
+        long now = System.currentTimeMillis();
+        if (now - lastBadgeLoadAt < BADGE_RESUME_THROTTLE_MS) {
+            return;
+        }
         if (mainHandler != null) {
             mainHandler.removeCallbacksAndMessages(null);
         }
@@ -113,6 +119,7 @@ public class NoticeActivity extends AppCompatActivity {
     }
 
     private void loadAllBadgeCounts() {
+        lastBadgeLoadAt = System.currentTimeMillis(); // build68: 记录本次拉取时刻
         loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=pm&mobile=2", badgeMessages, "pm");
         loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=follow&do=follower&uid=" + getUid() + "&mobile=2", badgeFans, "follower");
         loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=mypost", badgePosts, "mypost");

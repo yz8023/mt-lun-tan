@@ -4,40 +4,45 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
- * 全局请求节流器（build65 新增）。
+ * 全局请求节流器。
  *
- * <p>bbs.binmt.cc 前面挂着阿里云 ESA，短时间内请求过密会被 IP 级 403 拦下来，
- * 表现就是「浏览着浏览着就被禁止访问」。
+ * <p><b>为什么需要</b>：bbs.binmt.cc 前面挂着阿里云 ESA，短时间请求过密会被 IP 级 403。
+ * 本工程历史上的三大流量源：角标轮询 5 秒 × 6 并发（72 次/分钟）、
+ * 首页列表每页预取 20 个收藏数、社区页每次进入抓 12 个版块头部。
+ * 那三处已经分别修掉，这里是最后一道兜底。
  *
- * <p>本工程里曾经的实测数据：主界面角标轮询间隔 5 秒、每轮并发 6 个请求，
- * <b>光挂在首页不动就是 72 次/分钟</b>，再叠加自动回复扫帖、搜索翻页，
- * 分分钟撞上风控。
+ * <p><b>build66 重写</b>：上一版是「每个请求固定等 220ms」的硬间隔，
+ * 副作用很严重 —— 打开一个帖子要发好几个请求，于是每次进帖都平白多等一大截；
+ * 再加上收到 403 后把 {@code lastRequestAt} 推到 20 秒之后，
+ * 导致之后<b>每一个</b>请求都要各等满 8 秒超时，表现就是「进帖加载特别慢」。
  *
- * <p>这里做两层限制，挂在 OkHttp 拦截器上，所有走 {@link HttpClient} 的请求都过这一关：
- * <ol>
- *   <li><b>最小间隔</b>：相邻两个请求至少隔 {@link #MIN_GAP_MS}，削掉并发突刺</li>
- *   <li><b>滑动窗口</b>：任意 60 秒内最多 {@link #MAX_PER_WINDOW} 个请求，
- *       超了就阻塞等待最早那个请求滑出窗口</li>
- * </ol>
- *
- * <p>注意这是<b>阻塞式</b>的，只能在工作线程上调用 —— 本工程所有网络请求本来就在子线程。
+ * <p>现在改成<b>令牌桶</b>：
+ * <ul>
+ *   <li>桶里有令牌就立刻放行 —— 用户点开一个页面连发几个请求完全不受影响</li>
+ *   <li>令牌按固定速率回填，只压制<b>持续</b>高频（轮询、批量扫帖）</li>
+ *   <li>另有 60 秒滑动窗口硬上限兜底</li>
+ *   <li>收到 403 只清空令牌桶（相当于一次性透支），不再把时间轴整体后推</li>
+ * </ul>
  */
 public final class RequestThrottle {
 
-    /** 相邻请求最小间隔 */
-    private static final long MIN_GAP_MS = 220L;
+    /** 桶容量：允许的突发请求数。一个页面的首屏请求应当能一次性走完 */
+    private static final int BURST_CAPACITY = 12;
+    /** 令牌回填间隔：约合 46 次/分钟的持续速率 */
+    private static final long REFILL_INTERVAL_MS = 1_300L;
     /** 滑动窗口长度 */
     private static final long WINDOW_MS = 60_000L;
-    /** 窗口内最大请求数 */
-    private static final int MAX_PER_WINDOW = 45;
-    /** 单次最长等待，避免极端情况把界面卡死 */
-    private static final long MAX_WAIT_MS = 8_000L;
+    /** 窗口内硬上限 */
+    private static final int MAX_PER_WINDOW = 50;
+    /** 单个请求最多被推迟多久，超过就放行，宁可冒险也不让界面卡死 */
+    private static final long MAX_WAIT_MS = 2_500L;
 
     private static final Deque<Long> WINDOW = new ArrayDeque<>();
     private static final Object LOCK = new Object();
-    private static long lastRequestAt = 0L;
 
-    /** 统计：被节流推迟的总次数与总时长，用于运行日志排查 */
+    private static double tokens = BURST_CAPACITY;
+    private static long lastRefillAt = System.currentTimeMillis();
+
     private static long throttledCount = 0L;
     private static long throttledTotalMs = 0L;
 
@@ -45,9 +50,9 @@ public final class RequestThrottle {
     }
 
     /**
-     * 取一个发送许可，必要时阻塞。
+     * 取一个发送许可，必要时阻塞（最多 {@link #MAX_WAIT_MS}）。
      *
-     * @return 实际等待的毫秒数（0 表示没被限）
+     * @return 实际等待的毫秒数，0 表示没被限
      */
     public static long acquire() {
         long waited = 0L;
@@ -55,25 +60,14 @@ public final class RequestThrottle {
             long sleep;
             synchronized (LOCK) {
                 long now = System.currentTimeMillis();
+                refill(now);
+                trimWindow(now);
 
-                // 清掉滑出窗口的记录
-                while (!WINDOW.isEmpty() && now - WINDOW.peekFirst() > WINDOW_MS) {
-                    WINDOW.pollFirst();
-                }
+                boolean hasToken = tokens >= 1d;
+                boolean windowOk = WINDOW.size() < MAX_PER_WINDOW;
 
-                long gapWait = Math.max(0L, MIN_GAP_MS - (now - lastRequestAt));
-                long windowWait = 0L;
-                if (WINDOW.size() >= MAX_PER_WINDOW) {
-                    Long oldest = WINDOW.peekFirst();
-                    if (oldest != null) {
-                        windowWait = Math.max(0L, WINDOW_MS - (now - oldest) + 10L);
-                    }
-                }
-                sleep = Math.max(gapWait, windowWait);
-
-                if (sleep <= 0L || waited >= MAX_WAIT_MS) {
-                    // 放行并记账
-                    lastRequestAt = now;
+                if ((hasToken && windowOk) || waited >= MAX_WAIT_MS) {
+                    tokens = Math.max(0d, tokens - 1d);
                     WINDOW.addLast(now);
                     if (waited > 0) {
                         throttledCount++;
@@ -81,6 +75,15 @@ public final class RequestThrottle {
                     }
                     return waited;
                 }
+
+                long tokenWait = hasToken ? 0L
+                        : (long) Math.ceil((1d - tokens) * REFILL_INTERVAL_MS);
+                long windowWait = 0L;
+                if (!windowOk) {
+                    Long oldest = WINDOW.peekFirst();
+                    if (oldest != null) windowWait = WINDOW_MS - (now - oldest) + 10L;
+                }
+                sleep = Math.max(1L, Math.max(tokenWait, windowWait));
                 sleep = Math.min(sleep, MAX_WAIT_MS - waited);
             }
             try {
@@ -93,30 +96,47 @@ public final class RequestThrottle {
         }
     }
 
+    private static void refill(long now) {
+        long elapsed = now - lastRefillAt;
+        if (elapsed <= 0) return;
+        tokens = Math.min(BURST_CAPACITY, tokens + (double) elapsed / REFILL_INTERVAL_MS);
+        lastRefillAt = now;
+    }
+
+    private static void trimWindow(long now) {
+        while (!WINDOW.isEmpty() && now - WINDOW.peekFirst() > WINDOW_MS) {
+            WINDOW.pollFirst();
+        }
+    }
+
     /** 当前 60 秒窗口内已发出的请求数 */
     public static int currentWindowCount() {
         synchronized (LOCK) {
-            long now = System.currentTimeMillis();
-            while (!WINDOW.isEmpty() && now - WINDOW.peekFirst() > WINDOW_MS) {
-                WINDOW.pollFirst();
-            }
+            trimWindow(System.currentTimeMillis());
             return WINDOW.size();
         }
     }
 
-    /** 给运行日志用的一行摘要 */
+    /** 运行日志用的一行摘要 */
     public static String stats() {
         synchronized (LOCK) {
-            return "窗口内 " + currentWindowCount() + "/" + MAX_PER_WINDOW
-                    + " 次，累计节流 " + throttledCount + " 次 / " + throttledTotalMs + "ms";
+            trimWindow(System.currentTimeMillis());
+            return "窗口 " + WINDOW.size() + "/" + MAX_PER_WINDOW
+                    + "，令牌 " + String.format(java.util.Locale.US, "%.1f", tokens)
+                    + "/" + BURST_CAPACITY
+                    + "，累计节流 " + throttledCount + " 次 / " + throttledTotalMs + "ms";
         }
     }
 
-    /** 被风控拦下后主动退避：把窗口填满，强制冷却一段时间 */
-    public static void backoff(long coolDownMs) {
+    /**
+     * 被风控拦下后的退避：只把令牌桶清空（相当于透支一轮），
+     * 让后续请求按回填速率慢慢来，<b>不</b>把时间轴整体后推 ——
+     * 上一版那样做会让之后每个请求都各等满超时。
+     */
+    public static void backoff() {
         synchronized (LOCK) {
-            long now = System.currentTimeMillis();
-            lastRequestAt = now + Math.max(0L, coolDownMs);
+            tokens = 0d;
+            lastRefillAt = System.currentTimeMillis();
         }
     }
 }

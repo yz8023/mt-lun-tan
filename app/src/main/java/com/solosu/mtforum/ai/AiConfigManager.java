@@ -219,6 +219,17 @@ public final class AiConfigManager {
         sp(c).edit().putBoolean(KEY_AUTO_REPLY_DRY_RUN, v).apply();
     }
 
+    private static final String KEY_AUTO_HIDE_NAV = "auto_hide_nav";
+
+    /** build72: 底部导航栏滚动自动隐藏(默认开启,与历史行为一致) */
+    public static boolean isAutoHideNav(Context c) {
+        return sp(c).getBoolean(KEY_AUTO_HIDE_NAV, true);
+    }
+
+    public static void setAutoHideNav(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_AUTO_HIDE_NAV, v).apply();
+    }
+
     private static final String KEY_MIGRATE_DRY_RUN_OFF = "migrate_dry_run_off_v12";
 
     /**

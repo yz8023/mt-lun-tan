@@ -1,6 +1,7 @@
 package com.solosu.mtforum.util;
 
 import android.content.Context;
+import android.os.Environment;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -27,6 +28,8 @@ public class CrashHandler implements Thread.UncaughtExceptionHandler {
 
     private static CrashHandler sInstance;
     private static String sLogDirPath;
+    /** build79: 崩溃日志镜像目录(Android/media/<pkg>/), 免权限可被外部读取 */
+    private static String sMediaDirPath;
 
     private CrashHandler() {}
 
@@ -47,6 +50,14 @@ public class CrashHandler implements Thread.UncaughtExceptionHandler {
         sLogDirPath = logDir.getAbsolutePath();
         if (!logDir.exists()) {
             logDir.mkdirs();
+        }
+        // build79: 额外镜像到 Android/media/<pkg>/, adb/其它应用可直读
+        try {
+            File media = new File(Environment.getExternalStorageDirectory(),
+                    "Android/media/" + context.getPackageName());
+            if (!media.exists()) media.mkdirs();
+            if (media.exists()) sMediaDirPath = media.getAbsolutePath();
+        } catch (Throwable ignore) {
         }
         Thread.setDefaultUncaughtExceptionHandler(this);
         Log.d(TAG, "CrashHandler initialized, log dir: " + sLogDirPath);
@@ -134,6 +145,16 @@ public class CrashHandler implements Thread.UncaughtExceptionHandler {
             writer.write(content);
             writer.close();
             Log.d(TAG, type + "日志已保存: " + file.getAbsolutePath());
+            // build79: 镜像一份到 Android/media/<pkg>/<type>_latest.log
+            if (sMediaDirPath != null) {
+                try {
+                    File mirror = new File(sMediaDirPath, type + "_latest.log");
+                    FileWriter mw = new FileWriter(mirror);
+                    mw.write(content);
+                    mw.close();
+                } catch (Throwable ignore) {
+                }
+            }
         } catch (Exception e) {
             Log.e(TAG, "保存" + type + "日志失败: " + e.getMessage());
         }

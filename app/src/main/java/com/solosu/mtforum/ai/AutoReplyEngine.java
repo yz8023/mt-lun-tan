@@ -64,21 +64,27 @@ public final class AutoReplyEngine {
     /** 上一次成功/尝试发帖的时间戳，用于全局节流 */
     private static final java.util.concurrent.atomic.AtomicLong LAST_POST_AT =
             new java.util.concurrent.atomic.AtomicLong(0L);
+    /** build61: 发帖节流串行锁——连开多帖时保证严格 16 秒排队,不并发发帖 */
+    private static final Object POST_THROTTLE_LOCK = new Object();
 
     /**
      * 全局节流：确保任意两次发帖间隔不小于 MIN_POST_INTERVAL_MS。
      * 论坛会拦「两次发表间隔少于 15 秒」，这里主动等待，避免白跑一次被拒。
      */
     private static void waitPostThrottle() {
-        long last = LAST_POST_AT.get();
-        if (last <= 0) return;
-        long wait = MIN_POST_INTERVAL_MS - (System.currentTimeMillis() - last);
-        if (wait > 0) {
-            AiLog.i("auto-unlock", "节流：距上次发帖不足 " + (MIN_POST_INTERVAL_MS / 1000)
-                    + " 秒，等待 " + (wait / 1000 + 1) + " 秒");
-            try { Thread.sleep(wait + 500); } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
+        synchronized (POST_THROTTLE_LOCK) {
+            long last = LAST_POST_AT.get();
+            long wait = (last <= 0) ? 0
+                    : MIN_POST_INTERVAL_MS - (System.currentTimeMillis() - last);
+            if (wait > 0) {
+                AiLog.i("auto-unlock", "节流：距上次发帖不足 " + (MIN_POST_INTERVAL_MS / 1000)
+                        + " 秒，等待 " + (wait / 1000 + 1) + " 秒");
+                try { Thread.sleep(wait + 500); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
             }
+            // build61: 出锁前即占用时间槽——并发线程依次排队,第二个会算到 wait>0
+            LAST_POST_AT.set(System.currentTimeMillis());
         }
     }
 
@@ -180,10 +186,10 @@ public final class AutoReplyEngine {
                     + (AiConfigManager.isDryRun(app) ? "（演练模式）" : ""));
             try {
                 if (unlockMode) {
-                    int[] r = runUnlockMode(app, detail);
-                    replied = r[0];
-                    skipped = r[1];
-                    finalize(app, callback, replied, skipped, detail.toString());
+                    // build61: 解锁模式改为「点开帖才触发」，后台不再自动扫全站。
+                    // 用户打开帖子时由 ThreadDetailActivity 调 tryUnlockOnOpen()。
+                    AiLog.i("auto-reply", "解锁模式已改为进帖触发，后台跳过本轮扫描");
+                    finalize(app, callback, 0, 0, "解锁模式已改为进帖触发(后台不再扫全站)");
                     return;
                 }
 
@@ -265,99 +271,53 @@ public final class AutoReplyEngine {
     // ==================== 解锁模式 ====================
 
     /**
-     * 解锁模式：扫描最新帖子，找出含「回复可见」隐藏内容的帖子，
-     * 每帖发一条回复解锁。
+     * build61: 进帖触发式解锁。
+     * 用户打开帖子后由 ThreadDetailActivity 在已加载的页面上判断：
+     * 有隐藏内容 && 未解锁 -> 自动回帖解锁 -> 由调用方刷新页面。
+     * 全程复用已有的 isLockedHidden / buildUnlockText / sendUnlockReply。
      *
-     * @return int[]{replied, skipped}
+     * @return true=本次确实回帖(或演练)且成功; false=不需要解锁/失败
      */
-    private static int[] runUnlockMode(Context context, StringBuilder detail) {
-        int replied = 0, skipped = 0;
-        try {
-            HttpClient client = HttpClient.getInstance();
-            if (!client.isLoggedIn()) client.syncFromCookieManager();
-            if (!client.isLoggedIn()) {
-                detail.append("未登录");
-                return new int[]{0, 0};
-            }
-
-            boolean dryRun = AiConfigManager.isDryRun(context);
-            int maxPerRun = AiConfigManager.getMaxReplyPerRun(context);
-
-            List<String> tids = collectCandidateTids(client, detail);
-            if (tids.isEmpty()) {
-                if (detail.length() == 0) detail.append("没有发现可扫描的帖子");
-                return new int[]{0, 0};
-            }
-
-            int scanned = 0;
-            for (String tid : tids) {
-                if (replied >= maxPerRun) {
-                    detail.append("；达到单轮上限 ").append(maxPerRun).append(" 条");
-                    break;
-                }
-                if (isHandledTid(tid)) continue;
-                scanned++;
-                try {
-                    String url = ForumParser.getThreadDetailUrl(tid)
-                            + "&_scan=" + System.currentTimeMillis();
-                    String html = client.get(url);
-                    if (html == null || html.isEmpty() || ForumParser.isLoginPage(html)) continue;
-
-                    PostDetail d = ForumParser.parseThreadDetail(html);
-                    if (d == null || !d.isHasHiddenContent()) {
-                        markHandledTid(tid);   // 没有隐藏内容，记下别再扫
-                        continue;
-                    }
-
-                    String hidden = d.getHiddenContentHtml();
-                    boolean locked = isLockedHidden(hidden);
-                    if (!locked) {
-                        markHandledTid(tid);   // 已解锁
-                        detail.append("；已解锁 ").append(tid);
-                        continue;
-                    }
-
-                    // 解锁回复本地生成，不依赖 AI
-                    String text = buildUnlockText(context, d);
-                    if (TextUtils.isEmpty(text)
-                            || text.length() < AiConfigManager.getMinReplyLength(context)) {
-                        skipped++;
-                        markHandledTid(tid);
-                        detail.append("；跳过 ").append(tid).append("(回复为空)");
-                        continue;
-                    }
-
-                    if (dryRun) {
-                        replied++;
-                        markHandledTid(tid);
-                        detail.append("；[演练] ").append(tid).append(" → ").append(text);
-                        continue;
-                    }
-
-                    boolean ok = sendUnlockReply(client, d, html, tid, text);
-                    if (ok) {
-                        replied++;
-                        markHandledTid(tid);
-                        detail.append("；已解锁 ").append(tid);
-                        AiLog.i("auto-reply", "解锁成功 tid=" + tid + " 回复=" + text);
-                    } else {
-                        detail.append("；解锁失败 ").append(tid);
-                    }
-
-                    try { Thread.sleep(3000 + (long) (Math.random() * 4000)); }
-                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
-                } catch (Exception e) {
-                    Log.w(TAG, "unlock scan " + tid + " failed", e);
-                }
-            }
-
-            if (detail.length() > 0) detail.append("；");
-            detail.append("扫描 ").append(scanned).append(" 帖，解锁 ").append(replied).append(" 条");
-        } catch (Exception e) {
-            Log.w(TAG, "runUnlockMode failed", e);
-            detail.append("异常: ").append(e.getMessage());
+    public static boolean tryUnlockOnOpen(Context context, PostDetail detail, String pageHtml) {
+        if (context == null || detail == null) return false;
+        Context app = context.getApplicationContext();
+        String tid = detail.getTid();
+        if (TextUtils.isEmpty(tid)) return false;
+        if (TextUtils.isEmpty(pageHtml)) return false;
+        HttpClient client = HttpClient.getInstance();
+        if (!client.isLoggedIn()) client.syncFromCookieManager();
+        if (!client.isLoggedIn()) {
+            AiLog.e("auto-unlock", "进帖解锁：未登录，跳过 tid=" + tid);
+            return false;
         }
-        return new int[]{replied, skipped};
+        if (!detail.isHasHiddenContent()) return false;   // 没有隐藏块，啥也不干
+        String hidden = detail.getHiddenContentHtml();
+        if (TextUtils.isEmpty(hidden) || !isLockedHidden(hidden)) return false; // 已解锁
+        // build61: 原子认领——连开多帖/重复进入同一帖只回一次
+        if (!claimTid(tid)) return false;
+        String text = buildUnlockText(app, detail);
+        if (TextUtils.isEmpty(text)) { releaseTid(tid); return false; }
+        boolean dryRun = AiConfigManager.isDryRun(app);
+        if (dryRun) {
+            AiLog.i("auto-unlock", "进帖解锁(演练) tid=" + tid + " 回复=" + text);
+            return true;
+        }
+        boolean ok = sendUnlockReply(client, detail, pageHtml, tid, text);
+        AiLog.i("auto-unlock", "进帖解锁" + (ok ? "成功" : "失败") + " tid=" + tid
+                + " 回复=" + text);
+        return ok;
+    }
+    /** build61: 原子认领 tid(已认领返回 false,防并发重复回帖) */
+    private static boolean claimTid(String tid) {
+        synchronized (HANDLED_TIDS) {
+            if (HANDLED_TIDS.contains(tid)) return false;
+            HANDLED_TIDS.add(tid);
+            return true;
+        }
+    }
+    /** build61: 释放认领(回帖文本为空时允许下次重试) */
+    private static void releaseTid(String tid) {
+        synchronized (HANDLED_TIDS) { HANDLED_TIDS.remove(tid); }
     }
 
     /** 隐藏内容是否仍未解锁（含「请回复」门控文案） */
@@ -368,29 +328,6 @@ public final class AutoReplyEngine {
         // 否则一条已解锁的帖子会被反复判为未解锁、反复回复。
         return t.contains("如果您要查看") || t.contains("隐藏内容请")
                 || t.contains("回复可见") || t.contains("需要回复");
-    }
-
-    /**
-     * 收集候选 tid：先拿论坛最新帖子列表（新版帖子优先），
-     * 再补充最近回复榜，尽量多覆盖有隐藏内容的帖子。
-     */
-    private static List<String> collectCandidateTids(HttpClient client, StringBuilder detail) {
-        List<String> tids = new ArrayList<>();
-        try {
-            String html = client.get(ForumParser.getGuideUrl("newthread", 1));
-            if (html == null || html.isEmpty() || ForumParser.isLoginPage(html)) {
-                html = client.get(ForumParser.getHomeUrl(1));
-            }
-            if (html == null || html.isEmpty()) return tids;
-            List<com.solosu.mtforum.model.Thread> list = ForumParser.parseThreadList(html);
-            if (list.isEmpty()) list = ForumParser.parseForumThreadList(html);
-            for (com.solosu.mtforum.model.Thread t : list) {
-                if (!TextUtils.isEmpty(t.getTid()) && !tids.contains(t.getTid())) tids.add(t.getTid());
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "collectCandidateTids failed", e);
-        }
-        return tids;
     }
 
     /**
@@ -531,11 +468,11 @@ public final class AutoReplyEngine {
         return "";
     }
 
-    private static boolean isHandledTid(String tid) {
+    public static boolean isHandledTid(String tid) {
         synchronized (HANDLED_TIDS) { return HANDLED_TIDS.contains(tid); }
     }
 
-    private static void markHandledTid(String tid) {
+    public static void markHandledTid(String tid) {
         if (TextUtils.isEmpty(tid)) return;
         synchronized (HANDLED_TIDS) {
             HANDLED_TIDS.add(tid);

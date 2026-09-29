@@ -64,8 +64,10 @@ public class HttpClient {
                     long waited = RequestThrottle.acquire();
                     okhttp3.Response resp = chain.proceed(chain.request());
                     if (resp.code() == 403) {
-                        // 已经被拦了，主动冷却 20 秒，别继续火上浇油
-                        RequestThrottle.backoff(20_000L);
+                        // 被拦了就清空令牌桶透支一轮，让后续请求按回填速率慢慢来。
+                        // 注意不要把时间轴整体后推——上一版那么做会让之后每个请求都各等满超时，
+                        // 表现就是"进帖加载特别慢"。
+                        RequestThrottle.backoff();
                     }
                     return resp;
                 })

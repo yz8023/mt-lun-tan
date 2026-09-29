@@ -231,10 +231,7 @@ public class ForumDetailActivity extends AppCompatActivity {
                     }
                     allThreads.addAll(resultThreads);
                     binding.tvEmpty.setVisibility(View.GONE);
-                    // 预取收藏数:列表加载完成后异步补齐第四格
-                    com.solosu.mtforum.session.FavoritePrefetcher.prefetch(
-                            ForumDetailActivity.this, resultThreads,
-                            (tid, count) -> threadAdapter.notifyItemChangedByTid(tid));
+                    // build63: 取消列表页收藏数预取(每页20发->0),改为进详情页时回填缓存
                 });
             } catch (Exception e) {
                 e.printStackTrace();

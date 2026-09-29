@@ -237,28 +237,6 @@
                     android:textSize="14sp" />
             </LinearLayout>
 
-            <!-- 收藏(第三格):列表页DOM无此数据,显示"—",进详情后缓存回填 -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="horizontal">
-                <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
-                    android:src="@drawable/ic_star"
-                    android:contentDescription="收藏"
-                    app:tint="@color/icon_secondary" />
-                <TextView
-                    android:id="@+id/tv_favorites"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:text="0"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-            </LinearLayout>
 
             <!-- 点赞(第四格) -->
             <LinearLayout

@@ -116,6 +116,17 @@
                     android:textColor="@color/primary"
                     android:background="@drawable/rounded_btn_outline"
                     android:visibility="gone" />
+                <ImageView
+                    android:id="@+id/iv_reply_more"
+                    android:layout_width="30dp"
+                    android:layout_height="27dp"
+                    android:layout_marginStart="4dp"
+                    android:padding="3dp"
+                    android:src="@drawable/ic_more_vert"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="更多操作" />
+
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
