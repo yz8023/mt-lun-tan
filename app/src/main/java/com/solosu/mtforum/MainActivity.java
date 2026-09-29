@@ -965,9 +965,11 @@ public class MainActivity extends AppCompatActivity {
     private void showRunLog() {
         // build68: 先给一段加载耗时摘要，再接完整运行日志 ——
         // 之前性能记录会被自动回复/角标刷新的日志挤出 300 条缓冲，等于看不到
-        String text = "===== 页面加载耗时（最新在上）=====\n"
+        String text = "═════ 页面加载耗时（最新在上）═════\n"
                 + com.solosu.mtforum.util.PerfLog.dump()
-                + "\n===== 运行日志 =====\n"
+                + "\n═════ 自动解锁记录 ═════\n"
+                + com.solosu.mtforum.util.UnlockLog.dump()
+                + "\n═════ 运行日志 ═════\n"
                 + AiLog.dump();
         final android.widget.ScrollView sv = new android.widget.ScrollView(this);
         final TextView tv = new TextView(this);

@@ -61,7 +61,8 @@ public class HttpClient {
                 // 之前主界面角标 5 秒一轮、每轮 6 个并发，光挂首页就 72 次/分钟，
                 // 稳稳撞上论坛的阿里云 ESA 风控（403 禁止访问）。
                 .addInterceptor(chain -> {
-                    long waited = RequestThrottle.acquire();
+                    // build69: 前台车道不排队，后台车道走令牌桶
+                    RequestThrottle.acquire();
                     okhttp3.Response resp = chain.proceed(chain.request());
                     if (resp.code() == 403) {
                         // 被拦了就清空令牌桶透支一轮，让后续请求按回填速率慢慢来。

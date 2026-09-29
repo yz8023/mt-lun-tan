@@ -190,7 +190,9 @@ public final class MultiSignInManager {
             else if (item.success) summary.success++;
             else summary.failed++;
 
-            AiLog.i("sign-in", item.line());
+            // build69: 「今日已签，跳过」以前每次回前台都为每个账号刷一行，
+            // 把运行日志冲得没法看。跳过的不再逐条记，只在真正动作时记。
+            if (!item.skipped) AiLog.i("sign-in", item.line());
 
             // 账号之间歇一会儿，论坛挂了 ESA，连发必吃 403
             if (i < accounts.size() - 1 && intervalSec > 0) {

@@ -421,6 +421,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // 真正需要强刷的下拉刷新链路仍然带 &_refresh= 参数。
             String detailUrl = ForumParser.getThreadDetailUrl(this.tid, getReplyOrder());
             final long tLoadStart = System.currentTimeMillis();
+            // build69: 用户主动点开的帖子属于前台导航，不进节流队列 ——
+            // 实测令牌耗尽时这一个请求要白等 2 秒多，而真实网络只要 300ms。
+            com.solosu.mtforum.network.RequestThrottle.markForeground();
             this.httpClient.syncFromCookieManager();
             String html = this.httpClient.get(detailUrl);
             final long tFetched = System.currentTimeMillis();
@@ -429,6 +432,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
             final PostDetail detail = ForumParser.parseThreadDetail(html);
             // build67: 分阶段耗时埋点，慢的时候能从「运行日志」直接看出卡在网络还是解析
+            com.solosu.mtforum.network.RequestThrottle.clearForeground();
             com.solosu.mtforum.util.PerfLog.record("帖子 tid=" + this.tid,
                     tFetched - tLoadStart,
                     System.currentTimeMillis() - tFetched,
@@ -687,13 +691,15 @@ public class ThreadDetailActivity extends AppCompatActivity {
                     ? strArrSplitEditFooter[0]
                     : extractAndSeparateImages(strArrSplitEditFooter[0], arrayList);
             List<String> imageUrls = postDetail.getImageUrls();
+            // build69: 原位模式下 arrayList 只用来喂「全屏翻页」的图组，
+            // 不能再喂底部图廊 —— 否则图片在正文和底部各出现一次（你看到的就是这个）。
+            List<String> galleryUrls = new ArrayList<>();
             if (imageUrls != null && !imageUrls.isEmpty()) {
                 for (String str : imageUrls) {
-                    if (!arrayList.contains(str)) {
-                        arrayList.add(str);
-                    }
+                    if (!arrayList.contains(str)) arrayList.add(str);
                 }
             }
+            if (!imagesInline) galleryUrls.addAll(arrayList);
             if (!TextUtils.isEmpty(strArrSplitEditFooter[1])) {
                 this.binding.layoutEditFooter.setVisibility(0);
                 this.binding.tvEditFooter.setText(strArrSplitEditFooter[1]);
@@ -727,6 +733,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             renderMainCodeBlocks(extractedMain);
             if (extractedMain.hasBlocks()) bodyHtmlForRender = extractedMain.html;
             this.binding.tvContent.setText(safeFromHtml(bodyHtmlForRender, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+            // build69: 给正文里的内联图片挂点击，之前原位显示的图根本点不开
+            attachInlineImageClicks(this.binding.tvContent);
             boolean unlocked = postDetail.isHasHiddenContent() && this.httpClient.isLoggedIn()
                     && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                     && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
@@ -734,14 +742,14 @@ public class ThreadDetailActivity extends AppCompatActivity {
                     : strArrReplaceHiddenQuoteWithPlaceholder[1];
             applyHiddenNoticeHighlight(this.binding.tvContent.getText(), hiddenNotice);
             setupClickableLinks(this.binding.tvContent);
-            if (!arrayList.isEmpty()) {
+            if (!galleryUrls.isEmpty()) {
                 this.binding.cardImageGallery.setVisibility(0);
                 this.binding.hsvImageGallery.setVisibility(0);
                 this.binding.llImageGallery.removeAllViews();
                 FrostedGlassHelper.applyToCardViews(this.binding.cardImageGallery, this);
                 int iDpToPx = dpToPx(ItemTouchHelper.Callback.DEFAULT_DRAG_ANIMATION_DURATION);
                 int iDpToPx2 = dpToPx(4);
-                for (final String str2 : (java.util.List<String>) arrayList) {
+                for (final String str2 : galleryUrls) {
                     ImageView imageView = new ImageView(this);
                     imageView.setLayoutParams(new LinearLayout.LayoutParams(-2, iDpToPx));
                     imageView.setAdjustViewBounds(z2);
@@ -4375,4 +4383,48 @@ private void viewHiddenContent() {
         }
     }
 
+
+    /**
+     * build69: 让正文里的内联图片可点击放大。
+     *
+     * <p>ImageGetter 画出来的是 {@link android.text.style.ImageSpan}，本身不响应点击。
+     * 这里遍历所有 ImageSpan，在同样的区间叠一个 ClickableSpan，
+     * 点哪张就把哪张作为起始位置打开全屏预览（仍可左右翻页）。
+     */
+    private void attachInlineImageClicks(TextView tv) {
+        if (tv == null) return;
+        CharSequence cs = tv.getText();
+        if (!(cs instanceof android.text.Spannable)) return;
+        android.text.Spannable sp = (android.text.Spannable) cs;
+        android.text.style.ImageSpan[] spans =
+                sp.getSpans(0, sp.length(), android.text.style.ImageSpan.class);
+        if (spans == null || spans.length == 0) return;
+
+        boolean any = false;
+        for (android.text.style.ImageSpan img : spans) {
+            final String url = img.getSource();
+            if (TextUtils.isEmpty(url)) continue;
+            // 表情之类的小图不做点击放大
+            if (url.contains("/smiley/") || url.contains("/static/image/")) continue;
+            int st = sp.getSpanStart(img);
+            int en = sp.getSpanEnd(img);
+            if (st < 0 || en <= st) continue;
+            sp.setSpan(new android.text.style.ClickableSpan() {
+                @Override
+                public void onClick(android.view.View widget) {
+                    openImagePreview(url);
+                }
+
+                @Override
+                public void updateDrawState(android.text.TextPaint ds) {
+                    // 图片不要被染成链接色
+                }
+            }, st, en, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            any = true;
+        }
+        if (any) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+            tv.setHighlightColor(android.graphics.Color.TRANSPARENT);
+        }
+    }
 }

@@ -6,36 +6,41 @@ import java.util.Deque;
 /**
  * 全局请求节流器。
  *
- * <p><b>为什么需要</b>：bbs.binmt.cc 前面挂着阿里云 ESA，短时间请求过密会被 IP 级 403。
- * 本工程历史上的三大流量源：角标轮询 5 秒 × 6 并发（72 次/分钟）、
- * 首页列表每页预取 20 个收藏数、社区页每次进入抓 12 个版块头部。
- * 那三处已经分别修掉，这里是最后一道兜底。
+ * <p><b>build69 重做 —— 加前台优先级，别再对用户操作收税。</b>
  *
- * <p><b>build66 重写</b>：上一版是「每个请求固定等 220ms」的硬间隔，
- * 副作用很严重 —— 打开一个帖子要发好几个请求，于是每次进帖都平白多等一大截；
- * 再加上收到 403 后把 {@code lastRequestAt} 推到 20 秒之后，
- * 导致之后<b>每一个</b>请求都要各等满 8 秒超时，表现就是「进帖加载特别慢」。
+ * <p>实测日志摊开来看得很清楚：
+ * <pre>
+ *   令牌 11.0/12 → 网络 344ms / 364ms / 266ms / 306ms     均值 320ms
+ *   令牌  0.0/12 → 网络 2813ms / 2830ms / 2799ms / 2730ms  均值 2337ms
+ * </pre>
+ * 差的那 2000ms 就是本类的等待上限。也就是说「进帖很慢」<b>完全是节流造成的</b>，
+ * 真实网络只要 300ms 左右，解析更是只要 5–80ms。
  *
- * <p>现在改成<b>令牌桶</b>：
+ * <p>而当初引入节流要挡的三个流量源（角标 5 秒 × 6 并发、首页每页 20 发收藏预取、
+ * 社区页每次 12 发版块头部）<b>都已经在源头修掉了</b>。留着一个对所有请求
+ * 一视同仁收税的节流器，已经是帮倒忙。
+ *
+ * <p>所以改成两条车道：
  * <ul>
- *   <li>桶里有令牌就立刻放行 —— 用户点开一个页面连发几个请求完全不受影响</li>
- *   <li>令牌按固定速率回填，只压制<b>持续</b>高频（轮询、批量扫帖）</li>
- *   <li>另有 60 秒滑动窗口硬上限兜底</li>
- *   <li>收到 403 只清空令牌桶（相当于一次性透支），不再把时间轴整体后推</li>
+ *   <li><b>前台车道</b>（用户点开帖子/用户页这类导航）：<b>不等待</b>，只记账。
+ *       用户的每一次点击都必须立刻出结果。</li>
+ *   <li><b>后台车道</b>（轮询、批量扫帖、预取）：正常令牌桶限速，
+ *       这才是真正需要被压住的部分。</li>
  * </ul>
+ * 同时把桶放大、回填加快、最长等待砍到 1.2 秒 —— 兜底而非主控。
  */
 public final class RequestThrottle {
 
-    /** 桶容量：允许的突发请求数。一个页面的首屏请求应当能一次性走完 */
-    private static final int BURST_CAPACITY = 12;
-    /** 令牌回填间隔：约合 46 次/分钟的持续速率 */
-    private static final long REFILL_INTERVAL_MS = 1_300L;
+    /** 桶容量：允许的突发请求数 */
+    private static final int BURST_CAPACITY = 20;
+    /** 令牌回填间隔：约合 85 次/分钟的持续速率 */
+    private static final long REFILL_INTERVAL_MS = 700L;
     /** 滑动窗口长度 */
     private static final long WINDOW_MS = 60_000L;
-    /** 窗口内硬上限 */
-    private static final int MAX_PER_WINDOW = 50;
-    /** 单个请求最多被推迟多久，超过就放行，宁可冒险也不让界面卡死 */
-    private static final long MAX_WAIT_MS = 2_500L;
+    /** 窗口内硬上限（仅约束后台车道） */
+    private static final int MAX_PER_WINDOW = 90;
+    /** 后台车道单个请求最多被推迟多久 */
+    private static final long MAX_WAIT_MS = 1_200L;
 
     private static final Deque<Long> WINDOW = new ArrayDeque<>();
     private static final Object LOCK = new Object();
@@ -46,15 +51,47 @@ public final class RequestThrottle {
     private static long throttledCount = 0L;
     private static long throttledTotalMs = 0L;
 
+    /**
+     * 前台标记。用户主动导航发起的请求把它置上，本次请求就不排队。
+     * 用 ThreadLocal 是因为每个页面加载都在自己的工作线程里跑。
+     */
+    private static final ThreadLocal<Boolean> FOREGROUND = new ThreadLocal<>();
+
     private RequestThrottle() {
     }
 
+    /** 标记当前线程后续的请求属于前台导航（不排队） */
+    public static void markForeground() {
+        FOREGROUND.set(Boolean.TRUE);
+    }
+
+    /** 清除前台标记 */
+    public static void clearForeground() {
+        FOREGROUND.remove();
+    }
+
+    public static boolean isForeground() {
+        return Boolean.TRUE.equals(FOREGROUND.get());
+    }
+
     /**
-     * 取一个发送许可，必要时阻塞（最多 {@link #MAX_WAIT_MS}）。
+     * 取一个发送许可。
      *
      * @return 实际等待的毫秒数，0 表示没被限
      */
     public static long acquire() {
+        // 前台车道：只记账，绝不等待
+        if (isForeground()) {
+            synchronized (LOCK) {
+                long now = System.currentTimeMillis();
+                refill(now);
+                trimWindow(now);
+                tokens = Math.max(0d, tokens - 1d);
+                WINDOW.addLast(now);
+            }
+            return 0L;
+        }
+
         long waited = 0L;
         while (true) {
             long sleep;
@@ -109,7 +146,6 @@ public final class RequestThrottle {
         }
     }
 
-    /** 当前 60 秒窗口内已发出的请求数 */
     public static int currentWindowCount() {
         synchronized (LOCK) {
             trimWindow(System.currentTimeMillis());
@@ -124,15 +160,13 @@ public final class RequestThrottle {
             return "窗口 " + WINDOW.size() + "/" + MAX_PER_WINDOW
                     + "，令牌 " + String.format(java.util.Locale.US, "%.1f", tokens)
                     + "/" + BURST_CAPACITY
-                    + "，累计节流 " + throttledCount + " 次 / " + throttledTotalMs + "ms";
+                    + (throttledCount > 0
+                        ? "，后台累计排队 " + throttledCount + " 次 / " + throttledTotalMs + "ms"
+                        : "，无排队");
         }
     }
 
-    /**
-     * 被风控拦下后的退避：只把令牌桶清空（相当于透支一轮），
-     * 让后续请求按回填速率慢慢来，<b>不</b>把时间轴整体后推 ——
-     * 上一版那样做会让之后每个请求都各等满超时。
-     */
+    /** 被风控拦下后的退避：清空令牌桶（只影响后台车道） */
     public static void backoff() {
         synchronized (LOCK) {
             tokens = 0d;

@@ -293,6 +293,7 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     }
 
     private void loadThreads(int page, boolean isRefresh) {
+        com.solosu.mtforum.network.RequestThrottle.markForeground();
         isLoading = true;
         binding.swipeRefresh.setRefreshing(true);
 

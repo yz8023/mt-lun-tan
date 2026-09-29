@@ -90,9 +90,11 @@ public class UserProfileActivity extends AppCompatActivity {
                 String profileUrl = HttpClient.BASE_URL
                         + "home.php?mod=space&uid=" + targetUid + "&mobile=2" + cacheBust;
                 final long tPerfStart = System.currentTimeMillis();
+            com.solosu.mtforum.network.RequestThrottle.markForeground();
                 String html = httpClient.get(profileUrl);
                 final long tPerfFetched = System.currentTimeMillis();
-                com.solosu.mtforum.util.PerfLog.record("用户主页",
+                com.solosu.mtforum.network.RequestThrottle.clearForeground();
+            com.solosu.mtforum.util.PerfLog.record("用户主页",
                         tPerfFetched - tPerfStart, 0, html == null ? 0 : html.length());
 
                 if (ForumParser.isLoginPage(html)) {
