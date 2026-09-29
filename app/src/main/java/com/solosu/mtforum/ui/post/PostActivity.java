@@ -345,17 +345,12 @@ public class PostActivity extends AppCompatActivity {
 
     private void pickImage() {
         hideAllPanels();
-        // 使用 Intent.ACTION_PICK 打开系统相册，支持多图选择
-        Intent intent;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-            intent = new Intent(Intent.ACTION_PICK);
-            intent.setData(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-            intent.setType("image/*");
-        } else {
-            intent = new Intent(Intent.ACTION_PICK);
-            intent.setType("image/*");
-        }
+        // 同一个入口支持图片和短视频；视频会在本机转成论坛可显示的 GIF。
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         startActivityForResult(intent, REQUEST_IMAGE_PICK);
     }
 
@@ -376,10 +371,16 @@ private void uploadImages(List<Uri> uris) {
                 for (int i = 0; i < uris.size(); i++) {
                     Uri uri = uris.get(i);
                     String rawName = getFileNameFromUri(uri);
-                    String fileName = rawName.matches("(?i).*\\.(jpg|jpeg|png|gif|bmp|webp)$")
-                            ? rawName : "image_" + System.currentTimeMillis() + ".jpg";
-                    File tempFile = copyUriToTempFile(uri, fileName);
-                    if (tempFile == null) continue;
+                    com.solosu.mtforum.util.MediaUploadProcessor.Result prepared =
+                            com.solosu.mtforum.util.MediaUploadProcessor.prepare(this, uri);
+                    File tempFile = prepared.file;
+                    String fileName = replaceExtension(rawName, extensionForMime(prepared.mimeType));
+                    if (prepared.compressed) {
+                        final String noticeName = fileName;
+                        runOnUiThread(() -> Toast.makeText(this,
+                                noticeName + (prepared.videoConverted ? " 已转为 GIF（最长取前 12 秒）并压缩" : " 已自动压缩到 1MB 以下"),
+                                Toast.LENGTH_SHORT).show());
+                    }
 
                     Map<String, String> extraFields = new HashMap<>();
                     extraFields.put("uid", currentUid);
@@ -661,6 +662,23 @@ private void uploadImages(List<Uri> uris) {
         } catch (Exception ignored) {}
         if (!name.contains(".")) name += ".dat";
         return name;
+    }
+
+    private static String extensionForMime(String mime) {
+        if ("image/png".equals(mime)) return ".png";
+        if ("image/webp".equals(mime)) return ".webp";
+        if ("image/gif".equals(mime)) return ".gif";
+        if ("image/bmp".equals(mime)) return ".bmp";
+        return ".jpg";
+    }
+
+    private static String replaceExtension(String name, String extension) {
+        if (name == null || name.trim().isEmpty()) name = "media";
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) name = name.substring(slash + 1);
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) name = name.substring(0, dot);
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_") + extension;
     }
 
     private File copyUriToTempFile(Uri uri, String fileName) throws Exception {

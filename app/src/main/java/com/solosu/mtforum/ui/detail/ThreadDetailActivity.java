@@ -2798,10 +2798,11 @@ private void viewHiddenContent() {
     }
 
     private void pickImage() {
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setData(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        intent.setType("image/*");
         startActivityForResult(intent, REQUEST_IMAGE_PICK);
     }
     /** 添加待发送图片到列表,显示预览,并开始逐张上传 */
@@ -2966,7 +2967,7 @@ private void viewHiddenContent() {
                 String url = com.solosu.mtforum.network.HttpClient.BASE_URL + "misc.php?mod=swfupload&operation=upload"
                         + "&type=image&inajax=yes&infloat=yes&simple=2";
                 String result = httpClient.uploadFileWithUserAgent(url, file, "Filedata", extra,
-                        com.solosu.mtforum.network.HttpClient.DESKTOP_USER_AGENT, "image/jpeg");
+                        com.solosu.mtforum.network.HttpClient.DESKTOP_USER_AGENT);
                 String aid = parseUploadAid(result);
                 if (!android.text.TextUtils.isEmpty(aid)) {
                     synchronized (pendingUploadAids) {
@@ -3137,7 +3138,7 @@ private void viewHiddenContent() {
             String url = HttpClient.BASE_URL + "misc.php?mod=swfupload&operation=upload"
                     + "&type=image&inajax=yes&infloat=yes&simple=2";
             String result = httpClient.uploadFileWithUserAgent(url, file, "Filedata", extra,
-                    HttpClient.DESKTOP_USER_AGENT, "image/jpeg");
+                    HttpClient.DESKTOP_USER_AGENT);
             String aid = parseUploadAid(result);
             if (TextUtils.isEmpty(aid)) {
                 showUploadError(extractUploadError(result));
@@ -3270,69 +3271,15 @@ private void viewHiddenContent() {
     }
 
     private File transcodeReplyImageToJpeg(Uri uri) throws Exception {
-        if (uri == null) {
-            return null;
+        if (uri == null) return null;
+        com.solosu.mtforum.util.MediaUploadProcessor.Result result =
+                com.solosu.mtforum.util.MediaUploadProcessor.prepare(this, uri);
+        if (result.compressed) {
+            runOnUiThread(() -> Toast.makeText(this,
+                    result.videoConverted ? "视频已转为 GIF（最长取前 12 秒）并压缩到 1MB 以下" : "图片已自动压缩到 1MB 以下",
+                    Toast.LENGTH_SHORT).show());
         }
-        ImageDecoder.Source source = ImageDecoder.createSource(getContentResolver(), uri);
-        Bitmap decoded = ImageDecoder.decodeBitmap(source, new ImageDecoder.OnHeaderDecodedListener() {
-            @Override // android.graphics.ImageDecoder.OnHeaderDecodedListener
-            public final void onHeaderDecoded(ImageDecoder imageDecoder, ImageDecoder.ImageInfo imageInfo, ImageDecoder.Source source2) {
-                ThreadDetailActivity.lambda$transcodeReplyImageToJpeg$53(imageDecoder, imageInfo, source2);
-            }
-        });
-        if (decoded == null || decoded.getWidth() <= 0 || decoded.getHeight() <= 0) {
-            return null;
-        }
-        Bitmap flattened = Bitmap.createBitmap(decoded.getWidth(), decoded.getHeight(), Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(flattened);
-        canvas.drawColor(-1);
-        canvas.drawBitmap(decoded, 0.0f, 0.0f, (Paint) null);
-        if (flattened != decoded) {
-            decoded.recycle();
-        }
-        byte[] jpeg = null;
-        for (int quality = 88; quality >= 58; quality -= 6) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            flattened.compress(Bitmap.CompressFormat.JPEG, quality, output);
-            jpeg = output.toByteArray();
-            if (jpeg.length <= 2097152 || quality == 58) {
-                break;
-            }
-        }
-        flattened.recycle();
-        if (jpeg == null || jpeg.length == 0) {
-            return null;
-        }
-        File dir = new File(getCacheDir(), "reply_uploads");
-        if (!dir.exists() && !dir.mkdirs()) {
-            return null;
-        }
-        File target = new File(dir, "reply_" + System.currentTimeMillis() + ".jpg");
-        FileOutputStream output2 = new FileOutputStream(target);
-        try {
-            output2.write(jpeg);
-            output2.flush();
-            output2.close();
-            return target;
-        } catch (Throwable th) {
-            try {
-                output2.close();
-            } catch (Throwable th2) {
-                th.addSuppressed(th2);
-            }
-            throw th;
-        }
-    }
-
-    static /* synthetic */ void lambda$transcodeReplyImageToJpeg$53(ImageDecoder decoder, ImageDecoder.ImageInfo info, ImageDecoder.Source ignoredSource) {
-        int width = info.getSize().getWidth();
-        int height = info.getSize().getHeight();
-        int largest = Math.max(width, height);
-        if (largest > 1920) {
-            float scale = 1920.0f / largest;
-            decoder.setTargetSize(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
-        }
-        decoder.setAllocator(1);
+        return result.file;
     }
 
     private File copyUriToTempFile(Uri uri, String fileName) throws Exception {
@@ -4764,6 +4711,15 @@ private void viewHiddenContent() {
     /** 用系统下载器下载，带上当前登录 Cookie */
     private void startAttachmentDownload(
             com.solosu.mtforum.util.AttachmentParser.Attachment a) {
+        if (com.solosu.mtforum.ui.DownloadPreferences.getMode(this)
+                == com.solosu.mtforum.ui.DownloadPreferences.MODE_BROWSER) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(a.downloadUrl())));
+            } catch (Exception e) {
+                Toast.makeText(this, "没有可用的浏览器", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
         try {
             android.app.DownloadManager dm =
                     (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);

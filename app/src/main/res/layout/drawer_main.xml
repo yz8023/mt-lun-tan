@@ -11,7 +11,7 @@
     android:background="@drawable/nav_bar_bg"
     android:clipToOutline="true"
     android:elevation="10dp"
-    android:fitsSystemWindows="true"
+    android:fitsSystemWindows="false"
     android:orientation="vertical">
 
     <!-- ===== 顶部用户信息 ===== -->

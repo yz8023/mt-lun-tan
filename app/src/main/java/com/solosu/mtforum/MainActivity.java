@@ -174,6 +174,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         drawerLayout = (DrawerLayout) root;
+        // DrawerLayout 默认会在状态栏区域补一块矩形底色，它会盖住悬浮抽屉的右上圆角。
+        drawerLayout.setStatusBarBackgroundColor(android.graphics.Color.TRANSPARENT);
         // 遮罩加深，抽屉打开时右侧主内容不会透出文字
         drawerLayout.setScrimColor(0xC0000000);
 
@@ -199,6 +201,9 @@ public class MainActivity extends AppCompatActivity {
         drawerPanel = findViewById(R.id.drawer_panel);
         // build77: 侧边栏与底栏共用同一档不透明度，视觉统一（dyparse 那种悬浮玻璃面板）
         if (drawerPanel != null) {
+            // 明确用背景轮廓裁切，避免部分系统把右上角子 View 按矩形绘制。
+            drawerPanel.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+            drawerPanel.setClipToOutline(true);
             int navPct = com.solosu.mtforum.ui.theme.ThemeManager.navOpacity(this);
             drawerPanel.setAlpha(Math.max(0.4f, navPct / 100f));
         }

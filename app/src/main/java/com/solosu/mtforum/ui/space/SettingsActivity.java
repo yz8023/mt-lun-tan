@@ -63,6 +63,23 @@ public class SettingsActivity extends AppCompatActivity {
         //        binding.layoutCheckUpdate.setOnClickListener(v -> checkForUpdate());
         //        checkForUpdate();
 
+        // 附件/文件下载方式：系统 DownloadManager（保存到 Download）或浏览器。
+        updateDownloadModeText();
+        binding.layoutDownloadMode.setOnClickListener(v -> {
+            String[] modes = {"应用内下载（保存到 Download）", "跳转浏览器下载"};
+            int current = com.solosu.mtforum.ui.DownloadPreferences.getMode(this);
+            android.app.Dialog dialog = new AlertDialog.Builder(this)
+                    .setTitle("文件下载方式")
+                    .setSingleChoiceItems(modes, current, (d, which) -> {
+                        com.solosu.mtforum.ui.DownloadPreferences.setMode(this, which);
+                        updateDownloadModeText();
+                        d.dismiss();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+            DialogHelper.applyToAlertDialog(dialog, this);
+        });
+
         // 错误日志查看
         binding.layoutErrorLog.setOnClickListener(v -> showErrorLogDialog());
         updateErrorLogCount();
@@ -125,6 +142,10 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateAccountCount();
+    }
+
+    private void updateDownloadModeText() {
+        binding.tvDownloadMode.setText(com.solosu.mtforum.ui.DownloadPreferences.label(this));
     }
 
     /** 账号数量摘要 */
