@@ -34,6 +34,9 @@ public class CodeBlockView extends LinearLayout {
     private TextView tvLines;
     private TextView btnCopy;
     private TextView btnToggle;
+    private TextView btnWrap;
+    private android.widget.HorizontalScrollView scroll;
+    private boolean wrap = true;
     private TextView tvContent;
     private TextView tvGutter;
     private TextView tvFade;
@@ -59,6 +62,8 @@ public class CodeBlockView extends LinearLayout {
         tvLines = findViewById(R.id.tv_code_lines);
         btnCopy = findViewById(R.id.btn_code_copy);
         btnToggle = findViewById(R.id.btn_code_toggle);
+        btnWrap = findViewById(R.id.btn_code_wrap);
+        scroll = findViewById(R.id.code_scroll);
         tvContent = findViewById(R.id.tv_code_content);
         tvGutter = findViewById(R.id.tv_code_gutter);
         tvFade = findViewById(R.id.tv_code_fade);
@@ -66,6 +71,16 @@ public class CodeBlockView extends LinearLayout {
 
         Motion.pressFeedback(btnCopy, 0.90f);
         Motion.pressFeedback(btnToggle, 0.90f);
+        Motion.pressFeedback(btnWrap, 0.90f);
+
+        // build67: 自动换行开关。手机屏幕窄，横向滚动看代码很难受，
+        // 默认换行；需要保持严格缩进对齐时可以关掉改回横向滚动。
+        wrap = com.solosu.mtforum.ui.UiSettings.isCodeWrap(context);
+        btnWrap.setOnClickListener(v -> {
+            wrap = !wrap;
+            com.solosu.mtforum.ui.UiSettings.setCodeWrap(getContext(), wrap);
+            applyWrap();
+        });
 
         btnCopy.setOnClickListener(v -> copyToClipboard());
         btnToggle.setOnClickListener(v -> setExpanded(!expanded));
@@ -91,6 +106,7 @@ public class CodeBlockView extends LinearLayout {
         int lineCount = countLines(rawCode);
         tvLines.setText(lineCount + " 行");
         buildGutter(lineCount);
+        applyWrap();
 
         collapsible = lineCount > COLLAPSE_THRESHOLD;
         btnToggle.setVisibility(collapsible ? VISIBLE : GONE);
@@ -156,5 +172,32 @@ public class CodeBlockView extends LinearLayout {
             if (s.charAt(i) == '\n') n++;
         }
         return n;
+    }
+
+    /** 应用换行模式：换行时让文本占满宽度，否则回到横向滚动 */
+    private void applyWrap() {
+        if (tvContent == null || scroll == null) return;
+        btnWrap.setText(wrap ? "不换行" : "换行");
+        android.view.ViewGroup.LayoutParams lp = tvContent.getLayoutParams();
+        if (wrap) {
+            lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+            tvContent.setHorizontallyScrolling(false);
+            scroll.setFillViewport(true);
+        } else {
+            lp.width = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+            tvContent.setHorizontallyScrolling(true);
+            scroll.setFillViewport(false);
+        }
+        tvContent.setLayoutParams(lp);
+        // 换行后一条逻辑行会占多个视觉行，行号再标就对不上了，直接隐藏更诚实
+        if (tvGutter != null) {
+            if (wrap) {
+                tvGutter.setVisibility(GONE);
+            } else {
+                buildGutter(expanded || !collapsible
+                        ? countLines(rawCode)
+                        : Math.min(countLines(rawCode), COLLAPSED_LINES));
+            }
+        }
     }
 }

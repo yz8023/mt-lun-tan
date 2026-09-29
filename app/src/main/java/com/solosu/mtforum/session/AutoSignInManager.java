@@ -72,9 +72,19 @@ public final class AutoSignInManager {
 
     private static void run(Context context, boolean force, Callback callback) {
         final Context app = context.getApplicationContext();
+        // build67: 账号库里有记录就一律走多账号链路 —— 它会解析并记录
+        // 签到时间/排名/奖励，单账号旧链路只能记个文案，侧边栏就显示不出金币数。
+        if (!AccountManager.enabledList(app).isEmpty()) {
+            runMulti(app, force, callback);
+            return;
+        }
 
-        // 多账号模式：只要账号库里有启用的账号就走批量链路
-        if (SignInSettings.isAllAccounts(app) && !AccountManager.enabledList(app).isEmpty()) {
+        signInCurrentAccount(app, force, callback);
+    }
+
+    /** 多账号链路（会记录时间/排名/奖励） */
+    private static void runMulti(Context app, boolean force, Callback callback) {
+        {
             MultiSignInManager.signInAll(app, force, new MultiSignInManager.Callback() {
                 @Override
                 public void onProgress(int index, int total, String username) {
@@ -89,10 +99,7 @@ public final class AutoSignInManager {
                     callback.onFinished(success, performed, message);
                 }
             });
-            return;
         }
-
-        signInCurrentAccount(app, force, callback);
     }
 
     // ==================== 单账号（旧逻辑，保留） ====================

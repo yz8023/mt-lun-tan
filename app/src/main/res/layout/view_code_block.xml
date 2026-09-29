@@ -60,6 +60,19 @@
             app:drawableTint="@color/primary" />
 
         <TextView
+            android:id="@+id/btn_code_wrap"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_pill_soft"
+            android:gravity="center"
+            android:minWidth="46dp"
+            android:paddingHorizontal="9dp"
+            android:text="换行"
+            android:textColor="@color/primary"
+            android:textSize="11sp" />
+
+        <TextView
             android:id="@+id/btn_code_toggle"
             android:layout_width="wrap_content"
             android:layout_height="26dp"

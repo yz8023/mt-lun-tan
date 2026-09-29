@@ -8,6 +8,9 @@ public final class UiSettings {
 
     private static final String PREF = "app_settings";
     private static final String KEY_NAV_AUTO_HIDE = "nav_auto_hide";
+    private static final String KEY_CODE_WRAP = "code_wrap";
+    private static final String KEY_AI_SUMMARY = "show_ai_summary";
+    private static final String KEY_HIDDEN_INLINE = "hidden_content_inline";
 
     private UiSettings() {
     }
@@ -23,5 +26,40 @@ public final class UiSettings {
 
     public static void setNavAutoHide(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_NAV_AUTO_HIDE, v).apply();
+    }
+
+    /**
+     * 代码块自动换行（默认开）。
+     * 关 = 横向滚动、不折行（适合看缩进严格的代码）；
+     * 开 = 自动换行、整段可见（手机上更好读）。
+     */
+    public static boolean isCodeWrap(Context c) {
+        return sp(c).getBoolean(KEY_CODE_WRAP, true);
+    }
+
+    public static void setCodeWrap(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_CODE_WRAP, v).apply();
+    }
+
+    /** 帖子页是否显示「AI 总结」按钮（默认关，避免误会以为是论坛自带功能） */
+    public static boolean isAiSummaryVisible(Context c) {
+        return sp(c).getBoolean(KEY_AI_SUMMARY, false);
+    }
+
+    public static void setAiSummaryVisible(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_AI_SUMMARY, v).apply();
+    }
+
+    /**
+     * 隐藏内容显示位置（默认「原处」）。
+     * true  = 就地展开，正文里不留占位胶囊；
+     * false = 正文留占位、完整内容放帖子底部（旧行为）。
+     */
+    public static boolean isHiddenContentInline(Context c) {
+        return sp(c).getBoolean(KEY_HIDDEN_INLINE, true);
+    }
+
+    public static void setHiddenContentInline(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_HIDDEN_INLINE, v).apply();
     }
 }

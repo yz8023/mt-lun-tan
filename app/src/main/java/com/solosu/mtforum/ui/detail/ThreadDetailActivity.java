@@ -144,6 +144,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.binding = ThreadDetailActivityBinding.inflate(getLayoutInflater());
         setContentView(this.binding.getRoot());
         setupCopyContentButton();   // build64: 正文复制按钮
+        // build67: AI 总结按钮默认隐藏，需在侧边栏显式开启 —— 避免被当成论坛自带功能
+        if (this.binding.btnAiSummary != null) {
+            this.binding.btnAiSummary.setVisibility(
+                    com.solosu.mtforum.ui.UiSettings.isAiSummaryVisible(this)
+                            ? View.VISIBLE : View.GONE);
+        }
         this.httpClient = HttpClient.getInstance();
         this.tid = getIntent().getStringExtra("tid");
         if (this.tid == null) {
@@ -409,13 +415,26 @@ public class ThreadDetailActivity extends AppCompatActivity {
 
     private void lambda$loadPostDetail$19() {
         try {
-            String detailUrl = ForumParser.getThreadDetailUrl(this.tid, getReplyOrder()) + "&_load=" + System.currentTimeMillis();
+            // build67: 去掉 &_load=时间戳 这个缓存破坏参数。
+            // 每次进帖都强制生成唯一 URL，等于彻底绕开 CDN/连接复用与本地去重，
+            // 大帖（几百楼）每次都要整页重下，这是"部分帖子加载特别慢"的主因之一。
+            // 真正需要强刷的下拉刷新链路仍然带 &_refresh= 参数。
+            String detailUrl = ForumParser.getThreadDetailUrl(this.tid, getReplyOrder());
+            final long tLoadStart = System.currentTimeMillis();
             this.httpClient.syncFromCookieManager();
             String html = this.httpClient.get(detailUrl);
+            final long tFetched = System.currentTimeMillis();
             if (TextUtils.isEmpty(html)) {
                 throw new IllegalStateException("服务器返回空页面，请检查网络后重试");
             }
             final PostDetail detail = ForumParser.parseThreadDetail(html);
+            // build67: 分阶段耗时埋点，慢的时候能从「运行日志」直接看出卡在网络还是解析
+            com.solosu.mtforum.ai.AiLog.i("thread-load",
+                    "tid=" + this.tid
+                            + " 网络 " + (tFetched - tLoadStart) + "ms"
+                            + " 解析 " + (System.currentTimeMillis() - tFetched) + "ms"
+                            + " 页面 " + (html == null ? 0 : html.length() / 1024) + "KB"
+                            + " 节流[" + com.solosu.mtforum.network.RequestThrottle.stats() + "]");
             if (detail == null) {
                 throw new IllegalStateException("帖子内容解析失败");
             }
@@ -689,7 +708,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
             // 收集当前帖全部图片供全屏翻页
             this.currentImageList = new ArrayList<>(arrayList);
-            strArrReplaceHiddenQuoteWithPlaceholder = replaceHiddenQuoteWithPlaceholder(strExtractAndSeparateImages);
+            // build67: 隐藏内容位置可配。就地展开时不再把内容挪到帖子底部，
+            // 正文里也就不会留那个碍眼的占位胶囊。
+            boolean hiddenInline = com.solosu.mtforum.ui.UiSettings.isHiddenContentInline(this);
+            strArrReplaceHiddenQuoteWithPlaceholder = hiddenInline
+                    ? new String[]{strExtractAndSeparateImages, ""}
+                    : replaceHiddenQuoteWithPlaceholder(strExtractAndSeparateImages);
             // build65: 留一份带标签的原文，复制 BBCode 时用
             this.currentContentHtmlForCopy = strConvertBBCodeToHtml;
             boolean z2 = true;
@@ -754,7 +778,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
         boolean hiddenUnlocked = hasHidden && this.httpClient.isLoggedIn()
                 && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                 && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
-        if (hiddenUnlocked) {
+        if (hiddenUnlocked && com.solosu.mtforum.ui.UiSettings.isHiddenContentInline(this)) {
+            // build67: 就地展开模式 —— 内容已经在正文原处了，底部整块不再重复显示
+            this.binding.layoutHiddenContent.setVisibility(8);
+        } else if (hiddenUnlocked) {
             // 已登录且可获取隐藏内容:正文中的胶囊只显示短提示,下方直接展示完整内容
             this.binding.layoutHiddenContent.setVisibility(0);
             this.binding.tvHiddenContentHint.setVisibility(8);

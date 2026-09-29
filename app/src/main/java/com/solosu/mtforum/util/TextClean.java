@@ -18,6 +18,16 @@ public final class TextClean {
     /** 零宽与格式控制字符：ZWSP/ZWNJ/ZWJ/LRM/RLM/BOM/软连字符/行分隔符 */
     private static final Pattern INVISIBLE = Pattern.compile(
             "[\\u00AD\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2028\\u2029\\uFEFF]");
+    /**
+     * 图标字体的私用区字符（U+E000–U+F8FF）。
+     *
+     * <p>Comiis 模板大量使用 {@code <i class="comiis_font">&#xe60c;</i>} 这种图标字体，
+     * 字符本身落在 Unicode 私用区。网页上有字体文件所以显示成图标，
+     * 但我们把文本抓进 TextView 后没有那套字体，就渲染成方块/问号 ——
+     * 「签到前面有特殊符号」就是这么来的。
+     */
+    private static final Pattern PRIVATE_USE = Pattern.compile("[\\uE000-\\uF8FF]");
+
     /** C0/C1 控制字符（保留 \n \t） */
     private static final Pattern CONTROL = Pattern.compile("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]");
 
@@ -28,8 +38,19 @@ public final class TextClean {
     public static String clean(String s) {
         if (s == null) return null;
         String out = INVISIBLE.matcher(s).replaceAll("");
+        out = PRIVATE_USE.matcher(out).replaceAll("");
         out = CONTROL.matcher(out).replaceAll("");
         return out.replace('\u00a0', ' ');
+    }
+
+    /**
+     * 按钮 / 短标签文案清洗：去图标字体私用区字符、零宽字符，并压掉多余空白。
+     * 用于签到按钮这类「文本里混着图标字体」的地方。
+     */
+    public static String label(String raw) {
+        String s = clean(raw);
+        if (s == null) return null;
+        return s.replaceAll("\\s+", " ").trim();
     }
 
     /**

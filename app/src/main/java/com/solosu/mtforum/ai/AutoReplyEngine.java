@@ -281,6 +281,13 @@ public final class AutoReplyEngine {
     public static boolean tryUnlockOnOpen(Context context, PostDetail detail, String pageHtml) {
         if (context == null || detail == null) return false;
         Context app = context.getApplicationContext();
+        // build67 修复：这里原本<b>完全没有检查开关</b>，用户把「自动解锁隐藏内容」
+        // 关掉之后，只要点开带隐藏块的帖子照样会自动回帖。
+        // 两个开关任意一个关掉都不该动作。
+        if (!AiConfigManager.isUnlockMode(app) || !AiConfigManager.isUnlockOnView(app)) {
+            AiLog.i("auto-unlock", "进帖解锁：开关已关闭，跳过");
+            return false;
+        }
         String tid = detail.getTid();
         if (TextUtils.isEmpty(tid)) return false;
         if (TextUtils.isEmpty(pageHtml)) return false;

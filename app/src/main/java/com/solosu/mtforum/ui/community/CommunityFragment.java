@@ -119,7 +119,9 @@ public class CommunityFragment extends Fragment implements com.solosu.mtforum.ui
         if (instance == null || instance.binding == null) return;
         instance.requireActivity().runOnUiThread(() -> {
             if (instance.binding == null) return;
-            if (UserSessionManager.getInstance().isSignedInToday(instance.requireContext())) {
+            // build67: 除了全局日期，也看当前账号在账号库里的签到记录 ——
+            // 多账号签到走的是账号库，只看全局键会导致社区页按钮不同步
+            if (instance.isSignedTodayAnywhere()) {
                 instance.showAlreadySignedIn();
             } else {
                 instance.binding.btnSignIn.setEnabled(true);
@@ -147,15 +149,18 @@ public class CommunityFragment extends Fragment implements com.solosu.mtforum.ui
                     }
 
                     // 1. Sign-in card — 优先检查本地持久化签到状态
-                    boolean alreadySignedIn = UserSessionManager.getInstance()
-                            .isSignedInToday(requireContext());
+                    boolean alreadySignedIn = isSignedTodayAnywhere();
                     if (alreadySignedIn) {
                         showAlreadySignedIn();
                     } else if (data.getSignInText() != null && !data.getSignInText().isEmpty()) {
-                        binding.tvSignInStatus.setText(data.getSignInText());
-                        binding.btnSignIn.setText(data.getSignInText());
-                        // If text contains "已签到" or "已", treat as already signed in
-                        if (data.getSignInText().contains("已")) {
+                        // build67: 页面文案里混着 comiis 图标字体的私用区字符，
+                        // 直接塞进 TextView 会渲染成方块，必须先清洗
+                        String signText = com.solosu.mtforum.util.TextClean.label(
+                                data.getSignInText());
+                        if (android.text.TextUtils.isEmpty(signText)) signText = "签到";
+                        binding.tvSignInStatus.setText(signText);
+                        binding.btnSignIn.setText(signText);
+                        if (signText.contains("已")) {
                             binding.btnSignIn.setBackgroundResource(R.drawable.rounded_btn_success);
                             binding.btnSignIn.setEnabled(false);
                             // 同步到本地持久化
@@ -386,5 +391,18 @@ public class CommunityFragment extends Fragment implements com.solosu.mtforum.ui
             return true;
         }
         return false;
+    }
+
+    /** build67: 今日是否已签（全局日期 或 当前账号的账号库记录，任一为真） */
+    private boolean isSignedTodayAnywhere() {
+        try {
+            if (UserSessionManager.getInstance().isSignedInToday(requireContext())) return true;
+            String uid = com.solosu.mtforum.session.AccountManager.activeUid(requireContext());
+            com.solosu.mtforum.session.AccountManager.Account a =
+                    com.solosu.mtforum.session.AccountManager.get(requireContext(), uid);
+            return a != null && a.isSignedToday();
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

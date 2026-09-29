@@ -340,6 +340,30 @@ public class MainActivity extends AppCompatActivity {
             accountsRow.setOnClickListener(v -> openAccountManager());
         }
 
+        // build67: 帖子页 AI 总结按钮开关
+        SwitchMaterial swAiSummary = findViewById(R.id.drawer_switch_ai_summary);
+        if (swAiSummary != null) {
+            swAiSummary.setChecked(com.solosu.mtforum.ui.UiSettings.isAiSummaryVisible(this));
+            swAiSummary.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setAiSummaryVisible(this, checked);
+                Toast.makeText(this, checked ? "帖子页将显示 AI 总结按钮" : "已隐藏 AI 总结按钮",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_ai_summary_row, swAiSummary);
+        }
+
+        // build67: 隐藏内容就地展开开关
+        SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);
+        if (swHiddenInline != null) {
+            swHiddenInline.setChecked(com.solosu.mtforum.ui.UiSettings.isHiddenContentInline(this));
+            swHiddenInline.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setHiddenContentInline(this, checked);
+                Toast.makeText(this, checked ? "隐藏内容将就地展开" : "隐藏内容将放在帖子底部",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_hidden_inline_row, swHiddenInline);
+        }
+
         // build65: 滚动隐藏底栏开关
         SwitchMaterial swNavHide = findViewById(R.id.drawer_switch_nav_autohide);
         if (swNavHide != null) {
@@ -837,12 +861,24 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (tvSignInDesc != null) {
+            // build67: 把上一轮自动签到的真实结果显示出来。
+            // 之前只写死"启动时自动打卡"，用户根本没法判断到底跑没跑、为什么没签上。
+            StringBuilder sb = new StringBuilder();
             if (com.solosu.mtforum.session.SignInSettings.isScheduleEnabled(this)) {
-                tvSignInDesc.setText("启动时自动打卡 · 每天 "
-                        + com.solosu.mtforum.session.SignInSettings.getTimeText(this) + " 定时");
-            } else {
-                tvSignInDesc.setText("启动时自动打卡");
+                sb.append("每天 ")
+                  .append(com.solosu.mtforum.session.SignInSettings.getTimeText(this))
+                  .append(" 定时 · ");
             }
+            long last = com.solosu.mtforum.session.SignInSettings.getLastRunTime(this);
+            String summary = com.solosu.mtforum.session.SignInSettings.getLastSummary(this);
+            if (last > 0 && !android.text.TextUtils.isEmpty(summary)) {
+                sb.append(new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                        .format(new java.util.Date(last)))
+                  .append(' ').append(summary);
+            } else {
+                sb.append("启动时自动打卡（还没跑过）");
+            }
+            tvSignInDesc.setText(sb.toString());
         }
 
         if (tvRunSignInDesc != null) {
