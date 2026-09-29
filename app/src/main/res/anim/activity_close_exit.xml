@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 退出：向右滑出（退出用 easeIn） -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/ease_in_expo"
+    android:duration="240">
+    <translate android:fromXDelta="0" android:toXDelta="12%p" />
+    <alpha android:fromAlpha="1" android:toAlpha="0" />
+</set>

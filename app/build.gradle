@@ -11,8 +11,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 7
-        versionName "2.2"
+        versionCode 8
+        versionName "2.3"
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -62,6 +62,7 @@ dependencies {
     implementation libs.webkit
     implementation libs.androidx.drawerlayout
     implementation libs.androidx.work
+    implementation libs.androidx.dynamicanimation
 
     testImplementation libs.junit
 }

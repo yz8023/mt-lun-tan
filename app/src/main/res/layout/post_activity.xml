@@ -395,7 +395,10 @@
                 android:focusable="true"
                 android:gravity="center"
                 android:paddingHorizontal="4dp"
-                android:text="📝 图标"
+                android:text="图标"
+                android:drawablePadding="4dp"
+                app:drawableStartCompat="@drawable/ic_smile"
+                app:drawableTint="@color/text_secondary"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp" />
 
@@ -434,7 +437,10 @@
                 android:focusable="true"
                 android:gravity="center"
                 android:paddingHorizontal="4dp"
-                android:text="🖼 图片"
+                android:text="图片"
+                android:drawablePadding="4dp"
+                app:drawableStartCompat="@drawable/ic_image"
+                app:drawableTint="@color/text_secondary"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp" />
 
@@ -447,7 +453,10 @@
                 android:focusable="true"
                 android:gravity="center"
                 android:paddingHorizontal="4dp"
-                android:text="📎 文件"
+                android:text="文件"
+                android:drawablePadding="4dp"
+                app:drawableStartCompat="@drawable/ic_attach"
+                app:drawableTint="@color/text_secondary"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp" />
 
@@ -460,7 +469,10 @@
                 android:focusable="true"
                 android:gravity="center"
                 android:paddingHorizontal="4dp"
-                android:text="⚙ 高级"
+                android:text="高级"
+                android:drawablePadding="4dp"
+                app:drawableStartCompat="@drawable/ic_gear"
+                app:drawableTint="@color/text_secondary"
                 android:textColor="@color/text_primary"
                 android:textSize="12sp" />
         </LinearLayout>

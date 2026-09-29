@@ -199,7 +199,7 @@ public class PostActivity extends AppCompatActivity {
         // 3. 插入（引用/代码/Free/Hide）
         btnInsert.setOnClickListener(v -> showInsertDialog());
 
-        // 4. 🖼 图片上传（从相册选图，与网页端对齐）
+        // 4. 图片上传（从相册选图，与网页端对齐）
         btnImage.setOnClickListener(v -> {
             hideAllPanels();
             pickImage();
@@ -310,7 +310,7 @@ public class PostActivity extends AppCompatActivity {
         DialogHelper.applyToAlertDialog(alertDialog, this);
     }
 
-    // ---- 🖼 图片上传功能（与网页端对齐：支持多选、预览、上传） ----
+    // ---- 图片上传功能（与网页端对齐：支持多选、预览、上传） ----
 
     private void pickImage() {
         hideAllPanels();
@@ -680,7 +680,7 @@ private void uploadImages(List<Uri> uris) {
             } else {
                 // 非图片附件：显示文件名
                 TextView tv = new TextView(this);
-                tv.setText("📎 " + af.name);
+                tv.setText("" + af.name);
                 tv.setPadding(8, 8, 8, 8);
                 tv.setTextSize(13);
                 tv.setCompoundDrawablesWithIntrinsicBounds(0, 0, android.R.drawable.ic_menu_delete, 0);

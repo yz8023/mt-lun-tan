@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 底栏选中指示器（参考 dyparse 的 liquid pill），由弹簧驱动横向滑动 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/primary_alpha_19" />
+    <corners android:radius="16dp" />
+</shape>

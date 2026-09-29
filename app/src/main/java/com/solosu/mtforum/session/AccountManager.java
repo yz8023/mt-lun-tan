@@ -101,11 +101,11 @@ public class AccountManager {
 
         /**
          * 侧边栏平铺账号行的签到文案（build61）。
-         * 已签：{@code ✓ 已签 08:32 · +5 金币}；未签：{@code 今日未签到}。
+         * 已签：{@code 已签 08:32 · +5 金币}（前缀对勾由矢量 drawable 提供）；未签：{@code 今日未签到}。
          */
         public String drawerSignText() {
             if (isSignedToday()) {
-                StringBuilder sb = new StringBuilder("✓ 已签");
+                StringBuilder sb = new StringBuilder("已签");
                 String time = lastSignTimeText();
                 if (!TextUtils.isEmpty(time)) sb.append(' ').append(time);
                 if (!TextUtils.isEmpty(lastSignReward) && !"0".equals(lastSignReward)) {

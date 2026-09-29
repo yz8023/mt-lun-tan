@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 列表项进场 —— 淡入 + 上移 12dp，easeOutExpo（standard 320ms） -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/ease_out_expo"
+    android:duration="320">
+    <alpha
+        android:fromAlpha="0"
+        android:toAlpha="1" />
+    <translate
+        android:fromYDelta="12%p"
+        android:toYDelta="0" />
+</set>

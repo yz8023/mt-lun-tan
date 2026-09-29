@@ -357,9 +357,9 @@ public class UserProfileActivity extends AppCompatActivity {
         // 性别
         String genderText = "保密";
         if ("boy".equals(profile.getGender())) {
-            genderText = "男 ♂";
+            genderText = "男 男";
         } else if ("girl".equals(profile.getGender())) {
-            genderText = "女 ♀";
+            genderText = "女 女";
         }
         binding.tvGender.setText(genderText);
     }

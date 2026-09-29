@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
+<!--
+  悬浮胶囊底栏底板（build62）。
+  原文件里写了个 <elevation> 标签 —— shape 根本不支持该元素，等于没生效，已删。
+  阴影统一交给 View 的 android:elevation + outlineProvider。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
     <solid android:color="@color/surface" />
-    <corners android:radius="20dp"/>
-    <padding
-        android:bottom="8dp"
-        android:left="8dp"
-        android:right="8dp"
-        android:top="8dp"/>
-    <elevation android:shadowColor="#1F000000" android:shadowDx="0" android:shadowDy="4" android:shadowRadius="8"/>
+    <corners android:radius="22dp" />
+    <stroke
+        android:width="0.5dp"
+        android:color="@color/divider" />
 </shape>

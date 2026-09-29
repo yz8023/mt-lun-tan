@@ -1,5 +1,77 @@
 # 更新日志
 
+## v2.3 (versionCode 8) — 底栏重做 · 图标全矢量 · 动效体系 · 排版优化
+
+本版参考了两个项目：底栏学 [kd64i/dyparse](https://github.com/kd64i/dyparse)，
+动效体系移植 [feitangyuan/motion-web](https://github.com/feitangyuan/motion-web)。
+
+### 底栏重做（参考 dyparse）
+
+dyparse 的 `FloatingBottomBarInsets.kt` 里写得很清楚：栏体 64dp，**悬在系统导航栏之上 12dp**，
+内容区预留 `navInset + 64 + 12 + 16`。对照我们原来的实现：
+
+| | 改版前 | 改版后 |
+| --- | --- | --- |
+| 栏体高度 | 68dp | 64dp |
+| 底部间距 | 写死 12dp，**不管系统导航栏** | 12dp + `WindowInsets.navigationBars` 实测值 |
+| 选中反馈 | 150ms 淡入 | 指示器 snappy 弹簧滑动 + 图标 bouncy 弹簧过冲 |
+| 按压反馈 | 无 | 按下 0.90 缩放，抬手弹簧回弹 |
+| 底板 | `<shape>` 里写了个 `<elevation>` 标签（**该元素不存在，等于没生效**） | 交给 View 的 elevation，加 0.5dp 描边 |
+
+- 新增独立的指示器图层 `nav_indicator`，切页时用 `SpringAnimation` 滑到目标槽位
+  （中间凸起的发布键占第 3 槽，指示器会跳过它）
+- 边到边模式下内容区额外让出手势条高度，避免各 Fragment 里写死的留白不够用
+
+### 图标全部矢量化
+
+新增 12 个 `VectorDrawable`（等价 SVG，路径矢量、可 `tint`、不依赖系统 emoji 字体），
+替换掉所有当图标用的 emoji：
+
+| 位置 | 原 emoji | 新图标 |
+| --- | --- | --- |
+| 消息页 6 个分类 | 💬 👥 📝 💬 🔔 📱 | `ic_msg_chat` / `ic_msg_fans` / `ic_msg_posts` / `ic_msg_interactive` / `ic_msg_system` / `ic_msg_app` |
+| 发帖页工具栏 | 📝 🖼 📎 ⚙ | `ic_smile` / `ic_image` / `ic_attach` / `ic_gear`（改用 `drawableStart`） |
+| AI 配置状态 | ✅ ❌ | 文案化 + `ic_check_circle` / `ic_error_circle` |
+| 资料页性别 | ♂ ♀ | 文案化 + `ic_gender_male` / `ic_gender_female` |
+| 返回按钮 | 「← 返回」文本 | `ic_arrow_left` 矢量图 |
+| 侧边栏已签标记 | ✓ 字形 | `ic_check` 矢量 `drawableStart` |
+
+emoji 当图标的问题：跨设备字形不一致（三星/小米/原生各画各的）、无法跟随主题 tint、
+在部分定制 ROM 上直接显示成豆腐块。
+
+### 动效体系（移植 motion-web）
+
+新增 `ui/anim/Motion.java` 作为统一令牌层。motion-web 是给 Web 写的，但数学是通用的：
+CSS `cubic-bezier(x1,y1,x2,y2)` 与 Android `PathInterpolator` 控制点一一对应；
+Framer 的 `stiffness/damping` 换算 `ζ = damping/(2√stiffness)` 就是 `SpringForce` 的阻尼比。
+
+- **时长刻度**：INSTANT 90 / FAST 180 / STANDARD 320 / MEDIUM 450 / SLOW 700，列表错峰 70ms
+- **缓动字典**：easeOutExpo `(.16,1,.3,1)`、easeOutBack `(.34,1.56,.64,1)`、
+  easeOutCirc `(0,.55,.45,1)`、easeInExpo `(.7,0,.84,0)`、easeStandard `(.4,0,.2,1)`
+  —— 同时做成 `res/interpolator/*.xml` 供 XML 动画复用
+- **弹簧预设**：snappy 350/0.75、bouncy 200/0.35、default 200/0.78、
+  pager 322/0.90（dyparse 同款）
+- **按压反馈**：按 handfeel.md §7「down-records / up-decides」—— 按下只缩放，
+  抬手立刻弹簧回弹，不挂任何计时器
+- **全局转场**：`MtWindowAnimation` 挂到主题上，进场 easeOutExpo 320ms、
+  退场 easeInExpo 240ms（退出用 easeIn 才干脆）
+
+核心原则（handfeel.md §1）：**别用 lerp，用欠阻尼弹簧**。lerp 单调减速读起来像"滑过去"，
+ζ 略小于 1 的弹簧轻微过冲再落位，才有"有重量地落下"的感觉。
+
+已接入：底栏指示器与图标、侧边栏账号卡片（错峰 + 按压）、消息页六个入口（错峰 + 按压）、
+账号管理列表（`layoutAnimation` 错峰）、全局 Activity 转场。
+
+### 排版优化
+
+- 消息页六项收进一张 14dp 圆角卡片，行高统一 60dp，**新增副标题**补全信息层级
+  （私信与对话 / 关注你的人 / 你发布的主题 / 回复、@ 与点赞 / 论坛官方通知 / 版本更新与公告）
+- 顶栏标题 20sp bold，「全部已读」改为淡主色药丸而非整条红色按钮
+- 图标统一 38dp 圆底 + 22dp 图形，分隔线从 62dp 起始对齐文字左缘
+- 新增 12 个分类语义色（各自 14% 淡底）
+
+---
+
 ## v2.2 (versionCode 7) — 侧边栏重排 · 账号平铺快切 · 掉线自动重登 · 消息页修复
 
 ### 侧边栏重新分组

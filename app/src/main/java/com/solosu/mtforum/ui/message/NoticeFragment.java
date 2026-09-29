@@ -61,6 +61,8 @@ public class NoticeFragment extends Fragment {
 
         initViews();
         setupClickListeners();
+        // build62: 六个分类错峰淡入上移（standard-list 70ms/项）
+        com.solosu.mtforum.ui.anim.Motion.staggerChildren(binding.noticeList);
         // 每次进入消息页都以服务器当前数据为准,不能使用本地 all_read 状态跳过请求。
         loadAllBadgeCounts();
     }
@@ -86,19 +88,14 @@ public class NoticeFragment extends Fragment {
         badgeApp = binding.badgeApp;
         tvClearAll = binding.tvClearAll;
 
-        // 为图标设置毛玻璃背景
-        applyFrostedGlassToIcon(binding.ivEmojiMessages);
-        applyFrostedGlassToIcon(binding.ivEmojiFans);
-        applyFrostedGlassToIcon(binding.ivEmojiPosts);
-        applyFrostedGlassToIcon(binding.ivEmojiInteractive);
-        applyFrostedGlassToIcon(binding.ivEmojiSystem);
-        applyFrostedGlassToIcon(binding.ivEmojiApp);
-    }
-
-    private void applyFrostedGlassToIcon(TextView icon) {
-        if (icon != null) {
-            icon.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
-        }
+        // build62: 图标已改为矢量图 + 分色圆底，不再叠毛玻璃（会盖掉 backgroundTint）
+        // 六个入口统一加按压反馈，手感与底栏一致
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llMyMessages);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llMyFans);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llMyPosts);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llInteractive);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llSystem);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(binding.llApp);
     }
 
     private void setupClickListeners() {
@@ -115,26 +112,9 @@ public class NoticeFragment extends Fragment {
         binding.llSystem.setOnClickListener(v -> openNativeDetail("system", "系统提醒"));
         binding.llApp.setOnClickListener(v -> openNativeDetail("app", "应用提醒"));
         // 全部已读:按压缩放反馈 + 点击淡入动效,与主界面导航栏选中动效一致
-        tvClearAll.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(80).start();
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
-                    break;
-                default:
-                    break;
-            }
-            return false; // 不消费事件,交给 OnClickListener
-        });
-        tvClearAll.setOnClickListener(v -> {
-            Animation anim = AnimationUtils.loadAnimation(requireContext(), android.R.anim.fade_in);
-            anim.setDuration(150);
-            v.startAnimation(anim);
-            clearAllBadges();
-        });
+        // build62: 统一走 Motion 令牌（按下 0.92 缩放，抬手 snappy 弹簧回弹）
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(tvClearAll, 0.92f);
+        tvClearAll.setOnClickListener(v -> clearAllBadges());
     }
 
     /** 进入分类时立即标记当前快照为已查看;详情页只负责展示内容。 */

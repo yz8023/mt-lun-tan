@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 进入：右侧轻推入 + 淡入 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/ease_out_expo"
+    android:duration="320">
+    <translate android:fromXDelta="12%p" android:toXDelta="0" />
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+</set>

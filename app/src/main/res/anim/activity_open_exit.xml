@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 被覆盖：轻微后撤，制造层级 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/ease_out_expo"
+    android:duration="320">
+    <translate android:fromXDelta="0" android:toXDelta="-4%p" />
+    <alpha android:fromAlpha="1" android:toAlpha="0.85" />
+</set>

@@ -91,6 +91,7 @@
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rv_accounts"
+                android:layoutAnimation="@anim/layout_stagger"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:nestedScrollingEnabled="false"

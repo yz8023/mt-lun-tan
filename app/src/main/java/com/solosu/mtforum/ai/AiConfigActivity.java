@@ -256,11 +256,11 @@ public class AiConfigActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 b.btnTest.setEnabled(true);
                 if (r.success) {
-                    showResult("✅ 连接成功\n模型返回：" + (r.content == null ? "" : r.content)
+                    showResult("连接成功 · 连接成功\n模型返回：" + (r.content == null ? "" : r.content)
                             + "\nToken 用量：prompt=" + r.promptTokens
                             + ", completion=" + r.completionTokens, false);
                 } else {
-                    showResult("❌ 连接失败\n" + r.error, false);
+                    showResult("连接失败 · 连接失败\n" + r.error, false);
                 }
             });
         }, "ai-test").start();
@@ -316,8 +316,8 @@ public class AiConfigActivity extends AppCompatActivity {
                 boolean called = withTools.success && withTools.toolCalls != null
                         && withTools.toolCalls.length() > 0;
 
-                sb.append(called ? "✅ 支持工具调用（function calling）\n\n"
-                        : "❌ 不支持、或中转没转发 tools\n\n");
+                sb.append(called ? "连接成功 · 支持工具调用（function calling）\n\n"
+                        : "连接失败 · 不支持、或中转没转发 tools\n\n");
 
                 sb.append("带 tools 请求：");
                 if (!withTools.success) {

@@ -2,9 +2,20 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v2.2（versionCode 7）**
+当前版本：**v2.3（versionCode 8）**
 
 ---
+
+## v2.3 新增：底栏重做 · 图标全矢量 · 动效体系
+
+- **底栏**参考 [kd64i/dyparse](https://github.com/kd64i/dyparse)：64dp 悬浮胶囊、
+  按 `WindowInsets.navigationBars` 避让系统导航栏、指示器弹簧滑动、按压缩放反馈
+- **图标全矢量**：12 个新 `VectorDrawable` 替换所有当图标用的 emoji
+- **动效体系**移植 [feitangyuan/motion-web](https://github.com/feitangyuan/motion-web)：
+  统一的时长刻度 / 缓动字典 / 弹簧预设（`ui/anim/Motion.java` + `res/interpolator/`）
+- **排版**：消息页卡片化 + 副标题 + 分类语义色
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v2.2 新增：侧边栏重排 · 账号平铺快切 · 掉线自动重登
 
@@ -76,6 +87,7 @@ app/src/main/java/com/solosu/mtforum/
 │   ├── SignInWorker.java          后台签到任务
 │   ├── SignInNotifier.java        结果通知
 │   ├── SessionGuard.java          403/掉线时用已存密码静默重登
+├── ui/anim/Motion.java            动效令牌：时长/缓动/弹簧/按压/错峰
 │   └── AutoSignInManager.java     入口分流（多账号 / 单账号）
 ├── ui/account/
 │   ├── AccountManagerActivity.java 账号与签到管理页

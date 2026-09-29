@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  消息页（build62 重做排版）。
+  · emoji 图标全部换成矢量图（VectorDrawable），每类一个语义色 + 14% 淡底圆
+  · 六项收进一张圆角卡片，行高统一、加副标题，信息层级更清楚
+  · 底部 96dp 留白，避开 64dp 悬浮导航栏 + 系统手势条
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -6,61 +12,41 @@
     android:background="@color/background"
     android:orientation="vertical">
 
-    <androidx.appcompat.widget.Toolbar
+    <!-- 顶栏 -->
+    <LinearLayout
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="54dp"
         android:background="@color/background"
-        android:minHeight="48dp"
-        app:contentInsetEnd="0dp"
-        app:contentInsetStart="0dp">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="52dp"
+        android:paddingEnd="12dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:letterSpacing="0.01"
+            android:text="消息"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingStart="52dp"
-                android:text="消息"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+        <TextView
+            android:id="@+id/tv_clear_all"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:background="@drawable/bg_pill_soft"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:text="全部已读"
+            android:textColor="@color/primary"
+            android:textSize="13sp" />
+    </LinearLayout>
 
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/tv_clear_all"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:text="全部已读"
-                android:textColor="@color/primary"
-                android:textSize="15sp" />
-        </LinearLayout>
-    </androidx.appcompat.widget.Toolbar>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider" />
-
-    <!--
-      build61: 这里原先是个不可滚动的 LinearLayout 且没有底部留白。
-      主界面的悬浮胶囊导航栏高 68dp + 下边距 12dp = 80dp，会盖住最后一两行
-      （屏幕越矮盖得越多，所以表现为"有概率被遮挡"）。
-      其余三个 Tab 都留了 80~92dp，唯独这里漏了。改成可滚动 + 留 96dp。
-    -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -70,341 +56,485 @@
         android:paddingBottom="96dp"
         android:scrollbars="none">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingTop="8dp">
-
         <LinearLayout
-            android:id="@+id/ll_my_messages"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="14dp"
+            android:paddingTop="4dp">
 
-            <TextView
-                android:id="@+id/iv_emoji_messages"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="💬"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="我的消息"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp">
 
-            <TextView
-                android:id="@+id/badge_messages"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                <LinearLayout
+                    android:id="@+id/notice_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingVertical="4dp">
 
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
+                    <LinearLayout
+                        android:id="@+id/ll_my_messages"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_messages"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_chat_bg"
+                            android:contentDescription="我的消息"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_chat"
+                            app:tint="@color/notice_chat" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="我的消息"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="私信与对话"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_messages"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginStart="62dp"
+                        android:background="@color/divider" />
+
+                    <LinearLayout
+                        android:id="@+id/ll_my_fans"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_fans"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_fans_bg"
+                            android:contentDescription="我的粉丝"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_fans"
+                            app:tint="@color/notice_fans" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="我的粉丝"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="关注你的人"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_fans"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginStart="62dp"
+                        android:background="@color/divider" />
+
+                    <LinearLayout
+                        android:id="@+id/ll_my_posts"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_posts"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_posts_bg"
+                            android:contentDescription="我的帖子"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_posts"
+                            app:tint="@color/notice_posts" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="我的帖子"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="你发布的主题"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_posts"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginStart="62dp"
+                        android:background="@color/divider" />
+
+                    <LinearLayout
+                        android:id="@+id/ll_interactive"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_interactive"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_interactive_bg"
+                            android:contentDescription="坛友互动"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_interactive"
+                            app:tint="@color/notice_interactive" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="坛友互动"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="回复、@ 与点赞"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_interactive"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginStart="62dp"
+                        android:background="@color/divider" />
+
+                    <LinearLayout
+                        android:id="@+id/ll_system"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_system"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_system_bg"
+                            android:contentDescription="系统提醒"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_system"
+                            app:tint="@color/notice_system" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="系统提醒"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="论坛官方通知"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_system"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0.5dp"
+                        android:layout_marginStart="62dp"
+                        android:background="@color/divider" />
+
+                    <LinearLayout
+                        android:id="@+id/ll_app"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="11dp">
+
+                        <ImageView
+                            android:id="@+id/iv_emoji_app"
+                            android:layout_width="38dp"
+                            android:layout_height="38dp"
+                            android:background="@drawable/bg_icon_circle"
+                            android:backgroundTint="@color/notice_app_bg"
+                            android:contentDescription="应用提醒"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_msg_app"
+                            app:tint="@color/notice_app" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="应用提醒"
+                                android:textColor="@color/text_primary"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:text="版本更新与公告"
+                                android:textColor="@color/text_hint"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/badge_app"
+                            android:layout_width="wrap_content"
+                            android:layout_height="20dp"
+                            android:background="@drawable/badge_bg"
+                            android:gravity="center"
+                            android:minWidth="20dp"
+                            android:paddingHorizontal="6dp"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_marginStart="6dp"
+                            android:contentDescription="前往"
+                            android:src="@drawable/ic_arrow_right"
+                            app:tint="@color/text_hint" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:id="@+id/ll_my_fans"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:id="@+id/iv_emoji_fans"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="👥"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="我的粉丝"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/badge_fans"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:id="@+id/ll_my_posts"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:id="@+id/iv_emoji_posts"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="📝"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="我的帖子"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/badge_posts"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:id="@+id/ll_interactive"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:id="@+id/iv_emoji_interactive"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="💬"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="坛友互动"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/badge_interactive"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:id="@+id/ll_system"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:id="@+id/iv_emoji_system"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="🔔"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="系统提醒"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/badge_system"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:id="@+id/ll_app"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@color/background"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:id="@+id/iv_emoji_app"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/ic_round_bg"
-                android:gravity="center"
-                android:text="📱"
-                android:textSize="20sp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:text="应用提醒"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/badge_app"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:background="@drawable/badge_bg"
-                android:gravity="center"
-                android:minWidth="22dp"
-                android:paddingHorizontal="6dp"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:src="@drawable/ic_arrow_right"
-                android:contentDescription="前往"
-                app:tint="@color/text_hint" />
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginStart="68dp"
-            android:background="@color/divider" />
-    </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </LinearLayout>

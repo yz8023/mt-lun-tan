@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build62: 移植自 motion-web motion-tokens.md —— cubic-bezier(0, 0.55, 0.45, 1)，极快减速，干脆 -->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:controlX1="0"
+    android:controlY1="0.55"
+    android:controlX2="0.45"
+    android:controlY2="1" />

@@ -55,6 +55,14 @@ public class MainActivity extends AppCompatActivity {
     // 文字
     private TextView tvHomeText, tvCommunityText, tvMessageText, tvProfileText;
 
+    // build62: 底栏弹簧指示器
+    private View navIndicator;
+    private android.widget.LinearLayout navItems;
+    /** 底栏 5 个槽位，按屏幕顺序：首页 / 版块 / 发布 / 消息 / 我的 */
+    private View[] navSlots;
+    /** 底栏实际占用高度（含系统导航栏补偿），供页面内容预留留白 */
+    private int navReservedPx;
+
     // ★ 消息角标
     private TextView tvMessageBadge;
     private Handler mainHandler;
@@ -150,6 +158,10 @@ public class MainActivity extends AppCompatActivity {
             public void onDrawerOpened(View dv) {
                 View nav = findViewById(R.id.bottom_nav_container);
                 if (nav != null) nav.setVisibility(View.GONE);
+                // build62: 账号卡片错峰淡入上移（standard-list 70ms/项）
+                if (drawerAccountList != null) {
+                    com.solosu.mtforum.ui.anim.Motion.staggerChildren(drawerAccountList);
+                }
             }
 
             @Override
@@ -479,6 +491,14 @@ public class MainActivity extends AppCompatActivity {
         signState.setText(account.drawerSignText());
         signState.setTextColor(getResources().getColor(
                 signed ? R.color.success : R.color.text_hint));
+        // build62: 已签标记改用矢量对勾，不再用 ✓ 字形
+        signState.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                signed ? R.drawable.ic_check : 0, 0, 0, 0);
+        signState.setCompoundDrawablePadding(
+                (int) (3 * getResources().getDisplayMetrics().density));
+        androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(signState,
+                android.content.res.ColorStateList.valueOf(
+                        getResources().getColor(R.color.success, null)));
 
         signBtn.setText(signed ? "已签" : "签到");
         signBtn.setBackgroundResource(signed
@@ -500,6 +520,9 @@ public class MainActivity extends AppCompatActivity {
         } else {
             avatar.setImageResource(R.drawable.ic_account);
         }
+
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(row, 0.97f);
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(signBtn, 0.90f);
 
         // 点整行 = 立即切换
         row.setOnClickListener(v -> {
@@ -958,8 +981,95 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
+        // ===== build62: 参考 kd64i/dyparse 的悬浮胶囊底栏 =====
+        navIndicator = findViewById(R.id.nav_indicator);
+        navItems = findViewById(R.id.nav_items);
+        navSlots = new View[]{navHome, navCommunity, navPost, navMessage, navProfile};
+
+        // 按压反馈：图标类用 0.90，凸起发布键用 0.92
+        for (View slot : navSlots) {
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(slot,
+                    slot == navPost ? 0.92f : 0.90f);
+        }
+
+        // 系统导航栏 inset 补偿：dyparse 的做法是栏体悬在系统导航栏之上固定 12dp。
+        // 原来写死 12dp，手势条/三键导航会压住栏体。
+        applyNavBarInsets();
+
         // 初始选中状态
         updateNavSelectionByPosition(MainPagerAdapter.PAGE_HOME);
+    }
+
+    /** 底栏避让系统导航栏，并算出内容需要预留的底部留白 */
+    private void applyNavBarInsets() {
+        final View container = findViewById(R.id.bottom_nav_container);
+        if (container == null) return;
+        container.post(() -> {
+            int navInset = 0;
+            try {
+                androidx.core.view.WindowInsetsCompat insets =
+                        androidx.core.view.ViewCompat.getRootWindowInsets(container);
+                if (insets != null) {
+                    navInset = insets.getInsets(
+                            androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+                }
+            } catch (Exception ignored) {
+            }
+            float density = getResources().getDisplayMetrics().density;
+            int base = (int) (12 * density);
+            if (container.getLayoutParams()
+                    instanceof android.view.ViewGroup.MarginLayoutParams) {
+                android.view.ViewGroup.MarginLayoutParams lp =
+                        (android.view.ViewGroup.MarginLayoutParams) container.getLayoutParams();
+                lp.bottomMargin = base + navInset;
+                container.setLayoutParams(lp);
+                navReservedPx = container.getHeight() + lp.bottomMargin;
+            }
+            // 边到边模式下（navInset>0），内容区再让出系统导航栏的高度，
+            // 否则各 Fragment 里写死的底部留白只够避开悬浮栏、避不开手势条。
+            View pager = findViewById(R.id.main_pager);
+            if (pager != null && navInset > 0) {
+                pager.setPadding(pager.getPaddingLeft(), pager.getPaddingTop(),
+                        pager.getPaddingRight(), navInset);
+            }
+        });
+    }
+
+    /**
+     * 把选中指示器弹到目标槽位。
+     *
+     * <p>用 snappy 弹簧（stiffness 350 / ζ0.75，见 Motion）而不是 tween ——
+     * handfeel.md §1：lerp 单调减速读起来像"滑过去"，欠阻尼弹簧轻微过冲再落位，
+     * 才有"啪一下吸附过去"的高级感。
+     */
+    private void moveIndicatorTo(int slotIndex, boolean animate) {
+        if (navIndicator == null || navSlots == null) return;
+        if (slotIndex < 0 || slotIndex >= navSlots.length) return;
+        final View slot = navSlots[slotIndex];
+        if (slot == null) return;
+
+        Runnable move = () -> {
+            if (slot.getWidth() == 0) return;
+            float targetX = slot.getLeft() + (slot.getWidth() - navIndicator.getWidth()) / 2f;
+            if (navItems != null) targetX += navItems.getLeft();
+            if (animate) {
+                com.solosu.mtforum.ui.anim.Motion.spring(navIndicator,
+                        androidx.dynamicanimation.animation.DynamicAnimation.TRANSLATION_X,
+                        targetX, com.solosu.mtforum.ui.anim.Motion.springSnappy());
+            } else {
+                navIndicator.setTranslationX(targetX);
+            }
+        };
+        if (slot.getWidth() == 0) {
+            slot.post(move);
+        } else {
+            move.run();
+        }
+    }
+
+    /** pager 页序号 → 底栏槽位（中间第 2 槽是发布键，要跳过） */
+    private int slotOfPage(int position) {
+        return position < 2 ? position : position + 1;
     }
 
     /**
@@ -977,6 +1087,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private void updateNavSelectionByPosition(int position) {
         resetAllSelection();
+        // build62: 指示器弹簧滑到对应槽位（发布键占中间槽，要跳过）
+        moveIndicatorTo(slotOfPage(position), true);
 
         switch (position) {
             case MainPagerAdapter.PAGE_HOME:
@@ -1006,19 +1118,35 @@ public class MainActivity extends AppCompatActivity {
         setItemInactive(ivProfileIcon, tvProfileText);
     }
 
+    /**
+     * 选中态（build62）。
+     * 原来是 150ms 淡入 —— 淡入只改透明度，读不出"被选中"的动作感。
+     * 改成 bouncy 弹簧把图标弹一下（ζ≈0.35，明显过冲），文字同时提色。
+     */
     private void setItemActive(ImageView icon, TextView text) {
         if (icon == null || text == null) return;
         icon.setImageResource(getActiveIconRes(icon.getId()));
         icon.clearAnimation();
-        Animation anim = AnimationUtils.loadAnimation(this, android.R.anim.fade_in);
-        anim.setDuration(150);
-        icon.startAnimation(anim);
+        icon.setScaleX(0.82f);
+        icon.setScaleY(0.82f);
+        com.solosu.mtforum.ui.anim.Motion.spring(icon,
+                androidx.dynamicanimation.animation.DynamicAnimation.SCALE_X, 1f,
+                com.solosu.mtforum.ui.anim.Motion.springBouncy());
+        com.solosu.mtforum.ui.anim.Motion.spring(icon,
+                androidx.dynamicanimation.animation.DynamicAnimation.SCALE_Y, 1f,
+                com.solosu.mtforum.ui.anim.Motion.springBouncy());
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(
+                getResources().getColor(R.color.nav_icon_active, null)));
         text.setTextColor(getResources().getColor(R.color.nav_text_active, null));
     }
 
     private void setItemInactive(ImageView icon, TextView text) {
         if (icon == null || text == null) return;
         icon.setImageResource(getInactiveIconRes(icon.getId()));
+        icon.setScaleX(1f);
+        icon.setScaleY(1f);
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(
+                getResources().getColor(R.color.nav_icon_default, null)));
         text.setTextColor(getResources().getColor(R.color.nav_text_default, null));
     }
 
