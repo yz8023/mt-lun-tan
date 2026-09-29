@@ -11,8 +11,10 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 23
-        versionName "3.8"
+        versionCode 24
+        versionName "3.9"
+        // 应用界面只有中/英文资源，去掉依赖库中不会使用的几十套翻译。
+        resourceConfigurations += ['zh', 'en']
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -28,8 +30,10 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+            // Release 使用 R8 删除未使用代码/资源并优化字节码，显著减小 APK。
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     buildFeatures {

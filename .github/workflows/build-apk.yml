@@ -6,6 +6,24 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Build 后发布 GitHub Release
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Release 标签（发布时使用）
+        required: true
+        type: string
+        default: v3.9
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -21,32 +39,85 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub 的 Android runner 已预装 SDK。旧的 setup-android 步骤连续在 SDK
+      # 初始化阶段失败，反而使真正的编译从未执行。
+      - name: Verify Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          sdkmanager --version
+          yes | sdkmanager --licenses >/dev/null || true
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Install Gradle 8.13
         run: |
-          curl -sSL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          curl --fail --retry 3 -sSL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
           unzip -q gradle.zip -d "$HOME/gradle-dist"
           echo "$HOME/gradle-dist/gradle-8.13/bin" >> "$GITHUB_PATH"
 
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --no-daemon
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
-
-      - name: Build release APK
+      - name: Build optimized release APK
         run: gradle :app:assembleRelease --no-daemon
 
-      - name: Upload artifacts
+      - name: Prepare release artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)
+          test -n "$APK"
+          VERSION=$(awk '/versionName/{gsub(/"/, "", $2); print $2; exit}' app/build.gradle)
+          OUT="MTForum-v${VERSION}-release.apk"
+          cp "$APK" "$OUT"
+          SHA=$(sha256sum "$OUT" | awk '{print $1}')
+          SIZE=$(du -h "$OUT" | awk '{print $1}')
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MTForum-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          name: MTForum-v${{ steps.artifact.outputs.version }}-release
+          path: ${{ steps.artifact.outputs.path }}
+          compression-level: 0
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          APK: ${{ steps.artifact.outputs.path }}
+          VERSION: ${{ steps.artifact.outputs.version }}
+          SHA256: ${{ steps.artifact.outputs.sha256 }}
+          APK_SIZE: ${{ steps.artifact.outputs.size }}
+        run: |
+          test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
+          cat > release-notes.md <<EOF
+          ## MTForum v${VERSION}
+
+          - 修复侧边栏右上角矩形白底，保持悬浮面板圆角。
+          - 超过 1MB 的图片自动清晰度优先压缩，小图保持原文件。
+          - 发帖和回复支持短视频自动转换循环 GIF。
+          - 设置中可选择应用内保存到 Download 或跳转浏览器下载。
+          - Release 启用 R8 代码与资源压缩，减小安装包体积。
+
+          **APK 大小：** ${APK_SIZE}
+
+          \`\`\`
+          SHA256  ${APK}  ${SHA256}
+          \`\`\`
+
+          与 v2.0 起版本使用相同签名，可直接覆盖升级。
+          EOF
+          gh release create "$TAG" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "MTForum v${VERSION} — 媒体上传与下载优化" \
+            --notes-file release-notes.md \
+            --latest
