@@ -584,6 +584,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build64: 把代码块从主楼正文里摘出来，单独渲染成可折叠 + 可复制的卡片。
             // 复制拿到的是剥掉行号的干净代码（行号只做显示用的装订线）。
             String bodyHtml = strArrReplaceHiddenQuoteWithPlaceholder[0];
+            // build65: 留一份带标签的原文，复制 BBCode 时用（可见文本会丢掉代码/图片/链接）
+            this.currentContentHtmlForCopy = strConvertBBCodeToHtml;
             com.solosu.mtforum.util.BBCodeUtil.Extracted extractedMain =
                     com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(bodyHtml);
             renderMainCodeBlocks(extractedMain);
@@ -3702,6 +3704,9 @@ private void viewHiddenContent() {
         DialogHelper.applyToAlertDialog(dialog, this);
     }
 
+    /** build65: 主楼原始 HTML，供「复制 BBCode」还原用 */
+    private String currentContentHtmlForCopy;
+
     // ==================== build64: 正文代码块 + 复制 ====================
 
     /** 渲染主楼代码块卡片 */
@@ -3737,27 +3742,44 @@ private void viewHiddenContent() {
         final View btn = this.binding.btnCopyContent;
         if (btn == null) return;
         com.solosu.mtforum.ui.anim.Motion.pressFeedback(btn, 0.92f);
-        btn.setOnClickListener(v -> {
-            StringBuilder sb = new StringBuilder();
-            CharSequence body = this.binding.tvContent.getText();
-            if (body != null) sb.append(body.toString().trim());
+        btn.setOnClickListener(v -> copyMainPost(true));
+        btn.setOnLongClickListener(v -> {
+            copyMainPost(false);
+            return true;
+        });
+    }
 
-            // 代码块已经从正文里摘走了，复制正文时补回去，否则会缺内容
-            android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
-            if (container != null && container.getVisibility() == View.VISIBLE) {
-                for (int i = 0; i < container.getChildCount(); i++) {
-                    View child = container.getChildAt(i);
-                    if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
-                        String code = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
-                        if (!TextUtils.isEmpty(code)) {
-                            if (sb.length() > 0) sb.append("\n\n");
-                            sb.append(code);
-                        }
+    /**
+     * 复制主楼。
+     *
+     * @param asBBCode true = 复制 BBCode 原文（可直接转发/引用），false = 复制可见纯文本
+     */
+    private void copyMainPost(boolean asBBCode) {
+        if (asBBCode && !TextUtils.isEmpty(this.currentContentHtmlForCopy)) {
+            String bb = com.solosu.mtforum.util.HtmlToBBCode.convert(this.currentContentHtmlForCopy);
+            if (!TextUtils.isEmpty(bb)) {
+                copyPlainText(this, bb, "已复制 BBCode 原文（长按按钮可复制纯文本）");
+                return;
+            }
+        }
+        // 纯文本：正文 + 被摘走的代码块
+        StringBuilder sb = new StringBuilder();
+        CharSequence body = this.binding.tvContent.getText();
+        if (body != null) sb.append(body.toString().trim());
+        android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
+        if (container != null && container.getVisibility() == View.VISIBLE) {
+            for (int i = 0; i < container.getChildCount(); i++) {
+                View child = container.getChildAt(i);
+                if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
+                    String code = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
+                    if (!TextUtils.isEmpty(code)) {
+                        if (sb.length() > 0) sb.append("\n\n");
+                        sb.append(code);
                     }
                 }
             }
-            copyPlainText(this, sb.toString(), "正文已复制");
-        });
+        }
+        copyPlainText(this, sb.toString(), asBBCode ? "已复制正文" : "已复制纯文本");
     }
 
     /** 统一的剪贴板写入 */

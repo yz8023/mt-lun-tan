@@ -162,7 +162,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             });
 
             // 楼层标签（沙发/椅子/地毯/报纸/N#）
-            String floorLabel = item.getFloorLabel();
+            // build65: 楼层文案统一清洗一遍（去零宽字符/控制符/多余空白）
+            String floorLabel = com.solosu.mtforum.util.TextClean.floorLabel(item.getFloorLabel());
             if (!TextUtils.isEmpty(floorLabel)) {
                 tvFloorLabel.setVisibility(View.VISIBLE);
                 tvFloorLabel.setText(floorLabel);
@@ -342,6 +343,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
             java.util.List<String> options = new java.util.ArrayList<>();
             options.add("复制这条回复");
+            options.add("复制 BBCode 原文");
             if (hasCode) options.add("只复制代码");
             options.add("复制含楼层署名");
 
@@ -351,7 +353,13 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                             .setTitle("复制")
                             .setItems(arr, (d, which) -> {
                                 String action = arr[which];
-                                if ("只复制代码".equals(action)) {
+                                if ("复制 BBCode 原文".equals(action)) {
+                                    String bb = com.solosu.mtforum.util.HtmlToBBCode.convert(
+                                            item == null ? null : item.getContentHtml());
+                                    ThreadDetailActivity.copyPlainText(ctx,
+                                            TextUtils.isEmpty(bb) ? bodyText : bb,
+                                            "已复制 BBCode 原文");
+                                } else if ("只复制代码".equals(action)) {
                                     ThreadDetailActivity.copyPlainText(ctx, codeAll.toString(),
                                             "代码已复制");
                                 } else if ("复制含楼层署名".equals(action)) {

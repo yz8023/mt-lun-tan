@@ -106,6 +106,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
 
         // 下拉刷新
         binding.swipeRefresh.setOnRefreshListener(this::refreshThreads);
+        // build65: 下滑隐藏底栏 / 上滑显示（可在侧边栏关闭）
+        com.solosu.mtforum.ui.NavScrollHelper.attach(binding.recyclerView, this);
         binding.swipeRefresh.setColorSchemeResources(
                 com.google.android.material.R.color.design_default_color_primary,
                 android.R.color.holo_orange_light,
@@ -355,6 +357,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     @Override
     public void onResume() {
         super.onResume();
+        // build65: 账号切换过就自动重载本页
+        if (consumeAccountSwitched()) { onTabReselected(); }
         if (threadAdapter != null && threadAdapter.getItemCount() == 0) {
             refreshThreads();
         }
@@ -376,4 +380,16 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         refreshThreads();
     }
 
+
+    /** build65: 记录上次渲染时的账号代数，切号后自动重载，不用用户手动下拉 */
+    private int lastAccountEpoch = com.solosu.mtforum.session.AccountManager.currentEpoch();
+
+    private boolean consumeAccountSwitched() {
+        int now = com.solosu.mtforum.session.AccountManager.currentEpoch();
+        if (now != lastAccountEpoch) {
+            lastAccountEpoch = now;
+            return true;
+        }
+        return false;
+    }
 }

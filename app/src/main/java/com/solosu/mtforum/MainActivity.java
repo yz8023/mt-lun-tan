@@ -67,7 +67,14 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvMessageBadge;
     private Handler mainHandler;
     private ExecutorService executor;
-    private static final long BADGE_REFRESH_INTERVAL_MS = 5000; // 5秒刷新一次，后台请求并行执行
+    /**
+     * 角标刷新间隔。
+     *
+     * build65: 由 5 秒改为 60 秒。原值配合每轮 6 个并发请求，等于光挂在首页
+     * 什么都不干就是 <b>72 次/分钟</b>，是论坛 403 风控最大的单一来源。
+     * 未读角标没有秒级实时的必要，60 秒足够。
+     */
+    private static final long BADGE_REFRESH_INTERVAL_MS = 60_000;
     private final java.util.Map<String, Integer> previousUnreadCounts = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, String> previousUnreadFingerprints = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicBoolean badgeRefreshInFlight = new AtomicBoolean(false);
@@ -313,6 +320,19 @@ public class MainActivity extends AppCompatActivity {
         View accountsRow = findViewById(R.id.drawer_accounts);
         if (accountsRow != null) {
             accountsRow.setOnClickListener(v -> openAccountManager());
+        }
+
+        // build65: 滚动隐藏底栏开关
+        SwitchMaterial swNavHide = findViewById(R.id.drawer_switch_nav_autohide);
+        if (swNavHide != null) {
+            swNavHide.setChecked(com.solosu.mtforum.ui.UiSettings.isNavAutoHide(this));
+            swNavHide.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setNavAutoHide(this, checked);
+                if (!checked) setNavBarShown(true);
+                Toast.makeText(this, checked ? "滚动时将自动隐藏底栏" : "底栏将始终显示",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_nav_autohide_row, swNavHide);
         }
 
         // 添加账号
@@ -567,6 +587,8 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "已切换到 " + account.displayName(), Toast.LENGTH_SHORT).show();
         refreshDrawerHeader();
         com.solosu.mtforum.ui.community.CommunityFragment.refreshSignIn();
+        // build65: 立刻刷新当前可见页，不用等用户手动下拉
+        if (mainPager != null) triggerRefresh(mainPager.getCurrentItem());
     }
 
     /** 单个账号补签 */
@@ -1115,6 +1137,29 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== build65: 底栏滚动自动隐藏 ====================
+
+    private boolean navBarShown = true;
+
+    /**
+     * 下滑隐藏底栏、上滑显示。用弹簧位移而不是 setVisibility，避免布局跳动。
+     */
+    public void setNavBarShown(boolean shown) {
+        if (navBarShown == shown) return;
+        View container = findViewById(R.id.bottom_nav_container);
+        if (container == null) return;
+        // 抽屉打开时底栏本来就是隐藏的，别抢
+        if (drawerLayout != null && drawerPanel != null
+                && drawerLayout.isDrawerOpen(drawerPanel)) return;
+        navBarShown = shown;
+        float target = shown ? 0f
+                : container.getHeight() + ((android.view.ViewGroup.MarginLayoutParams)
+                        container.getLayoutParams()).bottomMargin + 16f;
+        com.solosu.mtforum.ui.anim.Motion.spring(container,
+                androidx.dynamicanimation.animation.DynamicAnimation.TRANSLATION_Y,
+                target, com.solosu.mtforum.ui.anim.Motion.springDefault());
+    }
+
     /** pager 页序号 → 底栏槽位（中间第 2 槽是发布键，要跳过） */
     private int slotOfPage(int position) {
         return position < 2 ? position : position + 1;
@@ -1134,6 +1179,7 @@ public class MainActivity extends AppCompatActivity {
      * 更新导航栏选中状态
      */
     private void updateNavSelectionByPosition(int position) {
+        setNavBarShown(true);   // build65: 切页一律把底栏放出来
         resetAllSelection();
         // build62: 指示器弹簧滑到对应槽位（发布键占中间槽，要跳过）
         moveIndicatorTo(slotOfPage(position), true);

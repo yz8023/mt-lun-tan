@@ -57,6 +57,18 @@ public class HttpClient {
     private HttpClient() {
         cookieStore = new HashMap<>();
         client = new OkHttpClient.Builder()
+                // build65: 全局请求节流 —— 所有请求先过 RequestThrottle。
+                // 之前主界面角标 5 秒一轮、每轮 6 个并发，光挂首页就 72 次/分钟，
+                // 稳稳撞上论坛的阿里云 ESA 风控（403 禁止访问）。
+                .addInterceptor(chain -> {
+                    long waited = RequestThrottle.acquire();
+                    okhttp3.Response resp = chain.proceed(chain.request());
+                    if (resp.code() == 403) {
+                        // 已经被拦了，主动冷却 20 秒，别继续火上浇油
+                        RequestThrottle.backoff(20_000L);
+                    }
+                    return resp;
+                })
                 .connectTimeout(20, TimeUnit.SECONDS)
                 // 图片在后台先被规范化，移动网络上传时仍可能超过普通页面请求时长。
                 .readTimeout(120, TimeUnit.SECONDS)
@@ -729,6 +741,18 @@ public class HttpClient {
             }
             if (!replaced) existing.add(b.build());
         }
+    }
+
+    /**
+     * 清空「飞行中请求去重」缓存（build65）。
+     *
+     * <p>pendingGets/pendingPosts 是按 URL 做的结果复用。切换账号后如果不清，
+     * 新账号请求同一个 URL 会拿到<b>上一个账号的页面</b>，
+     * 表现就是「切号后还是旧账号的数据」或「莫名其妙 403」。
+     */
+    public void clearPendingCache() {
+        pendingGets.clear();
+        pendingPosts.clear();
     }
 
     public void clearCookies() {

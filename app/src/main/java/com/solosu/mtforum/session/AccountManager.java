@@ -358,8 +358,18 @@ public class AccountManager {
         prefs(c).edit().putString(KEY_ACTIVE, uid).apply();
     }
 
+    /**
+     * 账号切换代数。每切一次 +1，页面据此判断"我展示的数据是不是上一个账号的"。
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger SWITCH_EPOCH =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
+    public static int currentEpoch() {
+        return SWITCH_EPOCH.get();
+    }
+
     /** 切换账号：cookie 快照整体回灌到 HttpClient */
-    public static boolean switchTo(Context c, String uid) {
+    public static synchronized boolean switchTo(Context c, String uid) {
         try {
             Account target = get(c, uid);
             if (target == null || TextUtils.isEmpty(target.cookies)) return false;
@@ -368,9 +378,15 @@ public class AccountManager {
             c.getApplicationContext()
                     .getSharedPreferences(COOKIE_PREF, Context.MODE_PRIVATE)
                     .edit().putString(COOKIE_KEY, target.cookies).apply();
-            HttpClient.getInstance().clearCookies();
-            HttpClient.getInstance().restoreCookieStore(c.getApplicationContext());
-            HttpClient.getInstance().syncToCookieManager();
+
+            HttpClient client = HttpClient.getInstance();
+            // build65: 必须先清去重缓存，否则新账号会复用上一个账号的页面结果
+            client.clearPendingCache();
+            client.clearCookies();
+            client.restoreCookieStore(c.getApplicationContext());
+            client.syncToCookieManager();
+
+            SWITCH_EPOCH.incrementAndGet();
             return true;
         } catch (Exception e) {
             return false;

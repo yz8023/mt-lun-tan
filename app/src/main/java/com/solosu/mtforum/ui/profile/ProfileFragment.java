@@ -143,6 +143,8 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
     @Override
     public void onResume() {
         super.onResume();
+        // build65: 账号切换过就自动重载本页
+        if (consumeAccountSwitched()) { loadProfile(); }
         updateLoginState();
     }
 
@@ -337,4 +339,16 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
         loadProfile();
     }
 
+
+    /** build65: 记录上次渲染时的账号代数，切号后自动重载，不用用户手动下拉 */
+    private int lastAccountEpoch = com.solosu.mtforum.session.AccountManager.currentEpoch();
+
+    private boolean consumeAccountSwitched() {
+        int now = com.solosu.mtforum.session.AccountManager.currentEpoch();
+        if (now != lastAccountEpoch) {
+            lastAccountEpoch = now;
+            return true;
+        }
+        return false;
+    }
 }
