@@ -135,6 +135,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         this.binding = ThreadDetailActivityBinding.inflate(getLayoutInflater());
         setContentView(this.binding.getRoot());
+        setupCopyContentButton();   // build64: 正文复制按钮
         this.httpClient = HttpClient.getInstance();
         this.tid = getIntent().getStringExtra("tid");
         if (this.tid == null) {
@@ -579,7 +580,18 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.currentImageList = new ArrayList<>(arrayList);
             strArrReplaceHiddenQuoteWithPlaceholder = replaceHiddenQuoteWithPlaceholder(strExtractAndSeparateImages);
             boolean z2 = true;
-            this.binding.tvContent.setText(safeFromHtml(strArrReplaceHiddenQuoteWithPlaceholder[0], createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+
+            // build64: 把代码块从主楼正文里摘出来，单独渲染成可折叠 + 可复制的卡片。
+            // 复制拿到的是剥掉行号的干净代码（行号只做显示用的装订线）。
+            String bodyHtml = strArrReplaceHiddenQuoteWithPlaceholder[0];
+            com.solosu.mtforum.util.BBCodeUtil.Extracted extractedMain =
+                    com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(bodyHtml);
+            renderMainCodeBlocks(extractedMain);
+            if (extractedMain.hasBlocks()) {
+                bodyHtml = extractedMain.html;
+            }
+
+            this.binding.tvContent.setText(safeFromHtml(bodyHtml, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
             boolean unlocked = postDetail.isHasHiddenContent() && this.httpClient.isLoggedIn()
                     && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                     && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
@@ -3688,5 +3700,77 @@ private void viewHiddenContent() {
                 .setNegativeButton("取消", null)
                 .show();
         DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
+    // ==================== build64: 正文代码块 + 复制 ====================
+
+    /** 渲染主楼代码块卡片 */
+    private void renderMainCodeBlocks(com.solosu.mtforum.util.BBCodeUtil.Extracted extracted) {
+        android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
+        if (container == null) return;
+        container.removeAllViews();
+        if (extracted == null || !extracted.hasBlocks()) {
+            container.setVisibility(View.GONE);
+            return;
+        }
+        container.setVisibility(View.VISIBLE);
+        int gap = dpToPx(8);
+        for (int i = 0; i < extracted.blocks.size(); i++) {
+            com.solosu.mtforum.util.BBCodeUtil.CodeBlock b = extracted.blocks.get(i);
+            com.solosu.mtforum.ui.widget.CodeBlockView view =
+                    new com.solosu.mtforum.ui.widget.CodeBlockView(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = gap;
+            view.setLayoutParams(lp);
+            view.bind(b.lang, b.code);
+            container.addView(view);
+        }
+    }
+
+    /**
+     * 绑定「复制正文」按钮。
+     * 正文是按钮、评论区是长按 —— 两种交互分工来自用户要求。
+     */
+    private void setupCopyContentButton() {
+        final View btn = this.binding.btnCopyContent;
+        if (btn == null) return;
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(btn, 0.92f);
+        btn.setOnClickListener(v -> {
+            StringBuilder sb = new StringBuilder();
+            CharSequence body = this.binding.tvContent.getText();
+            if (body != null) sb.append(body.toString().trim());
+
+            // 代码块已经从正文里摘走了，复制正文时补回去，否则会缺内容
+            android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
+            if (container != null && container.getVisibility() == View.VISIBLE) {
+                for (int i = 0; i < container.getChildCount(); i++) {
+                    View child = container.getChildAt(i);
+                    if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
+                        String code = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
+                        if (!TextUtils.isEmpty(code)) {
+                            if (sb.length() > 0) sb.append("\n\n");
+                            sb.append(code);
+                        }
+                    }
+                }
+            }
+            copyPlainText(this, sb.toString(), "正文已复制");
+        });
+    }
+
+    /** 统一的剪贴板写入 */
+    static void copyPlainText(android.content.Context ctx, String text, String toast) {
+        if (ctx == null || TextUtils.isEmpty(text)) return;
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (cm == null) return;
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("mtforum", text));
+            android.widget.Toast.makeText(ctx, toast, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(ctx, "复制失败", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 }

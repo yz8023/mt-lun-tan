@@ -35,6 +35,7 @@ public class CodeBlockView extends LinearLayout {
     private TextView btnCopy;
     private TextView btnToggle;
     private TextView tvContent;
+    private TextView tvGutter;
     private TextView tvFade;
     private View header;
 
@@ -59,6 +60,7 @@ public class CodeBlockView extends LinearLayout {
         btnCopy = findViewById(R.id.btn_code_copy);
         btnToggle = findViewById(R.id.btn_code_toggle);
         tvContent = findViewById(R.id.tv_code_content);
+        tvGutter = findViewById(R.id.tv_code_gutter);
         tvFade = findViewById(R.id.tv_code_fade);
         header = findViewById(R.id.code_header);
 
@@ -88,6 +90,7 @@ public class CodeBlockView extends LinearLayout {
 
         int lineCount = countLines(rawCode);
         tvLines.setText(lineCount + " 行");
+        buildGutter(lineCount);
 
         collapsible = lineCount > COLLAPSE_THRESHOLD;
         btnToggle.setVisibility(collapsible ? VISIBLE : GONE);
@@ -97,15 +100,40 @@ public class CodeBlockView extends LinearLayout {
 
     private void setExpanded(boolean expand) {
         expanded = expand;
+        int total = countLines(rawCode);
         if (!collapsible) {
             tvContent.setMaxLines(Integer.MAX_VALUE);
             tvFade.setVisibility(GONE);
             btnToggle.setVisibility(GONE);
+            buildGutter(total);
             return;
         }
         tvContent.setMaxLines(expand ? Integer.MAX_VALUE : COLLAPSED_LINES);
         tvFade.setVisibility(expand ? GONE : VISIBLE);
         btnToggle.setText(expand ? "收起" : "展开");
+        // 折叠时装订线也只画可见的那几行，否则会比代码高出一截
+        buildGutter(expand ? total : Math.min(total, COLLAPSED_LINES));
+    }
+
+    /** 画行号装订线；这些数字只在这里，不进 rawCode，所以复制永远干净 */
+    private void buildGutter(int lines) {
+        if (tvGutter == null) return;
+        if (lines <= 0) {
+            tvGutter.setVisibility(GONE);
+            return;
+        }
+        tvGutter.setVisibility(VISIBLE);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= lines; i++) {
+            if (i > 1) sb.append('\n');
+            sb.append(i);
+        }
+        tvGutter.setText(sb.toString());
+    }
+
+    /** 取当前这块的干净代码（不含行号） */
+    public String getCode() {
+        return rawCode;
     }
 
     private void copyToClipboard() {

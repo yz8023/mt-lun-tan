@@ -166,7 +166,8 @@ public final class BBCodeUtil {
                 inner.append(escapeCodeText(line)).append("<br>");
             }
             String langLabel = (!TextUtils.isEmpty(lang) && !"code".equalsIgnoreCase(lang.trim()))
-                    ? "<span style=\"color:#9CA3AF;font-size:12px\">" + escapeHtml(lang.trim()) + "</span><br>"
+                    ? "<span class=\"mt-lang\" style=\"color:#9CA3AF;font-size:12px\">"
+                        + escapeHtml(lang.trim()) + "</span><br>"
                     : "";
             codeBlocks.add("<pre class=\"comiis_blockcode\">" + langLabel + inner + "</pre>");
             codeM.appendReplacement(sb1, "\u0001CODE" + (codeBlocks.size() - 1) + "\u0001");
@@ -451,53 +452,121 @@ public final class BBCodeUtil {
         }
     }
 
-    private static final Pattern P_PRE_BLOCK =
-            Pattern.compile("(?is)<pre[^>]*>(.*?)</pre>");
-    private static final Pattern P_LANG_SPAN =
-            Pattern.compile("(?is)^\\s*<span[^>]*>(.*?)</span>\\s*<br\\s*/?>");
-
     /**
-     * 把 {@code <pre>} 代码块从正文 HTML 里摘出来。
+     * 把代码块从正文 HTML 里摘出来。
      *
-     * <p>摘出来后由 {@link com.solosu.mtforum.ui.widget.CodeBlockView} 单独渲染成
-     * 可折叠 + 可一键复制的卡片；剩余正文照旧走 {@code Html.fromHtml}。
-     * 这样几百行的代码不会再把整条回复撑得翻不完。
+     * <p>build64 改用 Jsoup 解析，同时覆盖两种真实结构：
+     * <ol>
+     *   <li>{@code <pre class="comiis_blockcode">} —— 本地 {@code ForumParser.normalizeCodeBlocks}
+     *       或 {@code [code]} 渲染后的产物</li>
+     *   <li>{@code <div class="comiis_blockcode"><div><ol><li>…</li></ol></div></div>} ——
+     *       论坛移动版原生结构（行号来自 {@code <ol>} 的计数器，<b>不在文本里</b>，
+     *       这点和油猴脚本 {@code .blockcode>div,.comiis_blockcode>div} 的取法一致）</li>
+     * </ol>
+     *
+     * <p>关键：剥掉 {@code <span class="mt-ln">} 行号。之前
+     * {@code normalizeCodeBlocks} 把行号直接拼进文本，复制出来每行都带个数字，粘到
+     * 编辑器里全是语法错误。现在行号只用于显示，复制拿到的是干净代码。
      */
     public static Extracted extractCodeBlocks(String html) {
         java.util.List<CodeBlock> blocks = new ArrayList<>();
-        // 这里刻意不用 android.text.TextUtils，保持纯 Java 以便跑 JVM 单元测试
         if (html == null || html.isEmpty()) return new Extracted(html, blocks);
-
-        Matcher m = P_PRE_BLOCK.matcher(html);
-        StringBuffer out = new StringBuffer();
-        while (m.find()) {
-            String inner = m.group(1);
-            String lang = null;
-
-            // 语言标签是渲染时加的 <span ...>lang</span><br>，还原时要剥掉
-            Matcher lm = P_LANG_SPAN.matcher(inner);
-            if (lm.find()) {
-                lang = unescapeHtmlText(lm.group(1));
-                inner = inner.substring(lm.end());
-            }
-            blocks.add(new CodeBlock(lang, htmlToPlainCode(inner)));
-            // 正文里留一个占位提示，避免代码块位置感丢失
-            m.appendReplacement(out, Matcher.quoteReplacement(""));
+        if (!html.contains("<pre") && !html.contains("blockcode")) {
+            return new Extracted(html, blocks);
         }
-        m.appendTail(out);
-        return new Extracted(out.toString(), blocks);
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
+            org.jsoup.select.Elements targets =
+                    doc.select("pre, div.comiis_blockcode, div.blockcode");
+            for (org.jsoup.nodes.Element el : targets) {
+                // 嵌套的（比如 div.blockcode 里还有 pre）只处理最外层，避免摘两遍
+                if (el.parents().stream().anyMatch(targets::contains)) continue;
+
+                // 必须先剥行号 span，否则 readLang 会把行号"1"当成语言名
+                el.select("span.mt-ln").remove();
+                String lang = readLang(el);
+                String code = readCode(el);
+                if (code == null || code.trim().isEmpty()) continue;
+                blocks.add(new CodeBlock(lang, code));
+                el.remove();
+            }
+            if (blocks.isEmpty()) return new Extracted(html, blocks);
+            return new Extracted(doc.body().html(), blocks);
+        } catch (Throwable t) {
+            // 解析失败就原样返回，正文照常显示（只是没有折叠/复制）
+            return new Extracted(html, blocks);
+        }
     }
 
-    /** 把 <pre> 内部的 HTML 还原成纯代码文本 */
-    private static String htmlToPlainCode(String inner) {
-        if (inner == null) return "";
-        String s = inner
-                .replaceAll("(?i)<br\\s*/?>", "\n")
-                .replaceAll("(?i)</?p[^>]*>", "\n")
-                .replaceAll("<[^>]+>", "");
-        s = unescapeHtmlText(s);
-        // 去掉结尾多余空行
-        return s.replaceAll("\\n+$", "");
+    /** 读语言标签：优先 span.mt-lang，其次「开头的 span + br」这种历史写法 */
+    private static String readLang(org.jsoup.nodes.Element el) {
+        org.jsoup.nodes.Element tagged = el.selectFirst("span.mt-lang");
+        if (tagged != null) {
+            String v = tagged.text().trim();
+            tagged.remove();
+            return v.isEmpty() ? null : v;
+        }
+        org.jsoup.nodes.Element first = el.children().isEmpty() ? null : el.child(0);
+        if (first != null && "span".equalsIgnoreCase(first.tagName())) {
+            String v = first.text().trim();
+            boolean looksLikeLang = !v.isEmpty() && v.length() <= 20 && !v.contains(" ");
+            if (looksLikeLang) {
+                first.remove();
+                return v;
+            }
+        }
+        return null;
+    }
+
+    /** 读代码正文：行号 span 先剥掉；ol>li 结构按 li 分行，否则按 <br> 分行 */
+    private static String readCode(org.jsoup.nodes.Element el) {
+        // 行号只用于显示，复制必须剥掉（调用方已剥过一次，这里幂等兜底）
+        el.select("span.mt-ln").remove();
+
+        org.jsoup.select.Elements lis = el.select("ol > li");
+        StringBuilder sb = new StringBuilder();
+        if (!lis.isEmpty()) {
+            // 论坛原生结构：一个 li 一行
+            for (org.jsoup.nodes.Element li : lis) {
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(rawText(li));
+            }
+        } else {
+            // <br> 分行
+            // 注意 </?p[^>]*> 会把 <pre>/</pre> 也吃掉（p 后面跟 re 正好落进 [^>]*），
+            // 必须限定 p 后面只能是 > 或空白
+            String inner = el.html()
+                    .replaceAll("(?i)<br\\s*/?>", "\n")
+                    .replaceAll("(?i)</?p(?:\\s[^>]*)?>", "\n")
+                    .replaceAll("<[^>]+>", "");
+            sb.append(unescapeHtmlText(inner));
+        }
+        String code = sb.toString()
+                .replace('\u00a0', ' ')     // &nbsp; -> 普通空格
+                .replaceAll("[ \\t]+$", "");
+        // 去掉首尾空行（<pre> 结构常在首尾各带一个换行）
+        return code.replaceAll("^(?:[ \\t]*\\n)+", "")
+                   .replaceAll("(?:\\s*\\n)+$", "");
+    }
+
+    /** 取元素下的原始文本（保留连续空格与不换行空格） */
+    private static String rawText(org.jsoup.nodes.Element el) {
+        StringBuilder sb = new StringBuilder();
+        collectRaw(el, sb);
+        return sb.toString();
+    }
+
+    private static void collectRaw(org.jsoup.nodes.Node node, StringBuilder sb) {
+        if (node instanceof org.jsoup.nodes.TextNode) {
+            sb.append(((org.jsoup.nodes.TextNode) node).getWholeText());
+        } else if (node instanceof org.jsoup.nodes.Element) {
+            org.jsoup.nodes.Element e = (org.jsoup.nodes.Element) node;
+            if ("br".equalsIgnoreCase(e.tagName())) {
+                sb.append('\n');
+                return;
+            }
+            for (org.jsoup.nodes.Node c : e.childNodes()) collectRaw(c, sb);
+        }
     }
 
     private static String unescapeHtmlText(String s) {

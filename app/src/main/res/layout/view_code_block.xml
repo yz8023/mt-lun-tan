@@ -73,26 +73,50 @@
             android:textSize="11sp" />
     </LinearLayout>
 
-    <!-- 代码正文：横向可滚动，不折行 -->
-    <HorizontalScrollView
-        android:id="@+id/code_scroll"
+    <!--
+      build64: 行号做成独立的固定装订线（gutter），代码本身横向滚动。
+      这样行号只参与显示，复制拿到的永远是干净代码 —— 之前行号被拼进文本，
+      复制出来每行都带数字，粘到编辑器全是语法错误。
+    -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:overScrollMode="never"
-        android:scrollbars="none">
+        android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/tv_code_content"
+            android:id="@+id/tv_code_gutter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:background="@color/gray_alpha_09"
             android:fontFamily="monospace"
+            android:gravity="end"
             android:lineSpacingExtra="2dp"
-            android:paddingHorizontal="12dp"
+            android:paddingHorizontal="8dp"
             android:paddingVertical="10dp"
-            android:textColor="@color/code_block_text"
-            android:textIsSelectable="true"
-            android:textSize="12sp" />
-    </HorizontalScrollView>
+            android:textColor="@color/text_hint"
+            android:textSize="12sp"
+            android:textIsSelectable="false" />
+
+        <HorizontalScrollView
+            android:id="@+id/code_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <TextView
+                android:id="@+id/tv_code_content"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="10dp"
+                android:textColor="@color/code_block_text"
+                android:textIsSelectable="true"
+                android:textSize="12sp" />
+        </HorizontalScrollView>
+    </LinearLayout>
 
     <!-- 折叠时的渐隐提示条 -->
     <TextView

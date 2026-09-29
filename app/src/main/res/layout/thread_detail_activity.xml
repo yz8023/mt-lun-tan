@@ -244,6 +244,31 @@
                             android:background="@color/divider" />
                     </LinearLayout>
 
+                    <!-- build64: 正文操作条 —— 复制按钮（对应油猴脚本里 <pre> 右上角那个 Copy） -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="10dp"
+                        android:gravity="end"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btn_copy_content"
+                            android:layout_width="wrap_content"
+                            android:layout_height="28dp"
+                            android:background="@drawable/bg_pill_soft"
+                            android:drawablePadding="4dp"
+                            android:gravity="center"
+                            android:paddingHorizontal="12dp"
+                            android:text="复制正文"
+                            android:textColor="@color/primary"
+                            android:textSize="12sp"
+                            app:drawableStartCompat="@drawable/ic_copy"
+                            app:drawableTint="@color/primary" />
+                    </LinearLayout>
+
                     <FrameLayout
                         android:id="@+id/frame_content"
                         android:layout_width="match_parent"
@@ -261,6 +286,17 @@
                             android:lineSpacingExtra="6dp" />
 
                     </FrameLayout>
+
+                    <!-- build64: 主楼代码块，摘出来单独渲染成可折叠 + 可复制的卡片 -->
+                    <LinearLayout
+                        android:id="@+id/ll_code_blocks_main"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical"
+                        android:visibility="gone" />
 
                     <!-- 帖子正文中的图片容器(玻璃卡片 + 横向滑动 + 折叠) -->
                     <androidx.cardview.widget.CardView

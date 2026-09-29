@@ -2,9 +2,19 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v2.4（versionCode 9）**
+当前版本：**v2.5（versionCode 10）**
 
 ---
+
+## v2.5 新增：正文/评论复制 · 修复复制代码带行号
+
+- **正文是按钮、评论区是长按** —— 主楼「复制正文」按钮；长按回复弹出复制菜单（整条 / 只复制代码 / 含楼层署名）
+- **修复 v2.4 的行号污染**：`normalizeCodeBlocks` 把行号拼进了文本，复制出来每行顶个数字。
+  现在行号由 `CodeBlockView` 画成独立装订线，显示与复制解耦
+- **抽取改用 Jsoup**，覆盖论坛移动版原生结构 `div.comiis_blockcode > div > ol > li`
+- 主楼代码块也渲染成可折叠 + 可复制的卡片
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v2.4 新增：代码块折叠复制 · 快捷回复 · 底栏刷新 · 搜索风控修复
 

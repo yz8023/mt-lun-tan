@@ -306,7 +306,82 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 tvContent.setVisibility(View.GONE);
                 llReplyImages.setVisibility(View.GONE);
             }
+
+            // build64: 评论区长按复制（正文用按钮、评论用长按）
+            setupLongPressCopy(itemView, tvContent, llCodeBlocks, item);
         }
+    }
+
+    /**
+     * 长按某条回复 → 复制菜单。
+     * 有代码块时多给一个「只复制代码」，因为多数时候人就是来抄那段代码的。
+     */
+    private static void setupLongPressCopy(final View itemView,
+                                           final TextView tvContent,
+                                           final LinearLayout llCodeBlocks,
+                                           final com.solosu.mtforum.model.ReplyItem item) {
+        itemView.setOnLongClickListener(v -> {
+            final android.content.Context ctx = v.getContext();
+
+            final String bodyText = tvContent != null && tvContent.getText() != null
+                    ? tvContent.getText().toString().trim() : "";
+            final StringBuilder codeAll = new StringBuilder();
+            if (llCodeBlocks != null && llCodeBlocks.getVisibility() == View.VISIBLE) {
+                for (int i = 0; i < llCodeBlocks.getChildCount(); i++) {
+                    View child = llCodeBlocks.getChildAt(i);
+                    if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
+                        String c = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
+                        if (!TextUtils.isEmpty(c)) {
+                            if (codeAll.length() > 0) codeAll.append("\n\n");
+                            codeAll.append(c);
+                        }
+                    }
+                }
+            }
+            final boolean hasCode = codeAll.length() > 0;
+
+            java.util.List<String> options = new java.util.ArrayList<>();
+            options.add("复制这条回复");
+            if (hasCode) options.add("只复制代码");
+            options.add("复制含楼层署名");
+
+            final String[] arr = options.toArray(new String[0]);
+            androidx.appcompat.app.AlertDialog dialog =
+                    new androidx.appcompat.app.AlertDialog.Builder(ctx)
+                            .setTitle("复制")
+                            .setItems(arr, (d, which) -> {
+                                String action = arr[which];
+                                if ("只复制代码".equals(action)) {
+                                    ThreadDetailActivity.copyPlainText(ctx, codeAll.toString(),
+                                            "代码已复制");
+                                } else if ("复制含楼层署名".equals(action)) {
+                                    StringBuilder sb = new StringBuilder();
+                                    if (item != null && !TextUtils.isEmpty(item.getAuthor())) {
+                                        sb.append(item.getAuthor());
+                                        if (!TextUtils.isEmpty(item.getFloorLabel())) {
+                                            sb.append(" · ").append(item.getFloorLabel());
+                                        }
+                                        sb.append('\n');
+                                    }
+                                    sb.append(bodyText);
+                                    if (hasCode) sb.append("\n\n").append(codeAll);
+                                    ThreadDetailActivity.copyPlainText(ctx, sb.toString(),
+                                            "已复制（含署名）");
+                                } else {
+                                    StringBuilder sb = new StringBuilder(bodyText);
+                                    if (hasCode) {
+                                        if (sb.length() > 0) sb.append("\n\n");
+                                        sb.append(codeAll);
+                                    }
+                                    ThreadDetailActivity.copyPlainText(ctx, sb.toString(),
+                                            "已复制这条回复");
+                                }
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+            com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(dialog, ctx);
+            return true;
+        });
     }
 
     /**

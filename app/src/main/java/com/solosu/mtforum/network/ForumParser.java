@@ -1524,6 +1524,10 @@ public class ForumParser {
      * - 保留每行缩进:普通空格转为 &amp;nbsp; 避免 Html 渲染时被合并
      * - 行间用 &lt;br&gt; 换行,配合客户端 BBCodeUtil 的 TagHandler 渲染等宽字体+背景
      */
+    /** 行号包裹标记：复制时按此剥离（build64） */
+    public static final String LINE_NO_OPEN = "\u0002LN\u0002";
+    public static final String LINE_NO_CLOSE = "\u0003LN\u0003";
+
     public static String normalizeCodeBlocks(String html) {
         if (html == null || html.isEmpty()) return html;
         if (html.indexOf("comiis_blockcode") < 0 && html.indexOf("<pre") < 0
@@ -1547,7 +1551,9 @@ public class ForumParser {
                     for (Element li : lis) {
                         String t = collectRawText(li).replace('\u00a0', ' ');
                         if (t.trim().isEmpty()) { lineNo++; continue; }
-                        lines.add(lineNo + " " + t);
+                        // build64: 行号包进 <span class="mt-ln">，供复制时剥离。
+                        // 原来直接拼成 "1 code"，导致复制出来的代码每行都带行号，粘贴即废。
+                        lines.add(LINE_NO_OPEN + lineNo + " " + LINE_NO_CLOSE + t);
                         lineNo++;
                     }
                 } else {
@@ -1559,13 +1565,17 @@ public class ForumParser {
                     for (String s : raw) {
                         String t = s.replace('\u00a0', ' ');
                         if (t.trim().isEmpty()) { lineNo++; continue; }
-                        lines.add(lineNo + " " + t);
+                        lines.add(LINE_NO_OPEN + lineNo + " " + LINE_NO_CLOSE + t);
                         lineNo++;
                     }
                 }
                 StringBuilder sb = new StringBuilder("<pre class=\"comiis_blockcode\">");
                 for (String line : lines) {
-                    sb.append(escapeNbsp(line)).append("<br>");
+                    // 先转义空格，再把行号占位符还原成真正的 span 标签
+                    String escaped = escapeNbsp(line)
+                            .replace(LINE_NO_OPEN, "<span class=\"mt-ln\">")
+                            .replace(LINE_NO_CLOSE, "</span>");
+                    sb.append(escaped).append("<br>");
                 }
                 sb.append("</pre>");
                 Element preNew = Jsoup.parseBodyFragment(sb.toString()).body().child(0);
