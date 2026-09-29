@@ -25,10 +25,33 @@ public class PostCountsCache {
     private static final java.util.Set<String> HIDDEN_TIDS =
             java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
+    /**
+     * build73: 隐藏标记必须落盘。
+     * 原来只存在内存的 Set 里，杀进程/重启后全没了，
+     * 所以「隐藏帖一直没有标注」——重开 App 就是一张白纸。
+     */
+    private static android.content.SharedPreferences prefs;
+
+    public static void attach(android.content.Context c) {
+        if (prefs != null || c == null) return;
+        prefs = c.getApplicationContext()
+                .getSharedPreferences("post_flags", android.content.Context.MODE_PRIVATE);
+        java.util.Set<String> saved = prefs.getStringSet("hidden_tids", null);
+        if (saved != null) HIDDEN_TIDS.addAll(saved);
+    }
+
     public static void markHasHidden(String tid, boolean hasHidden) {
         if (TextUtils.isEmpty(tid)) return;
-        if (hasHidden) HIDDEN_TIDS.add(tid);
-        else HIDDEN_TIDS.remove(tid);
+        boolean changed = hasHidden ? HIDDEN_TIDS.add(tid) : HIDDEN_TIDS.remove(tid);
+        if (changed && prefs != null) {
+            // 只留最近 500 条，防止无限增长
+            java.util.Set<String> set = new java.util.HashSet<>(HIDDEN_TIDS);
+            if (set.size() > 500) {
+                java.util.Iterator<String> it = set.iterator();
+                while (set.size() > 500 && it.hasNext()) { it.next(); it.remove(); }
+            }
+            prefs.edit().putStringSet("hidden_tids", set).apply();
+        }
     }
 
     public static boolean hasHidden(String tid) {

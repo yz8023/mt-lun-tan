@@ -705,6 +705,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build68: 图片位置可配。原位 = 不抽离，交给 ImageGetter 图文混排；
             // 底部汇总 = 抽出来放帖子底部的横滑图廊（旧行为）。
             boolean imagesInline = com.solosu.mtforum.ui.UiSettings.isImagesInline(this);
+            // build73: 原位显示时把缩略图 src 换成原图地址，否则放大了也是糊的
+            if (imagesInline) {
+                strArrSplitEditFooter[0] = upgradeThumbnailsToFull(strArrSplitEditFooter[0]);
+            }
             String strExtractAndSeparateImages = imagesInline
                     ? strArrSplitEditFooter[0]
                     : extractAndSeparateImages(strArrSplitEditFooter[0], arrayList);
@@ -3769,8 +3773,35 @@ private void viewHiddenContent() {
                 copyReplyText(item, true);
             }
         }, dialog);
+        // build73: 拉黑从列表长按挪到这里（有明确上下文，不容易误触）
+        if (!isOwnReply(item)) {
+            addActionRow(container, R.drawable.ic_block, "拉黑此人", true, new Runnable() {
+                @Override public void run() {
+                    confirmBlacklist(item.getAuthorUid(), author);
+                }
+            }, dialog);
+        }
         addActionRow(container, 0, "取消", false, null, dialog);
         dialog.show();
+    }
+
+    /** build73: 拉黑确认（从帖子列表长按迁过来） */
+    private void confirmBlacklist(final String uid, final String name) {
+        if (TextUtils.isEmpty(uid)) {
+            Toast.makeText(this, "无法拉黑：缺少作者 UID", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("拉黑作者")
+                .setMessage("拉黑「" + name + "」后，TA 的帖子和回帖都会被隐藏。\n"
+                        + "可在侧边栏「个人小黑屋」里取消。")
+                .setPositiveButton("拉黑", (dlg, w) -> {
+                    com.solosu.mtforum.session.BlacklistManager.addLocal(this, uid, name);
+                    Toast.makeText(this, "已拉黑「" + name + "」", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, this);
     }
 
     /** build66: 复制某条回复；asBBCode=true 还原成 BBCode 便于转发引用 */
@@ -4171,10 +4202,11 @@ private void viewHiddenContent() {
                             if (h <= 0) {
                                 h = maxW;
                             }
-                            if (w > maxW) {
-                                h = (int) ((long) h * maxW / Math.max(1, w));
-                                w = maxW;
-                            }
+                            // build73: 原来只有「超宽才缩小」，论坛缩略图本身就小，
+                            // 于是原位显示出来是一张小图，还得点进去看。
+                            // 现在<b>无论大小都等比缩放到内容宽度</b>，直接看全图。
+                            h = (int) ((long) h * maxW / Math.max(1, w));
+                            w = maxW;
                             resource.setBounds(0, 0, w, h);
                             placeholder.setReal(resource, tv);
                         }
@@ -4684,5 +4716,31 @@ private void viewHiddenContent() {
     private static String sanitizeFileName(String name) {
         if (TextUtils.isEmpty(name)) return "attachment";
         return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+    }
+
+    /**
+     * build73: 把正文里 img 的 src 从缩略图换成原图。
+     *
+     * <p>Discuz 的图片附件是 {@code <img src="缩略图" file="原图" zoomfile="原图">}，
+     * 只用 src 会拿到小图；原位全宽显示时必须换成 file / zoomfile。
+     */
+    private static String upgradeThumbnailsToFull(String html) {
+        if (TextUtils.isEmpty(html)) return html;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
+            boolean changed = false;
+            for (org.jsoup.nodes.Element img : doc.select("img")) {
+                String full = img.attr("zoomfile");
+                if (TextUtils.isEmpty(full)) full = img.attr("file");
+                if (TextUtils.isEmpty(full)) full = img.attr("data-original");
+                if (TextUtils.isEmpty(full)) continue;
+                if (full.equals(img.attr("src"))) continue;
+                img.attr("src", full);
+                changed = true;
+            }
+            return changed ? doc.body().html() : html;
+        } catch (Throwable t) {
+            return html;
+        }
     }
 }

@@ -352,26 +352,41 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             }
         });
 
-        // 长按帖子卡片 = 拉黑作者(个人小黑屋)
+        // build73: 卡片按压反馈（motion-web handfeel：按下即缩、抬手弹回）
+        com.solosu.mtforum.ui.anim.Motion.pressFeedback(holder.itemView, 0.975f);
+
+        // build73: 长按帖子卡片 = 复制帖子链接。
+        // 原本是「拉黑作者」——误触代价太大（一不小心整个人的帖子都没了），
+        // 拉黑已挪到帖子详情页和用户主页，那里有明确上下文。
         holder.itemView.setOnLongClickListener(v -> {
-            final String uid = thread.getAuthorUid();
-            final String name = thread.getAuthor();
-            if (TextUtils.isEmpty(uid)) {
-                Toast.makeText(context, "无法拉黑：缺少作者 UID", Toast.LENGTH_SHORT).show();
-                return true;
-            }
-            new android.app.AlertDialog.Builder(context)
-                    .setTitle("拉黑作者")
-                    .setMessage("将「" + name + "」加入个人小黑屋？\n其发布的帖子和回帖都会隐藏。")
-                    .setPositiveButton("拉黑", (d, w) -> {
-                        com.solosu.mtforum.session.BlacklistManager.addLocal(context, uid, name);
-                        removeThreadsByUid(uid);
-                        Toast.makeText(context, "已拉黑「" + name + "」，其帖子已隐藏", Toast.LENGTH_LONG).show();
-                    })
+            String tid = thread.getTid();
+            if (android.text.TextUtils.isEmpty(tid)) return false;
+            String link = "https://bbs.binmt.cc/thread-" + tid + "-1-1.html";
+            String title = android.text.TextUtils.isEmpty(thread.getTitle())
+                    ? "" : thread.getTitle();
+            android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(context)
+                    .setTitle("复制链接")
+                    .setMessage(title + "\n\n" + link)
+                    .setPositiveButton("复制链接", (dlg, w) ->
+                            copyToClipboard(context, link, "帖子链接已复制"))
+                    .setNeutralButton("复制标题+链接", (dlg, w) ->
+                            copyToClipboard(context, title + "\n" + link, "标题和链接已复制"))
                     .setNegativeButton("取消", null)
                     .show();
+            com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, context);
             return true;
         });
+    }
+
+    private static void copyToClipboard(android.content.Context ctx, String text, String toast) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (cm == null) return;
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("mtforum", text));
+            Toast.makeText(ctx, toast, Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
     }
 
     /** 拉黑后即时从数据集移除该作者全部帖子(不需要刷新页面) */

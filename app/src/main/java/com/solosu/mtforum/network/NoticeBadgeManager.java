@@ -53,6 +53,25 @@ public final class NoticeBadgeManager {
     }
 
     /**
+     * build73: 基线必须<b>按账号隔离</b>。
+     *
+     * <p>原来的键是 {@code baseline_{viewType}}，所有账号共用一份 ——
+     * 切换账号后拿的是上一个账号的基线，于是新账号的全部历史消息都被算成"新"。
+     * 现在带上 uid 前缀。
+     */
+    private static String scope(Context context) {
+        try {
+            String uid = com.solosu.mtforum.session.AccountManager.activeUid(context);
+            if (TextUtils.isEmpty(uid)) {
+                uid = com.solosu.mtforum.session.UserSessionManager.getInstance().getUid(context);
+            }
+            return TextUtils.isEmpty(uid) ? "anon_" : (uid + "_");
+        } catch (Exception e) {
+            return "anon_";
+        }
+    }
+
+    /**
      * 根据当前 HTML 建立规范化快照。
      * PM 会继续请求每个会话的详情页，统计当前可见聊天消息总数。
      */
@@ -151,9 +170,10 @@ public final class NoticeBadgeManager {
                                                                String snapshot) {
         if (context == null || TextUtils.isEmpty(viewType)) return 0;
         SharedPreferences p = prefs(context);
-        String baselineKey = KEY_BASELINE_PREFIX + viewType;
-        String currentKey = KEY_CURRENT_PREFIX + viewType;
-        String pendingKey = KEY_PENDING_PREFIX + viewType;
+        String scope = scope(context);
+        String baselineKey = KEY_BASELINE_PREFIX + scope + viewType;
+        String currentKey = KEY_CURRENT_PREFIX + scope(context) + viewType;
+        String pendingKey = KEY_PENDING_PREFIX + scope + viewType;
         String oldBaseline = p.getString(baselineKey, null);
 
         if (p.getBoolean(pendingKey, false) || oldBaseline == null) {
@@ -173,13 +193,13 @@ public final class NoticeBadgeManager {
     public static synchronized void markViewed(Context context, String viewType) {
         if (context == null || TextUtils.isEmpty(viewType)) return;
         SharedPreferences p = prefs(context);
-        String current = p.getString(KEY_CURRENT_PREFIX + viewType, null);
+        String current = p.getString(KEY_CURRENT_PREFIX + scope(context) + viewType, null);
         SharedPreferences.Editor editor = p.edit();
         if (current == null) {
-            editor.putBoolean(KEY_PENDING_PREFIX + viewType, true);
+            editor.putBoolean(KEY_PENDING_PREFIX + scope(context) + viewType, true);
         } else {
-            editor.putString(KEY_BASELINE_PREFIX + viewType, current)
-                    .putBoolean(KEY_PENDING_PREFIX + viewType, false);
+            editor.putString(KEY_BASELINE_PREFIX + scope(context) + viewType, current)
+                    .putBoolean(KEY_PENDING_PREFIX + scope(context) + viewType, false);
         }
         editor.apply();
         fireViewed(viewType);

@@ -271,6 +271,14 @@
                         android:layout_marginTop="10dp"
                         android:orientation="horizontal" />
 
+                    <!-- build73: 细粒度不透明度（参考 mtbbs_app 的主题配置） -->
+                    <LinearLayout
+                        android:id="@+id/ll_opacity_sliders"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:orientation="vertical" />
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

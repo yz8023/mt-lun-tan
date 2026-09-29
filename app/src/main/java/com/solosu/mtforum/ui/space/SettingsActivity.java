@@ -222,6 +222,7 @@ public class SettingsActivity extends AppCompatActivity {
         });
 
         buildAccentSwatches();
+        buildOpacitySliders();
     }
 
     /** 主题色圆形色板，选中的加一圈描边 */
@@ -255,6 +256,7 @@ public class SettingsActivity extends AppCompatActivity {
                 com.solosu.mtforum.ui.theme.ThemeManager.setAccentIndex(this, index);
                 updateThemeTexts();
                 buildAccentSwatches();
+        buildOpacitySliders();
                 com.solosu.mtforum.ui.theme.ThemeManager.applyAccent(
                         findViewById(android.R.id.content), this);
                 Toast.makeText(this,
@@ -271,5 +273,68 @@ public class SettingsActivity extends AppCompatActivity {
                 com.solosu.mtforum.ui.theme.ThemeManager.nightModeName(this));
         binding.tvAccentName.setText(
                 com.solosu.mtforum.ui.theme.ThemeManager.accentName(this));
+    }
+
+    /** build73: 卡片 / 对话框 / 底栏 三档不透明度滑块 */
+    private void buildOpacitySliders() {
+        android.widget.LinearLayout box = binding.llOpacitySliders;
+        if (box == null) return;
+        box.removeAllViews();
+        addOpacityRow(box, "卡片与列表项",
+                com.solosu.mtforum.ui.theme.ThemeManager.cardOpacity(this),
+                p -> com.solosu.mtforum.ui.theme.ThemeManager.setCardOpacity(this, p));
+        addOpacityRow(box, "对话框与弹窗",
+                com.solosu.mtforum.ui.theme.ThemeManager.dialogOpacity(this),
+                p -> com.solosu.mtforum.ui.theme.ThemeManager.setDialogOpacity(this, p));
+        addOpacityRow(box, "底部导航栏",
+                com.solosu.mtforum.ui.theme.ThemeManager.navOpacity(this),
+                p -> com.solosu.mtforum.ui.theme.ThemeManager.setNavOpacity(this, p));
+
+        TextView tip = new TextView(this);
+        tip.setText("下限 40%，再低文字就读不清了。改完重进页面生效。");
+        tip.setTextSize(11f);
+        tip.setTextColor(getColor(R.color.text_hint));
+        box.addView(tip);
+    }
+
+    private interface OnPercent {
+        void set(int percent);
+    }
+
+    private void addOpacityRow(android.widget.LinearLayout box, String label,
+                               int initial, final OnPercent sink) {
+        float d = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.VERTICAL);
+        row.setPadding(0, (int) (6 * d), 0, (int) (2 * d));
+
+        final TextView title = new TextView(this);
+        title.setText(label + "    " + initial + "%");
+        title.setTextSize(13f);
+        title.setTextColor(getColor(R.color.text_primary));
+        row.addView(title);
+
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(60);                        // 40–100 映射到 0–60
+        bar.setProgress(initial - 40);
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar s, int p, boolean u) {
+                title.setText(label + "    " + (p + 40) + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar s) {
+                sink.set(s.getProgress() + 40);
+                Toast.makeText(SettingsActivity.this, "已保存，重进页面生效",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+        row.addView(bar);
+        box.addView(row);
     }
 }

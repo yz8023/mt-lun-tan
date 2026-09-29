@@ -46,6 +46,12 @@ public class FrostedGlassDrawable extends Drawable {
     }
 
     public static FrostedGlassDrawable create(android.content.Context context, float radiusDp, int level) {
+        return createWithOpacity(context, radiusDp, level);
+    }
+
+    /** build73: 不透明度改为读用户在设置里调的值 */
+    public static FrostedGlassDrawable createWithOpacity(android.content.Context context,
+                                                          float radiusDp, int level) {
         boolean isDark = (context.getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
@@ -54,6 +60,13 @@ public class FrostedGlassDrawable extends Drawable {
                 isDark ? 0xFF1E1E1E : 0xFFFFFFFF,
                 radiusDp * density, density);
         d.setLevelPreset(level);
+        try {
+            int pct = (level == LEVEL_DIALOG)
+                    ? com.solosu.mtforum.ui.theme.ThemeManager.dialogOpacity(context)
+                    : com.solosu.mtforum.ui.theme.ThemeManager.cardOpacity(context);
+            d.setOpacityPercent(pct);
+        } catch (Throwable ignored) {
+        }
         return d;
     }
 
@@ -64,6 +77,15 @@ public class FrostedGlassDrawable extends Drawable {
     private final float density;
     private int fillColor;
     private int levelPreset = LEVEL_CARD;
+
+    /** build73: 直接按百分比设置不透明度（顶部略亮、底部略暗，保留一点玻璃质感） */
+    private int opacityPercent = -1;
+
+    public void setOpacityPercent(int percent) {
+        this.opacityPercent = percent;
+        updateShaders();
+        invalidateSelf();
+    }
 
     /** 切换不透明度档位 */
     public void setLevelPreset(int level) {
@@ -100,11 +122,19 @@ public class FrostedGlassDrawable extends Drawable {
         int g = Color.green(fillColor);
         int b = Color.blue(fillColor);
         // build63: 不透明度按档位取（原来写死 158→128 即 62%→50%，文字读不清）
-        int[] a = ALPHA[levelPreset];
+        int top, bottom;
+        if (opacityPercent >= 0) {
+            top = Math.max(0, Math.min(255, Math.round(opacityPercent * 2.55f)));
+            bottom = Math.max(0, top - 8);       // 底部略透，保留玻璃层次
+        } else {
+            int[] a = ALPHA[levelPreset];
+            top = a[0];
+            bottom = a[1];
+        }
         bgPaint.setShader(new LinearGradient(
                 rect.left, rect.top, rect.left, rect.bottom,
-                Color.argb(a[0], r, g, b),
-                Color.argb(a[1], r, g, b),
+                Color.argb(top, r, g, b),
+                Color.argb(bottom, r, g, b),
                 Shader.TileMode.CLAMP));
         // 边框:按底色明暗自适应 — 浅底配深灰细边框(日间可见),深底配白色细边框(夜间)
         boolean lightBg = (r * 299 + g * 587 + b * 114) / 1000 > 128;

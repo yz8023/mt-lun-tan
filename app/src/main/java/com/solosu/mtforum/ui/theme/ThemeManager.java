@@ -32,6 +32,10 @@ public final class ThemeManager {
     private static final String PREF = "app_settings";
     private static final String KEY_NIGHT = "theme_night_mode";
     private static final String KEY_ACCENT = "theme_accent";
+    // build73: 各元素不透明度（0–100），参考 mtbbs_app 的细粒度主题配置
+    private static final String KEY_OPACITY_CARD = "theme_opacity_card";
+    private static final String KEY_OPACITY_DIALOG = "theme_opacity_dialog";
+    private static final String KEY_OPACITY_NAV = "theme_opacity_nav";
 
     /** 深色模式取值 */
     public static final int NIGHT_SYSTEM = 0;
@@ -193,5 +197,39 @@ public final class ThemeManager {
     public static int accentAlpha(Context c, int alpha) {
         int a = accent(c);
         return Color.argb(alpha, Color.red(a), Color.green(a), Color.blue(a));
+    }
+
+    // ==================== build73: 细粒度不透明度 ====================
+
+    /** 卡片/列表项不透明度（默认 94%） */
+    public static int cardOpacity(Context c) {
+        return clampPercent(sp(c).getInt(KEY_OPACITY_CARD, 94));
+    }
+
+    public static void setCardOpacity(Context c, int percent) {
+        sp(c).edit().putInt(KEY_OPACITY_CARD, clampPercent(percent)).apply();
+    }
+
+    /** 对话框/底部弹窗不透明度（默认 98%） */
+    public static int dialogOpacity(Context c) {
+        return clampPercent(sp(c).getInt(KEY_OPACITY_DIALOG, 98));
+    }
+
+    public static void setDialogOpacity(Context c, int percent) {
+        sp(c).edit().putInt(KEY_OPACITY_DIALOG, clampPercent(percent)).apply();
+    }
+
+    /** 底部导航栏不透明度（默认 100%） */
+    public static int navOpacity(Context c) {
+        return clampPercent(sp(c).getInt(KEY_OPACITY_NAV, 100));
+    }
+
+    public static void setNavOpacity(Context c, int percent) {
+        sp(c).edit().putInt(KEY_OPACITY_NAV, clampPercent(percent)).apply();
+    }
+
+    /** 下限 40%：再低文字就真的读不清了，不给用户把自己坑死的机会 */
+    private static int clampPercent(int p) {
+        return p < 40 ? 40 : (p > 100 ? 100 : p);
     }
 }
