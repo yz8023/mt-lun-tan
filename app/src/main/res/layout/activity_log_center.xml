@@ -37,6 +37,35 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/btn_mode"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/chip_active_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minWidth="52dp"
+            android:paddingHorizontal="10dp"
+            android:text="简洁"
+            android:textColor="@color/text_white"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/btn_copy_all"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_pill_soft"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingHorizontal="10dp"
+            android:text="复制本页"
+            android:textColor="@color/primary"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/btn_clear"
             android:layout_width="wrap_content"
             android:layout_height="30dp"
@@ -46,7 +75,7 @@
             android:focusable="true"
             android:gravity="center"
             android:paddingHorizontal="12dp"
-            android:text="清空本页"
+            android:text="清空"
             android:textColor="@color/primary"
             android:textSize="12sp" />
     </LinearLayout>

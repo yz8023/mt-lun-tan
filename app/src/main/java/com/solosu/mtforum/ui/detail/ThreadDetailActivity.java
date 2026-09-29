@@ -1408,6 +1408,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
         imageButton.setImageResource(R.drawable.ic_like_detail);
         imageButton.setColorFilter(getColor(this.isLiked ? R.color.primary : R.color.icon_secondary));
         updateCountBadge(this.binding.tvLikeBadge, Math.max(0, this.likeCount));
+        bounce(this.binding.btnLike);
         // build80: 点赞数回写缓存, 返回列表页时按 tid 回填, 及时同步
         if (!TextUtils.isEmpty(this.tid)) {
             com.solosu.mtforum.session.PostCountsCache.setLikes(this.tid, Math.max(0, this.likeCount));
@@ -4868,20 +4869,37 @@ private void viewHiddenContent() {
      * <p>Discuz 的图片附件是 {@code <img src="缩略图" file="原图" zoomfile="原图">}，
      * 只用 src 会拿到小图；原位全宽显示时必须换成 file / zoomfile。
      */
-    /** 挑第一个像真实图片地址的候选：排除 none.gif / blank.gif 这类占位 */
-    private static String firstUsable(String... candidates) {
-        for (String c : candidates) {
-            if (c == null) continue;
-            String v = c.trim();
-            if (v.isEmpty()) continue;
-            String low = v.toLowerCase();
-            if (low.endsWith("none.gif") || low.endsWith("blank.gif")
-                    || low.contains("/image/common/none") || low.startsWith("data:")) {
-                continue;
-            }
+    /**
+     * 挑真实图片地址。
+     *
+     * <p>build76 关键补漏：本论坛用的是 <b>Comiis 模板</b>，懒加载属性叫
+     * {@code comiis_loadimages}，v3.6 的候选列表里<b>恰好漏了这一个</b>。
+     * 于是这类图的 src 一直停在占位的 {@code none.gif} 上 ——
+     * 「选择显示图片到原处时部分帖子图片消失」就是这么来的。
+     *
+     * <p>顺序和 {@code extractAndSeparateImages} 保持一致，免得两条路径行为不同。
+     */
+    private static String pickRealImageUrl(org.jsoup.nodes.Element img) {
+        String[] attrs = {"file", "comiis_loadimages", "zoomfile",
+                "data-original", "data-src", "data-file", "src"};
+        for (String a : attrs) {
+            String v = img.attr(a);
+            if (v == null) continue;
+            v = v.trim();
+            if (v.isEmpty() || isPlaceholderImage(v)) continue;
             return v;
         }
         return null;
+    }
+
+    private static boolean isPlaceholderImage(String url) {
+        String low = url.toLowerCase();
+        return low.startsWith("data:")
+                || low.endsWith("none.gif")
+                || low.endsWith("blank.gif")
+                || low.endsWith("grey.gif")
+                || low.contains("/image/common/none")
+                || low.contains("static/image/common/blank");
     }
 
     private static String toAbsolute(String url) {
@@ -4892,28 +4910,58 @@ private void viewHiddenContent() {
         return HttpClient.BASE_URL + u.replaceFirst("^/", "");
     }
 
+    /**
+     * 原位模式下修正正文里的图片地址。
+     *
+     * <p>做两件事：
+     * <ol>
+     *   <li>把懒加载占位 src 换成真实地址（含 Comiis 的 {@code comiis_loadimages}）</li>
+     *   <li>实在找不到真实地址的图<b>直接删掉</b> —— 留着就是个永远加载不出来的空白块，
+     *       还不如不显示</li>
+     * </ol>
+     */
     private static String upgradeThumbnailsToFull(String html) {
         if (TextUtils.isEmpty(html)) return html;
         try {
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
-            boolean changed = false;
+            java.util.List<org.jsoup.nodes.Element> dead = new java.util.ArrayList<>();
             for (org.jsoup.nodes.Element img : doc.select("img")) {
-                String orig = img.attr("src");
-                String full = firstUsable(img.attr("zoomfile"), img.attr("file"),
-                        img.attr("data-original"));
-                if (TextUtils.isEmpty(full)) continue;
-                full = toAbsolute(full);
-                // build75: 之前直接把 src 换成属性值就完事，如果那是相对路径或占位图，
-                // 图片就整个加载不出来 ——「部分帖子图片直接消失」就是这么来的。
-                if (TextUtils.isEmpty(full) || full.equals(orig)) continue;
-                img.attr("src", full);
-                // 留一份原始 src，加载失败时可回退
-                if (!TextUtils.isEmpty(orig)) img.attr("data-fallback", toAbsolute(orig));
-                changed = true;
+                String real = pickRealImageUrl(img);
+                if (real == null) {
+                    // 表情之类本来就用小图，别误删
+                    String src = img.attr("src");
+                    if (!TextUtils.isEmpty(src) && src.contains("smiley")) continue;
+                    dead.add(img);
+                    continue;
+                }
+                String abs = toAbsolute(real);
+                if (TextUtils.isEmpty(abs)) {
+                    dead.add(img);
+                    continue;
+                }
+                if (!abs.equals(img.attr("src"))) img.attr("src", abs);
             }
-            return changed ? doc.body().html() : html;
+            for (org.jsoup.nodes.Element e : dead) e.remove();
+            return doc.body().html();
         } catch (Throwable t) {
             return html;
         }
+    }
+
+    /**
+     * build76: 点赞 / 收藏的弹性反馈。
+     * motion-web handfeel §1 —— 用欠阻尼弹簧而不是 tween，
+     * 按下去要有"弹一下"的确认感，纯淡入读不出发生了什么。
+     */
+    private void bounce(View v) {
+        if (v == null) return;
+        v.setScaleX(0.78f);
+        v.setScaleY(0.78f);
+        com.solosu.mtforum.ui.anim.Motion.spring(v,
+                androidx.dynamicanimation.animation.DynamicAnimation.SCALE_X, 1f,
+                com.solosu.mtforum.ui.anim.Motion.springBouncy());
+        com.solosu.mtforum.ui.anim.Motion.spring(v,
+                androidx.dynamicanimation.animation.DynamicAnimation.SCALE_Y, 1f,
+                com.solosu.mtforum.ui.anim.Motion.springBouncy());
     }
 }

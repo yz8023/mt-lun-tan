@@ -230,6 +230,7 @@
         <!-- 版块网格 -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_forum_grid"
+        android:layoutAnimation="@anim/layout_stagger"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="80dp"

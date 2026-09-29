@@ -2,9 +2,16 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.6（versionCode 21）**
+当前版本：**v3.7（versionCode 22）**
 
 ---
+
+## v3.7：图片消失真因 · 记录中心双模式
+
+图片消失是漏了 Comiis 模板的 comiis_loadimages 懒加载属性；
+记录中心支持简洁/详细双模式、卡片可复制可打开、运行日志按标签着色；
+补齐主列表错峰进场与点赞弹性反馈。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.6：删除回复 · 图片消失 · 记录中心
 
