@@ -130,7 +130,8 @@ public class PostActivity extends AppCompatActivity {
             android.widget.EditText c = findViewById(R.id.et_content);
             if (c != null) {
                 c.setOnLongClickListener(v -> {
-                    showBBCodePresets(c);
+                    com.solosu.mtforum.ui.widget.BBCodeEditor.showColorPicker(
+                            PostActivity.this, c);
                     return true;
                 });
             }
@@ -1400,6 +1401,7 @@ private void uploadImages(List<Uri> uris) {
 
     /** BBCode 预设选择器：套在选区上，没选区就插一对标签 */
     protected void showBBCodePresets(final android.widget.EditText input) {
+        // build71: 统一走 BBCodeEditor 的预设集（21 个标签 + 色板）
         if (input == null) return;
         String[] names = new String[BBCODE_PRESETS.length];
         for (int i = 0; i < names.length; i++) names[i] = BBCODE_PRESETS[i][0];

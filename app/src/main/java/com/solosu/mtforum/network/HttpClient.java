@@ -63,6 +63,7 @@ public class HttpClient {
                 .addInterceptor(chain -> {
                     // build69: 前台车道不排队，后台车道走令牌桶
                     RequestThrottle.acquire();
+                    REQ_COUNT.incrementAndGet();
                     okhttp3.Response resp = chain.proceed(chain.request());
                     if (resp.code() == 403) {
                         // 被拦了就清空令牌桶透支一轮，让后续请求按回填速率慢慢来。
@@ -753,6 +754,14 @@ public class HttpClient {
      * 新账号请求同一个 URL 会拿到<b>上一个账号的页面</b>，
      * 表现就是「切号后还是旧账号的数据」或「莫名其妙 403」。
      */
+    /** build71: 累计请求计数，用来算「打开一个页面到底发了几个请求」 */
+    private static final java.util.concurrent.atomic.AtomicInteger REQ_COUNT =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
+    public static int totalRequests() {
+        return REQ_COUNT.get();
+    }
+
     public void clearPendingCache() {
         pendingGets.clear();
         pendingPosts.clear();

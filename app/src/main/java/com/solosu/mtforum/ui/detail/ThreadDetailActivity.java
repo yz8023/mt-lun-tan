@@ -805,6 +805,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.binding.tvContent.setGravity(17);
         }
         boolean z3 = true;
+        // build71: 记浏览历史
+        com.solosu.mtforum.session.HistoryStore.record(this, this.tid,
+                postDetail.getTitle(), postDetail.getAuthor());
         boolean hasHidden = postDetail.isHasHiddenContent();
         // build68: 记下来，回到列表时给这个帖子打「隐藏」标
         com.solosu.mtforum.session.PostCountsCache.markHasHidden(this.tid, hasHidden);
@@ -4496,22 +4499,7 @@ private void viewHiddenContent() {
 
     // ==================== build70: BBCode 工具条与预览 ====================
 
-    /** 常用 BBCode 预设：标签名 -> {插入前缀, 插入后缀} */
-    private static final String[][] BBCODE_PRESETS = {
-            {"加粗", "[b]", "[/b]"},
-            {"斜体", "[i]", "[/i]"},
-            {"下划线", "[u]", "[/u]"},
-            {"删除线", "[s]", "[/s]"},
-            {"颜色", "[color=#ff0000]", "[/color]"},
-            {"字号", "[size=4]", "[/size]"},
-            {"链接", "[url=]", "[/url]"},
-            {"图片", "[img]", "[/img]"},
-            {"代码", "[code]\n", "\n[/code]"},
-            {"引用", "[quote]", "[/quote]"},
-            {"隐藏", "[hide]", "[/hide]"},
-            {"居中", "[align=center]", "[/align]"},
-    };
-
+    /** build71: BBCode 工具条与实时预览，实现见 ui.widget.BBCodeEditor */
     private void setupBBCodeTools(final View dialogView,
                                   final com.google.android.material.textfield.TextInputEditText input) {
         final android.widget.LinearLayout bar = dialogView.findViewById(R.id.ll_bbcode_tools);
@@ -4520,73 +4508,28 @@ private void viewHiddenContent() {
         final TextView previewText = dialogView.findViewById(R.id.tv_bbcode_preview);
         if (bar == null || input == null) return;
 
-        float density = getResources().getDisplayMetrics().density;
-        int gap = (int) (6 * density);
-        int padH = (int) (10 * density);
-        int padV = (int) (6 * density);
+        com.solosu.mtforum.ui.widget.BBCodeEditor.buildToolbar(this, bar, input, true);
 
-        bar.removeAllViews();
-        for (final String[] preset : BBCODE_PRESETS) {
-            TextView chip = new TextView(this);
-            chip.setText(preset[0]);
-            chip.setTextSize(12f);
-            chip.setTextColor(getColor(R.color.primary));
-            chip.setBackgroundResource(R.drawable.bg_quick_reply_chip);
-            chip.setPadding(padH, padV, padH, padV);
-            android.widget.LinearLayout.LayoutParams lp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = gap;
-            chip.setLayoutParams(lp);
-            com.solosu.mtforum.ui.anim.Motion.pressFeedback(chip, 0.92f);
-            chip.setOnClickListener(v -> wrapSelection(input, preset[1], preset[2]));
-            bar.addView(chip);
-        }
+        if (previewBox != null && previewText != null) {
+            // build71: 改成实时预览，默认就展开 —— 之前要来回点「预览/编辑」切换，
+            // 改一个字得切两次，很难用。
+            android.view.ViewGroup.LayoutParams lp = previewBox.getLayoutParams();
+            lp.height = (int) (150 * getResources().getDisplayMetrics().density);
+            previewBox.setLayoutParams(lp);
+            previewBox.setVisibility(View.VISIBLE);
+            com.solosu.mtforum.ui.widget.BBCodeEditor.bindLivePreview(this, input, previewText);
 
-        if (btnPreview != null && previewBox != null && previewText != null) {
-            com.solosu.mtforum.ui.anim.Motion.pressFeedback(btnPreview, 0.94f);
-            btnPreview.setOnClickListener(v -> {
-                boolean showing = previewBox.getVisibility() == View.VISIBLE;
-                if (showing) {
-                    previewBox.setVisibility(View.GONE);
-                    ((com.google.android.material.button.MaterialButton) btnPreview).setText("预览");
-                    return;
-                }
-                String raw = input.getText() == null ? "" : input.getText().toString();
-                if (TextUtils.isEmpty(raw)) {
-                    Toast.makeText(this, "先写点内容再预览", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                String html = com.solosu.mtforum.util.BBCodeUtil.convertBBCodeToHtml(raw);
-                previewText.setText(safeFromHtml(html,
-                        createInlineImageGetter(previewText),
-                        com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
-                android.view.ViewGroup.LayoutParams lp = previewBox.getLayoutParams();
-                lp.height = (int) (180 * getResources().getDisplayMetrics().density);
-                previewBox.setLayoutParams(lp);
-                previewBox.setVisibility(View.VISIBLE);
-                ((com.google.android.material.button.MaterialButton) btnPreview).setText("编辑");
-            });
+            if (btnPreview != null) {
+                com.solosu.mtforum.ui.anim.Motion.pressFeedback(btnPreview, 0.94f);
+                ((com.google.android.material.button.MaterialButton) btnPreview).setText("收起预览");
+                btnPreview.setOnClickListener(v -> {
+                    boolean showing = previewBox.getVisibility() == View.VISIBLE;
+                    previewBox.setVisibility(showing ? View.GONE : View.VISIBLE);
+                    ((com.google.android.material.button.MaterialButton) btnPreview)
+                            .setText(showing ? "显示预览" : "收起预览");
+                });
+            }
         }
     }
 
-    /**
-     * 把 BBCode 标签套在当前选区上；没选中就插入一对标签并把光标放中间。
-     */
-    private static void wrapSelection(
-            com.google.android.material.textfield.TextInputEditText input,
-            String open, String close) {
-        if (input == null) return;
-        android.text.Editable e = input.getText();
-        if (e == null) return;
-        int st = Math.max(0, input.getSelectionStart());
-        int en = Math.max(st, input.getSelectionEnd());
-        String selected = e.subSequence(st, en).toString();
-        String insert = open + selected + close;
-        e.replace(st, en, insert);
-        // 有选区就把光标放到闭合标签后，没选区就放中间方便直接打字
-        int caret = selected.isEmpty() ? st + open.length() : st + insert.length();
-        input.setSelection(Math.min(caret, e.length()));
-    }
 }

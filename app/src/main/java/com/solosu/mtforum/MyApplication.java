@@ -25,6 +25,27 @@ public class MyApplication extends Application {
         // build66: 先应用用户选择的深色模式，避免首屏闪一下
         com.solosu.mtforum.ui.theme.ThemeManager.applySaved(this);
 
+        // build71: 主题色之前只在 MainActivity 创建时刷一次，别的页面根本没应用，
+        // 所以看起来「全局不生效」。改为每个 Activity 恢复时都刷一遍内容树。
+        registerActivityLifecycleCallbacks(
+                new android.app.Application.ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityResumed(android.app.Activity a) {
+                if (!com.solosu.mtforum.ui.theme.ThemeManager.isAccentCustomised(a)) return;
+                final android.view.View root = a.findViewById(android.R.id.content);
+                if (root == null) return;
+                root.post(() ->
+                        com.solosu.mtforum.ui.theme.ThemeManager.applyAccent(root, a));
+            }
+
+            @Override public void onActivityCreated(android.app.Activity a, android.os.Bundle b) {}
+            @Override public void onActivityStarted(android.app.Activity a) {}
+            @Override public void onActivityPaused(android.app.Activity a) {}
+            @Override public void onActivityStopped(android.app.Activity a) {}
+            @Override public void onActivitySaveInstanceState(android.app.Activity a, android.os.Bundle b) {}
+            @Override public void onActivityDestroyed(android.app.Activity a) {}
+        });
+
         HttpClient.getInstance().init(this);
 
         // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登

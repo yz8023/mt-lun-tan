@@ -410,7 +410,9 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
                     changed = true;
                 }
             }
-            if (changed) threadAdapter.notifyDataSetChanged();
+            // build71: 隐藏标记也是进过详情页才知道的，不能只在点赞数变了时才刷新，
+            // 否则「隐藏」标签永远不出现 —— 这就是之前标签没显示的原因。
+            threadAdapter.notifyDataSetChanged();
         } catch (Exception ignore) {
         }
     }

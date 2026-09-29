@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.1（versionCode 16）**
+当前版本：**v3.2（versionCode 17）**
 
 ---
+
+## v3.2：BBCode 编辑器 · 浏览历史
+
+实时预览 + 21 个标签预设 + RGB 取色器 + 彩虹字；浏览历史；
+修复隐藏帖标签不显示、主题色全局不生效；耗时日志加「本次请求 N 个」。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.1：图片点击修对 · 帖子秒开 · 回复框重做
 

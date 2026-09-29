@@ -29,13 +29,19 @@ public final class PerfLog {
      * @param parseMs 解析耗时
      * @param bytes   页面字节数
      */
+    private static int lastReqCount = 0;
+
     public static void record(String what, long netMs, long parseMs, int bytes) {
+        int now = com.solosu.mtforum.network.HttpClient.totalRequests();
+        int delta = Math.max(0, now - lastReqCount);
+        lastReqCount = now;
         String line = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date())
                 + "  " + what
                 + "  网络 " + netMs + "ms"
                 + " | 解析 " + parseMs + "ms"
                 + " | 合计 " + (netMs + parseMs) + "ms"
                 + " | " + (bytes / 1024) + "KB"
+                + " | 本次请求 " + delta + " 个"
                 + "  [" + com.solosu.mtforum.network.RequestThrottle.stats() + "]";
         synchronized (ENTRIES) {
             ENTRIES.add(line);

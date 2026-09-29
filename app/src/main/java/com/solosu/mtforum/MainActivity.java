@@ -340,6 +340,15 @@ public class MainActivity extends AppCompatActivity {
             accountsRow.setOnClickListener(v -> openAccountManager());
         }
 
+        // build71: 浏览历史（长按运行日志入口打开，避免再加一行占空间）
+        View logRow = findViewById(R.id.drawer_log);
+        if (logRow != null) {
+            logRow.setOnLongClickListener(v -> {
+                showBrowseHistory();
+                return true;
+            });
+        }
+
         // build67: 帖子页 AI 总结按钮开关
         SwitchMaterial swAiSummary = findViewById(R.id.drawer_switch_ai_summary);
         if (swAiSummary != null) {
@@ -1608,4 +1617,37 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "再按一次返回键退出", Toast.LENGTH_SHORT).show();
     }
 
+
+    /** build71: 浏览历史（长按侧边栏「运行日志」打开） */
+    private void showBrowseHistory() {
+        java.util.List<com.solosu.mtforum.session.HistoryStore.Item> list =
+                com.solosu.mtforum.session.HistoryStore.list(this);
+        if (list.isEmpty()) {
+            Toast.makeText(this, "还没有浏览记录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.text.SimpleDateFormat fmt =
+                new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault());
+        String[] items = new String[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            com.solosu.mtforum.session.HistoryStore.Item it = list.get(i);
+            items[i] = fmt.format(new java.util.Date(it.at)) + "  " + it.title
+                    + (android.text.TextUtils.isEmpty(it.author) ? "" : "\n            " + it.author);
+        }
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("浏览历史（" + list.size() + "）")
+                .setItems(items, (d, which) -> {
+                    Intent it = new Intent(this,
+                            com.solosu.mtforum.ui.detail.ThreadDetailActivity.class);
+                    it.putExtra("tid", list.get(which).tid);
+                    startActivity(it);
+                })
+                .setNeutralButton("清空", (d, w) -> {
+                    com.solosu.mtforum.session.HistoryStore.clear(this);
+                    Toast.makeText(this, "已清空浏览历史", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
+    }
 }
