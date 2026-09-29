@@ -92,6 +92,36 @@ public class AccountManager {
             return "今日未签到";
         }
 
+        /** 最近一次签到的时刻，形如 08:32；没签过返回空串 */
+        public String lastSignTimeText() {
+            if (lastSignTime <= 0) return "";
+            return new SimpleDateFormat("HH:mm", Locale.getDefault())
+                    .format(new Date(lastSignTime));
+        }
+
+        /**
+         * 侧边栏平铺账号行的签到文案（build61）。
+         * 已签：{@code ✓ 已签 08:32 · +5 金币}；未签：{@code 今日未签到}。
+         */
+        public String drawerSignText() {
+            if (isSignedToday()) {
+                StringBuilder sb = new StringBuilder("✓ 已签");
+                String time = lastSignTimeText();
+                if (!TextUtils.isEmpty(time)) sb.append(' ').append(time);
+                if (!TextUtils.isEmpty(lastSignReward) && !"0".equals(lastSignReward)) {
+                    sb.append(" · +").append(lastSignReward).append(" 金币");
+                }
+                if (!TextUtils.isEmpty(lastSignRanking)) {
+                    sb.append(" · 第").append(lastSignRanking).append("名");
+                }
+                return sb.toString();
+            }
+            if (!TextUtils.isEmpty(lastSignStatus)) {
+                return "今日未签 · 上次：" + lastSignStatus;
+            }
+            return "今日未签到";
+        }
+
         @Override
         public String toString() {
             return displayName() + "(" + uid + ")";

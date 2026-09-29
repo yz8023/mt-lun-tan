@@ -2,9 +2,20 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v2.1（versionCode 6）**
+当前版本：**v2.2（versionCode 7）**
 
 ---
+
+## v2.2 新增：侧边栏重排 · 账号平铺快切 · 掉线自动重登
+
+- **侧边栏按场景重新分组**：账号 → 签到 → AI 自动化 → 其他
+- **账号平铺**：侧边栏直接列出所有账号，点一下即切换，每行显示今日签到状态 / 时间 / 金币 / 排名
+- **掉线自动重登**：浏览时被 403 打掉会话，自动用加密保存的密码静默重登（`SessionGuard`）
+- **密码只写不读**：已存密码只显示 `••••••••`，可覆盖可清除，永不回显
+- 修复：登录后侧边栏仍显示「未登录」、消息页底部被导航栏遮挡、私信气泡是直角方块、
+  长消息与列表文字被硬截断
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v2.1 新增：多账号登录 · 切换 · 批量签到
 
@@ -64,6 +75,7 @@ app/src/main/java/com/solosu/mtforum/
 │   ├── SignInScheduler.java       WorkManager 每日排程
 │   ├── SignInWorker.java          后台签到任务
 │   ├── SignInNotifier.java        结果通知
+│   ├── SessionGuard.java          403/掉线时用已存密码静默重登
 │   └── AutoSignInManager.java     入口分流（多账号 / 单账号）
 ├── ui/account/
 │   ├── AccountManagerActivity.java 账号与签到管理页

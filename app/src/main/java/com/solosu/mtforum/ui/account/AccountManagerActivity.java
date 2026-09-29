@@ -310,7 +310,7 @@ public class AccountManagerActivity extends AppCompatActivity implements Account
     @Override
     public void onPassword(AccountManager.Account account) {
         final EditText et = new EditText(this);
-        et.setHint("输入 " + account.displayName() + " 的论坛密码");
+        et.setHint(account.hasPassword() ? "输入新密码以覆盖" : "输入 " + account.displayName() + " 的论坛密码");
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         et.setTextColor(getResources().getColor(R.color.text_primary));
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
@@ -319,10 +319,16 @@ public class AccountManagerActivity extends AppCompatActivity implements Account
         wrapper.addView(et, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        // build61: 已存密码只显示占位符，绝不回显明文；输入新的即覆盖
+        String tip = account.hasPassword()
+                ? "当前状态：已保存密码（••••••••）\n"
+                + "出于安全考虑不回显原密码，输入新密码即可覆盖。"
+                : "密码经 Android KeyStore 的 AES-GCM 加密后仅保存在本机，\n"
+                + "用于 403 掉线 / Cookie 过期时自动重新登录。";
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("托管密码")
-                .setMessage("密码经 Android KeyStore 的 AES-GCM 加密后仅保存在本机，\n"
-                        + "用于 Cookie 过期时自动重新登录并继续签到。")
+                .setTitle(account.hasPassword() ? "修改密码" : "保存密码")
+                .setMessage(tip)
                 .setView(wrapper)
                 .setPositiveButton("保存", (d, w) -> {
                     String pwd = et.getText().toString().trim();

@@ -126,6 +126,12 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvDrawerSubtitle;
     private TextView tvAiDesc;
     private ImageView ivDrawerAvatar;
+    // build61: 侧边栏平铺账号列表
+    private android.widget.LinearLayout drawerAccountList;
+    private TextView drawerAccountEmpty;
+    private TextView tvAccountsDesc;
+    private TextView tvSignInDesc;
+    private TextView tvRunSignInDesc;
 
     /** 侧边栏开关的读写/跳转 */
     private void initDrawer() {
@@ -163,6 +169,11 @@ public class MainActivity extends AppCompatActivity {
         tvDrawerSubtitle = findViewById(R.id.drawer_subtitle);
         tvAiDesc = findViewById(R.id.drawer_ai_desc);
         ivDrawerAvatar = findViewById(R.id.drawer_avatar);
+        drawerAccountList = findViewById(R.id.drawer_account_list);
+        drawerAccountEmpty = findViewById(R.id.drawer_account_empty);
+        tvAccountsDesc = findViewById(R.id.drawer_accounts_desc);
+        tvSignInDesc = findViewById(R.id.drawer_sign_in_desc);
+        tvRunSignInDesc = findViewById(R.id.drawer_run_sign_in_desc);
         // build57: 侧边栏头部(头像/用户名/UID行)点击进自己主页
         View.OnClickListener ownProfile = v -> openOwnProfile();
         ivDrawerAvatar.setOnClickListener(ownProfile);
@@ -286,13 +297,20 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        // 切换账号：短按快速切换，长按/无账号时进完整的账号与签到管理页
+        // build61: 账号已在上方平铺，这一行直接进完整管理页
         View accountsRow = findViewById(R.id.drawer_accounts);
         if (accountsRow != null) {
-            accountsRow.setOnClickListener(v -> showAccountSwitcher());
-            accountsRow.setOnLongClickListener(v -> {
-                openAccountManager();
-                return true;
+            accountsRow.setOnClickListener(v -> openAccountManager());
+        }
+
+        // 添加账号
+        View addAccountRow = findViewById(R.id.drawer_add_account);
+        if (addAccountRow != null) {
+            addAccountRow.setOnClickListener(v -> {
+                com.solosu.mtforum.ui.login.LoginBottomSheet.show(this, () -> {
+                    Toast.makeText(this, "账号已添加", Toast.LENGTH_SHORT).show();
+                    refreshDrawerHeader();
+                });
             });
         }
 
@@ -377,83 +395,269 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 账号切换弹窗:当前账号高亮,点选切换,支持登录新账号/删除 */
-    private void showAccountSwitcher() {
+    // ==================== build61: 侧边栏平铺账号 ====================
+
+    /**
+     * 把已保存的账号平铺到侧边栏，点一下直接切换。
+     * 每行展示：头像、昵称、是否当前、今日签到状态（时间 + 金币）。
+     */
+    private void renderAccountList() {
+        if (drawerAccountList == null) return;
+        drawerAccountList.removeAllViews();
+
         java.util.List<com.solosu.mtforum.session.AccountManager.Account> accounts =
                 com.solosu.mtforum.session.AccountManager.list(this);
         String activeUid = com.solosu.mtforum.session.AccountManager.activeUid(this);
-        String curName = UserSessionManager.getInstance().getUsername(this);
-        String curUid = UserSessionManager.getInstance().getUid(this);
-        boolean curLogged = UserSessionManager.getInstance().isLoggedIn(this);
 
-        // 若当前登录账号未入库(比如老用户),先补存
-        if (curLogged && !android.text.TextUtils.isEmpty(curUid)) {
-            com.solosu.mtforum.session.AccountManager.saveCurrent(this, curUid, curName,
-                    UserSessionManager.getInstance().getAvatarUrl(this),
-                    UserSessionManager.getInstance().getLevel(this));
-            accounts = com.solosu.mtforum.session.AccountManager.list(this);
-            activeUid = com.solosu.mtforum.session.AccountManager.activeUid(this);
+        // 老用户可能在本功能上线前就登录了，账号库里没有记录。
+        // 这种情况下用当前会话合成一行，别让侧边栏显示成"没有账号"。
+        if (accounts.isEmpty()) {
+            com.solosu.mtforum.session.AccountManager.Account current = synthesizeCurrentAccount();
+            if (current == null) {
+                if (drawerAccountEmpty != null) drawerAccountEmpty.setVisibility(View.VISIBLE);
+                return;
+            }
+            accounts = new java.util.ArrayList<>();
+            accounts.add(current);
+            activeUid = current.uid;
         }
-        final java.util.List<com.solosu.mtforum.session.AccountManager.Account> fAccounts = accounts;
-        final String fActiveUid = activeUid;
+        if (drawerAccountEmpty != null) drawerAccountEmpty.setVisibility(View.GONE);
 
-        java.util.List<String> labels = new java.util.ArrayList<>();
-        for (com.solosu.mtforum.session.AccountManager.Account a : fAccounts) {
-            String mark = (fActiveUid != null && fActiveUid.equals(a.uid)) ? "  [当前]" : "";
-            String sign = a.isSignedToday() ? "  ✓今日已签" : "";
-            labels.add(a.displayName() + mark + sign);
+        android.view.LayoutInflater inflater = android.view.LayoutInflater.from(this);
+        for (com.solosu.mtforum.session.AccountManager.Account account : accounts) {
+            View row = inflater.inflate(R.layout.item_drawer_account, drawerAccountList, false);
+            bindAccountRow(row, account, activeUid);
+            drawerAccountList.addView(row);
         }
-        labels.add("＋ 登录新账号");
-        labels.add("⚙ 账号与签到管理");
+    }
 
-        String[] arr = labels.toArray(new String[0]);
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("切换账号")
-                .setItems(arr, (d, which) -> {
-                    if (which == fAccounts.size() + 1) {
-                        openAccountManager();
-                        return;
+    /** 账号库为空但会话还活着时，用当前登录信息拼一个展示用账号 */
+    private com.solosu.mtforum.session.AccountManager.Account synthesizeCurrentAccount() {
+        UserSessionManager session = UserSessionManager.getInstance();
+        boolean cookieAlive;
+        try {
+            cookieAlive = HttpClient.getInstance().isLoggedIn();
+        } catch (Exception e) {
+            cookieAlive = false;
+        }
+        if (!session.isLoggedIn(this) && !cookieAlive) return null;
+
+        com.solosu.mtforum.session.AccountManager.Account a =
+                new com.solosu.mtforum.session.AccountManager.Account();
+        String uid = session.getUid(this);
+        a.uid = android.text.TextUtils.isEmpty(uid) ? "current" : uid;
+        String name = session.getUsername(this);
+        a.username = android.text.TextUtils.isEmpty(name) ? "当前账号" : name;
+        a.avatar = session.getAvatarUrl(this);
+        a.level = session.getLevel(this);
+        // 当前会话的签到状态沿用全局记录
+        if (session.isSignedInToday(this)) {
+            a.lastSignDate = com.solosu.mtforum.session.AccountManager.today();
+            a.lastSignStatus = "今日已签";
+        }
+        return a;
+    }
+
+    private void bindAccountRow(View row,
+                                final com.solosu.mtforum.session.AccountManager.Account account,
+                                String activeUid) {
+        boolean isActive = activeUid != null && activeUid.equals(account.uid);
+
+        ImageView avatar = row.findViewById(R.id.iv_account_avatar);
+        TextView name = row.findViewById(R.id.tv_account_name);
+        TextView current = row.findViewById(R.id.tv_account_current);
+        TextView signState = row.findViewById(R.id.tv_account_sign);
+        TextView signBtn = row.findViewById(R.id.btn_account_sign);
+
+        name.setText(account.displayName());
+        current.setVisibility(isActive ? View.VISIBLE : View.GONE);
+        row.setBackgroundResource(isActive
+                ? R.drawable.bg_drawer_account_active
+                : R.drawable.bg_drawer_account);
+
+        boolean signed = account.isSignedToday();
+        signState.setText(account.drawerSignText());
+        signState.setTextColor(getResources().getColor(
+                signed ? R.color.success : R.color.text_hint));
+
+        signBtn.setText(signed ? "已签" : "签到");
+        signBtn.setBackgroundResource(signed
+                ? R.drawable.bg_sign_chip_done : R.drawable.bg_sign_chip);
+        signBtn.setEnabled(!signed);
+        signBtn.setOnClickListener(signed ? null : v -> signSingleAccount(account));
+
+        if (!android.text.TextUtils.isEmpty(account.avatar)) {
+            try {
+                com.bumptech.glide.Glide.with(this)
+                        .load(account.avatar)
+                        .placeholder(R.drawable.ic_account)
+                        .error(R.drawable.ic_account)
+                        .circleCrop()
+                        .into(avatar);
+            } catch (Exception ignored) {
+                avatar.setImageResource(R.drawable.ic_account);
+            }
+        } else {
+            avatar.setImageResource(R.drawable.ic_account);
+        }
+
+        // 点整行 = 立即切换
+        row.setOnClickListener(v -> {
+            if (isActive) {
+                Toast.makeText(this, "已是当前账号", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            switchToAccount(account);
+        });
+        // 长按 = 更多操作
+        row.setOnLongClickListener(v -> {
+            showAccountActions(account, isActive);
+            return true;
+        });
+    }
+
+    /** 切到指定账号：cookie 快照回灌 + 展示层同步 */
+    private void switchToAccount(com.solosu.mtforum.session.AccountManager.Account account) {
+        boolean ok = com.solosu.mtforum.session.AccountManager.switchTo(this, account.uid);
+        if (!ok) {
+            Toast.makeText(this, "该账号登录态已失效，正在尝试用已保存的密码重登…",
+                    Toast.LENGTH_SHORT).show();
+            com.solosu.mtforum.session.SessionGuard.reloginAccount(this, account.uid, (success, message) -> {
+                if (isFinishing() || isDestroyed()) return;
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                if (success) applySwitchedAccount(account);
+            });
+            return;
+        }
+        applySwitchedAccount(account);
+    }
+
+    private void applySwitchedAccount(com.solosu.mtforum.session.AccountManager.Account account) {
+        java.util.Map<String, String> info = new java.util.HashMap<>();
+        info.put("username", account.displayName());
+        info.put("uid", account.uid);
+        info.put("avatarUrl", account.avatar != null ? account.avatar : "");
+        info.put("level", account.level != null ? account.level : "");
+        UserSessionManager.getInstance().saveLoginInfo(this, info);
+        // 签到日期是按账号算的，切号后必须清掉，否则新账号会被误判"今日已签"
+        UserSessionManager.getInstance().clearSignInDate(this);
+        Toast.makeText(this, "已切换到 " + account.displayName(), Toast.LENGTH_SHORT).show();
+        refreshDrawerHeader();
+        com.solosu.mtforum.ui.community.CommunityFragment.refreshSignIn();
+    }
+
+    /** 单个账号补签 */
+    private void signSingleAccount(com.solosu.mtforum.session.AccountManager.Account account) {
+        Toast.makeText(this, "正在给 " + account.displayName() + " 签到…", Toast.LENGTH_SHORT).show();
+        com.solosu.mtforum.session.MultiSignInManager.signInOne(this, account.uid, true,
+                new com.solosu.mtforum.session.MultiSignInManager.Callback() {
+                    @Override
+                    public void onProgress(int index, int total, String username) {
                     }
-                    if (which == fAccounts.size()) {
-                        // 登录新账号:先保存当前,再弹登录
-                        drawerLayout.closeDrawer(drawerPanel);
-                        com.solosu.mtforum.ui.login.LoginBottomSheet.show(this, () -> {
-                            // 登录成功后入库并刷新
-                            String n = UserSessionManager.getInstance().getUsername(this);
-                            String u = UserSessionManager.getInstance().getUid(this);
-                            if (!android.text.TextUtils.isEmpty(u)) {
-                                com.solosu.mtforum.session.AccountManager.saveCurrent(this, u, n,
-                                        UserSessionManager.getInstance().getAvatarUrl(this),
-                                        UserSessionManager.getInstance().getLevel(this));
-                            }
-                            refreshDrawerHeader();
-                        });
-                        return;
-                    }
-                    final com.solosu.mtforum.session.AccountManager.Account target = fAccounts.get(which);
-                    if (target.uid.equals(curUid) && curLogged) {
-                        Toast.makeText(this, "已是当前账号", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    // 切换:cookie 快照回灌 + 更新 UserSessionManager 展示层
-                    boolean ok = com.solosu.mtforum.session.AccountManager.switchTo(this, target.uid);
-                    if (ok) {
-                        java.util.Map<String, String> info = new java.util.HashMap<>();
-                        info.put("username", target.username);
-                        info.put("uid", target.uid);
-                        info.put("avatarUrl", target.avatar != null ? target.avatar : "");
-                        info.put("level", target.level != null ? target.level : "");
-                        UserSessionManager.getInstance().saveLoginInfo(this, info);
-                        // build60: 签到日期是按账号算的，切号后必须清掉，否则新账号会被误判"今日已签"
-                        UserSessionManager.getInstance().clearSignInDate(this);
-                        Toast.makeText(this, "已切换到 " + target.displayName(), Toast.LENGTH_SHORT).show();
+
+                    @Override
+                    public void onFinished(
+                            com.solosu.mtforum.session.MultiSignInManager.Summary summary) {
+                        if (isFinishing() || isDestroyed()) return;
+                        String msg = summary.items.isEmpty()
+                                ? "签到结束" : summary.items.get(0).line();
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                         refreshDrawerHeader();
-                    } else {
-                        Toast.makeText(this, "切换失败，请重新登录该账号", Toast.LENGTH_SHORT).show();
+                        com.solosu.mtforum.ui.community.CommunityFragment.refreshSignIn();
+                    }
+                });
+    }
+
+    /** 长按账号行的操作菜单 */
+    private void showAccountActions(com.solosu.mtforum.session.AccountManager.Account account,
+                                    boolean isActive) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        if (!isActive) items.add("切换到该账号");
+        items.add(account.hasPassword() ? "修改密码" : "保存密码（用于掉线自动重登）");
+        if (account.hasPassword()) items.add("清除已保存的密码");
+        items.add("账号与签到管理");
+        items.add("删除该账号");
+
+        String[] arr = items.toArray(new String[0]);
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(account.displayName())
+                .setItems(arr, (d, which) -> {
+                    String action = arr[which];
+                    switch (action) {
+                        case "切换到该账号":
+                            switchToAccount(account);
+                            break;
+                        case "账号与签到管理":
+                            openAccountManager();
+                            break;
+                        case "清除已保存的密码":
+                            com.solosu.mtforum.session.AccountManager.clearPassword(this, account.uid);
+                            Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show();
+                            refreshDrawerHeader();
+                            break;
+                        case "删除该账号":
+                            confirmDeleteAccount(account);
+                            break;
+                        default:
+                            showPasswordDialog(account);
+                            break;
                     }
                 })
-                .setNegativeButton("关闭", null)
+                .setNegativeButton("取消", null)
                 .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
+    /** 密码只写不读：已存密码只显示占位符，永不回显明文 */
+    private void showPasswordDialog(com.solosu.mtforum.session.AccountManager.Account account) {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint(account.hasPassword() ? "输入新密码以覆盖" : "输入论坛密码");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        et.setTextColor(getResources().getColor(R.color.text_primary));
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout wrap = new android.widget.LinearLayout(this);
+        wrap.setPadding(pad, pad / 2, pad, 0);
+        wrap.addView(et, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        String msg = account.hasPassword()
+                ? "当前状态：已保存密码（••••••••）\n出于安全考虑不回显原密码，输入新密码即可覆盖。"
+                : "密码经 Android KeyStore 的 AES-GCM 加密后只存本机，用于 403 掉线时自动重新登录。";
+
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(account.hasPassword() ? "修改密码" : "保存密码")
+                .setMessage(msg)
+                .setView(wrap)
+                .setPositiveButton("保存", (d, w) -> {
+                    String pwd = et.getText().toString().trim();
+                    if (android.text.TextUtils.isEmpty(pwd)) {
+                        Toast.makeText(this, "密码为空，未保存", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    com.solosu.mtforum.session.AccountManager.setPassword(this, account.uid, pwd);
+                    Toast.makeText(this, "已加密保存", Toast.LENGTH_SHORT).show();
+                    refreshDrawerHeader();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
+    private void confirmDeleteAccount(com.solosu.mtforum.session.AccountManager.Account account) {
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除账号")
+                .setMessage("确定从本机移除 " + account.displayName() + " 吗？\n"
+                        + "只删除本地登录态和密码，不影响论坛账号本身。")
+                .setPositiveButton("删除", (d, w) -> {
+                    com.solosu.mtforum.session.AccountManager.remove(this, account.uid);
+                    Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show();
+                    refreshDrawerHeader();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
     }
 
     private void openOwnProfile() {
@@ -476,29 +680,57 @@ public class MainActivity extends AppCompatActivity {
         startActivity(it);
     }
 
+    /**
+     * 刷新侧边栏头部与各行副标题。
+     *
+     * build61 修两个"明明登录了却显示未登录"的坑：
+     *  1) drawer_accounts_desc 在 XML 里写死成"当前账号：未登录"，此前代码从未赋值过；
+     *  2) UserSessionManager.isLoggedIn() 强依赖 uid，抓资料页失败时 uid 为空就判未登录 ——
+     *     这里补一条"Cookie 还活着也算已登录"的兜底，并顺手异步把 uid 补回来。
+     */
     private void refreshDrawerHeader() {
         if (tvDrawerName == null) return;
         UserSessionManager session = UserSessionManager.getInstance();
-        boolean logged = session.isLoggedIn(this);
+        boolean profileLogged = session.isLoggedIn(this);
+        boolean cookieAlive = false;
+        try {
+            cookieAlive = HttpClient.getInstance().isLoggedIn();
+        } catch (Exception ignored) {
+        }
+        boolean logged = profileLogged || cookieAlive;
         String name = session.getUsername(this);
-        tvDrawerName.setText(!logged || android.text.TextUtils.isEmpty(name) ? "未登录" : name);
+
+        if (!logged) {
+            tvDrawerName.setText("未登录");
+        } else if (android.text.TextUtils.isEmpty(name)) {
+            tvDrawerName.setText("已登录");
+        } else {
+            tvDrawerName.setText(name);
+        }
+
+        // Cookie 有效但资料缺失 -> 后台补抓 uid/头像，下次进来就正常了
+        if (cookieAlive && !profileLogged) {
+            AutoSignInManager.syncCurrentSessionToAccounts(this);
+        }
 
         if (tvDrawerSubtitle != null) {
             String uid = session.getUid(this);
             if (logged && !android.text.TextUtils.isEmpty(uid)) {
                 String shield = session.getLevel(this);
-                // build57: level 存储值可能自带 Lv 前缀(ForumParser 抓整行文本), 剥掉防 Lv.Lv.
+                // level 存储值可能自带 Lv 前缀(ForumParser 抓整行文本), 剥掉防 Lv.Lv.
                 String lv = shield == null ? "" : shield.trim();
                 if (lv.length() >= 2 && (lv.charAt(0) == 'L' || lv.charAt(0) == 'l')
                         && (lv.charAt(1) == 'V' || lv.charAt(1) == 'v')) {
                     lv = lv.substring(2);
-                    while (lv.startsWith(".") || lv.startsWith(".")) lv = lv.substring(1);
+                    while (lv.startsWith(".")) lv = lv.substring(1);
                     lv = lv.trim();
                 }
                 tvDrawerSubtitle.setText(android.text.TextUtils.isEmpty(lv)
                         ? "UID " + uid : "UID " + uid + " · Lv." + lv);
+            } else if (logged) {
+                tvDrawerSubtitle.setText("正在同步资料…");
             } else {
-                tvDrawerSubtitle.setText("点击侧边栏开启自动化");
+                tvDrawerSubtitle.setText("点击登录后使用自动化功能");
             }
         }
 
@@ -516,7 +748,44 @@ public class MainActivity extends AppCompatActivity {
                         .error(R.drawable.ic_account)
                         .circleCrop()
                         .into(ivDrawerAvatar);
+            } else {
+                ivDrawerAvatar.setImageResource(R.drawable.ic_account);
             }
+        }
+
+        refreshDrawerDescriptions(logged, name);
+        renderAccountList();
+    }
+
+    /** 各功能行的副标题，之前全是 XML 写死的静态文案 */
+    private void refreshDrawerDescriptions(boolean logged, String name) {
+        int total = com.solosu.mtforum.session.AccountManager.count(this);
+        int signed = 0;
+        for (com.solosu.mtforum.session.AccountManager.Account a
+                : com.solosu.mtforum.session.AccountManager.list(this)) {
+            if (a.isSignedToday()) signed++;
+        }
+
+        if (tvAccountsDesc != null) {
+            String current = logged && !android.text.TextUtils.isEmpty(name) ? name : "未登录";
+            tvAccountsDesc.setText(total > 0
+                    ? "当前：" + current + " · 共 " + total + " 个账号"
+                    : "当前：" + current);
+        }
+
+        if (tvSignInDesc != null) {
+            if (com.solosu.mtforum.session.SignInSettings.isScheduleEnabled(this)) {
+                tvSignInDesc.setText("启动时自动打卡 · 每天 "
+                        + com.solosu.mtforum.session.SignInSettings.getTimeText(this) + " 定时");
+            } else {
+                tvSignInDesc.setText("启动时自动打卡");
+            }
+        }
+
+        if (tvRunSignInDesc != null) {
+            tvRunSignInDesc.setText(total > 0
+                    ? "今日已签 " + signed + "/" + total + " 个账号"
+                    : "还没有可签到的账号");
         }
     }
 
@@ -967,6 +1236,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
+        // build61: 回前台先确认登录态，掉线则用已保存的密码静默重登
+        com.solosu.mtforum.session.SessionGuard.ensureSession(this, (success, message) -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (success) refreshDrawerHeader();
+        });
         // build60: 老用户/首次登录可能还没入账号库，补一次，多账号签到才有数据
         AutoSignInManager.syncCurrentSessionToAccounts(this);
         AutoSignInManager.checkAndSignIn(this, (success, performed, message) -> {

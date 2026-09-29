@@ -5,6 +5,7 @@ import android.app.Application;
 import com.solosu.mtforum.ai.AiLog;
 import com.solosu.mtforum.ai.AutoReplyScheduler;
 import com.solosu.mtforum.network.HttpClient;
+import com.solosu.mtforum.session.SessionGuard;
 import com.solosu.mtforum.session.SignInNotifier;
 import com.solosu.mtforum.session.SignInScheduler;
 import com.solosu.mtforum.util.CrashHandler;
@@ -22,6 +23,9 @@ public class MyApplication extends Application {
         // 恢复持久化的 Cookie —— 在任何 Activity 启动前执行
         // 防止从最近任务直接恢复 SearchActivity 等非 MainActivity 时登录态丢失
         HttpClient.getInstance().init(this);
+
+        // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登
+        HttpClient.setAuthFailureListener(() -> SessionGuard.onAuthFailure(this));
 
         // 运行日志落盘，App 被杀后仍可回看
         AiLog.attach(this);

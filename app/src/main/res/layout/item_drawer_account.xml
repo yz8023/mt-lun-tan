@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  侧边栏「平铺账号」单行（build61 新增）。
+  点整行 = 立即切到该账号；长按 = 更多操作（改密码 / 删除）。
+  右侧小按钮 = 只给这个账号补签。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/account_row"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="6dp"
+    android:background="@drawable/bg_drawer_account"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="9dp">
+
+    <ImageView
+        android:id="@+id/iv_account_avatar"
+        android:layout_width="38dp"
+        android:layout_height="38dp"
+        android:background="@drawable/circle_avatar_bg"
+        android:contentDescription="头像"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_account" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tv_account_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="用户名"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tv_account_current"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_active_bg"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="1dp"
+                android:text="当前"
+                android:textColor="@color/text_white"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- 签到状态：已签则显示 时间 + 金币，未签显示提示 -->
+        <TextView
+            android:id="@+id/tv_account_sign"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="今日未签到"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- 单账号补签；已签到时置灰 -->
+    <TextView
+        android:id="@+id/btn_account_sign"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/bg_sign_chip"
+        android:minWidth="46dp"
+        android:gravity="center"
+        android:paddingHorizontal="9dp"
+        android:paddingVertical="5dp"
+        android:text="签到"
+        android:textColor="@color/text_white"
+        android:textSize="11sp" />
+</LinearLayout>

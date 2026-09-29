@@ -97,6 +97,45 @@ public class HttpClient {
                 .build();
     }
 
+    // ==================== build61: 掉线回调 ====================
+
+    /**
+     * 登录态疑似失效时的回调。由 MyApplication 注册到 SessionGuard，
+     * 这样 network 包不用反向依赖 session 包。
+     */
+    public interface AuthFailureListener {
+        void onAuthFailure();
+    }
+
+    private static volatile AuthFailureListener authFailureListener;
+
+    public static void setAuthFailureListener(AuthFailureListener listener) {
+        authFailureListener = listener;
+    }
+
+    /**
+     * 判定一次响应是否意味着掉线，是则通知守卫去静默重登。
+     *
+     * <p>两种情形：
+     * <ul>
+     *   <li>HTTP 403 —— 论坛挂的阿里云 ESA 拦截，常常连带把会话打掉</li>
+     *   <li>本以为已登录，结果返回的是登录页</li>
+     * </ul>
+     * 只在"本地 cookie 还认为自己登录着"时才触发，避免游客状态下瞎重登。
+     */
+    private void checkAuthFailure(int httpCode, String body) {
+        AuthFailureListener listener = authFailureListener;
+        if (listener == null) return;
+        boolean suspicious = httpCode == 403
+                || (body != null
+                    && (body.contains("您需要先登录") || body.contains("请先登录后继续")));
+        if (!suspicious) return;
+        try {
+            listener.onAuthFailure();
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static HttpClient getInstance() {
         if (instance == null) {
             synchronized (HttpClient.class) {
@@ -137,6 +176,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
+                checkAuthFailure(response.code(), body);
                 future.complete(body);
                 return body;
             }
@@ -212,6 +252,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
+                checkAuthFailure(response.code(), body);
                 future.complete(body);
                 return body;
             }
@@ -260,6 +301,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
+                checkAuthFailure(response.code(), body);
                 future.complete(body);
                 return body;
             }
@@ -309,6 +351,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
+                checkAuthFailure(response.code(), body);
                 future.complete(body);
                 return body;
             }
