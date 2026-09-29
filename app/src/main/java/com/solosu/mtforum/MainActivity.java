@@ -197,6 +197,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         drawerPanel = findViewById(R.id.drawer_panel);
+        // build77: 侧边栏与底栏共用同一档不透明度，视觉统一（dyparse 那种悬浮玻璃面板）
+        if (drawerPanel != null) {
+            int navPct = com.solosu.mtforum.ui.theme.ThemeManager.navOpacity(this);
+            drawerPanel.setAlpha(Math.max(0.4f, navPct / 100f));
+        }
         swAutoReply = findViewById(R.id.drawer_switch_auto_reply);
         swSilent = findViewById(R.id.drawer_switch_silent);
         swSignIn = findViewById(R.id.drawer_switch_sign_in);

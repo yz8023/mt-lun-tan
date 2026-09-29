@@ -857,7 +857,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.binding.btnViewHidden.setVisibility(0);
             this.binding.tvHiddenContent.setVisibility(8);
             // 自动解锁：进入帖子发现是「回复可见」时，后台直接回复解锁
-            maybeAutoUnlock();
+            // build77 修复：这里原本调 maybeAutoUnlock()，它走的是另一个方法
+            // AutoReplyEngine.unlockSingleThread()，<b>完全绕过</b>了 v3.5 加的持久化认领，
+            // 防重只靠一个 per-Activity 的内存 Set —— 重开帖子就是新实例，于是又回一遍。
+            // 现在统一只保留 runUnlockInBackground() 这一条链路（有持久化认领 + 6 小时冷却）。
         } else {
             this.binding.layoutHiddenContent.setVisibility(8);
         }
@@ -2077,74 +2080,8 @@ private void viewHiddenContent() {
         }
     }
 
-    /** 已自动解锁过的 tid，避免同一页面反复触发 */
-    private final java.util.Set<String> autoUnlockTried = new java.util.HashSet<>();
-    private boolean autoUnlocking = false;
-
-    /**
-     * 进入帖子发现是「回复可见」时，后台自动回复一次以解锁，成功后刷新隐藏内容区。
-     * 受 AiConfigManager.isUnlockOnView 开关控制，且同一帖子只尝试一次。
-     */
-    private void maybeAutoUnlock() {
-        if (this.postDetail == null) {
-            AiLog.i("auto-unlock", "跳过：详情未就绪");
-            return;
-        }
-        final String tid = this.tid;
-        if (!com.solosu.mtforum.ai.AiConfigManager.isUnlockOnView(this)) {
-            AiLog.i("auto-unlock", "跳过：进帖自动解锁开关关闭 tid=" + tid);
-            return;
-        }
-        if (TextUtils.isEmpty(tid)) {
-            AiLog.i("auto-unlock", "跳过：tid 为空");
-            return;
-        }
-        if (autoUnlocking) {
-            AiLog.i("auto-unlock", "跳过：本轮正在解锁中 tid=" + tid);
-            return;
-        }
-        if (autoUnlockTried.contains(tid)) {
-            AiLog.i("auto-unlock", "跳过：本页已尝试过 tid=" + tid);
-            return;
-        }
-        if (!this.httpClient.isLoggedIn()) {
-            this.httpClient.syncFromCookieManager();
-            if (!this.httpClient.isLoggedIn()) {
-                AiLog.i("auto-unlock", "跳过：未登录 tid=" + tid);
-                return;
-            }
-        }
-        // 注意：进帖自动解锁是用户明确开启的动作，不能再被「演练模式」拦掉，
-        // 否则会出现「开关明明开着、却一直不解锁」的错觉。
-        if (com.solosu.mtforum.ai.AiConfigManager.isDryRun(this)) {
-            AiLog.i("auto-unlock", "提示：演练模式开着，但进帖解锁不受它影响，继续执行 tid=" + tid);
-        }
-        autoUnlocking = true;
-        autoUnlockTried.add(tid);
-        AiLog.i("auto-unlock", "→ 进入帖子发现隐藏内容，尝试自动回复解锁 tid=" + tid);
-
-        new java.lang.Thread(() -> {
-            boolean ok = false;
-            try {
-                ok = com.solosu.mtforum.ai.AutoReplyEngine.unlockSingleThread(
-                        ThreadDetailActivity.this, tid);
-            } catch (Exception e) {
-                android.util.Log.w("ThreadDetail", "auto unlock failed", e);
-                AiLog.e("auto-unlock", "解锁异常 tid=" + tid + " " + e);
-            }
-            final boolean success = ok;
-            runOnUiThread(() -> {
-                autoUnlocking = false;
-                AiLog.i("auto-unlock", "本轮结束 tid=" + tid + " 成功=" + success);
-                if (success) {
-                    Toast.makeText(ThreadDetailActivity.this,
-                            "已自动回复并解锁隐藏内容", Toast.LENGTH_SHORT).show();
-                    refreshPostDetail();
-                }
-            });
-        }, "auto-unlock").start();
-    }
-
+    // build77: maybeAutoUnlock() 已删除 —— 它是第二条解锁链路，
+    // 与 runUnlockInBackground() 并行触发，是「自动解锁重复回复」的根因。
 
     private void loadMoreReplies() {
         if (this.postDetail == null || this.isLoadingMore) {

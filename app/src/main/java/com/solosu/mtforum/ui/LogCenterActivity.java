@@ -251,26 +251,32 @@ public class LogCenterActivity extends AppCompatActivity {
     private void addCard(String title, String sub, String accent,
                          final String tid, final String link, final String copyText) {
         View card = buildCard(title, sub, accent, false);
+        TextView btn = (TextView) card.getTag();
+        if (btn != null) {
+            btn.setText("操作");
+            btn.setOnClickListener(v -> showActions(title, tid, link, copyText));
+        }
         card.setOnClickListener(v -> openThread(tid));
         card.setOnLongClickListener(v -> {
             showActions(title, tid, link, copyText);
             return true;
         });
-        Motion.pressFeedback(card, 0.975f);
     }
 
     /** 等宽字体的纯文本卡片（加载耗时） */
     private void addMonoCard(String show, final String raw, String accent) {
         View card = buildCard(show, null, accent, true);
+        TextView btn = (TextView) card.getTag();
+        if (btn != null) btn.setOnClickListener(v -> copy(raw, "已复制这条"));
         card.setOnClickListener(v -> copy(raw, "已复制这条"));
-        Motion.pressFeedback(card, 0.985f);
     }
 
     /** 运行日志卡片 */
     private void addMonoCard2(String title, String sub, final String raw, String accent) {
         View card = buildCard(title, sub, accent, true);
+        TextView btn = (TextView) card.getTag();
+        if (btn != null) btn.setOnClickListener(v -> copy(raw, "已复制这条"));
         card.setOnClickListener(v -> copy(raw, "已复制这条"));
-        Motion.pressFeedback(card, 0.985f);
     }
 
     private View buildCard(String title, String sub, String accent, boolean mono) {
@@ -307,6 +313,9 @@ public class LogCenterActivity extends AppCompatActivity {
         t.setText(title);
         t.setTextSize(mono ? 11.5f : 14f);
         t.setTextColor(getColor(R.color.text_primary));
+        // build77: 允许长按选中复制。注意 textIsSelectable 会吃掉单击，
+        // 所以卡片的「打开/复制」动作改挂在右侧按钮上，不再依赖整卡点击。
+        t.setTextIsSelectable(true);
         if (mono) t.setTypeface(Typeface.MONOSPACE);
         if (!detailMode) {
             t.setMaxLines(mono ? 2 : 2);
@@ -318,12 +327,31 @@ public class LogCenterActivity extends AppCompatActivity {
             TextView s2 = new TextView(this);
             s2.setText(sub);
             s2.setTextSize(11.5f);
+            s2.setTextIsSelectable(true);
             s2.setTextColor(getColor(R.color.text_hint));
             s2.setPadding(0, (int) (3 * d), 0, 0);
             if (mono) s2.setTypeface(Typeface.MONOSPACE);
             col.addView(s2);
         }
         row.addView(col);
+
+        // build77: 每张卡片右侧固定一个复制按钮，文字可选中后单击不再触发卡片动作，
+        // 所以操作必须有独立入口
+        TextView copyBtn = new TextView(this);
+        copyBtn.setText("复制");
+        copyBtn.setTextSize(11f);
+        copyBtn.setTextColor(getColor(R.color.primary));
+        copyBtn.setBackgroundResource(R.drawable.bg_pill_soft);
+        copyBtn.setPadding((int) (9 * d), (int) (5 * d), (int) (9 * d), (int) (5 * d));
+        LinearLayout.LayoutParams cbl = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cbl.leftMargin = (int) (8 * d);
+        cbl.gravity = Gravity.CENTER_VERTICAL;
+        copyBtn.setLayoutParams(cbl);
+        Motion.pressFeedback(copyBtn, 0.9f);
+        row.addView(copyBtn);
+        card.setTag(copyBtn);
+
         card.addView(row);
         listBox.addView(card);
         return card;

@@ -117,6 +117,12 @@ public final class AutoReplyEngine {
      */
     public static boolean unlockSingleThread(Context context, String tid) {
         if (TextUtils.isEmpty(tid)) return false;
+        // build77: 补上认领保护。这个方法原本一个防重都没有，
+        // 任何调用方都能对同一帖子反复回帖。
+        if (!claimTid(tid)) {
+            com.solosu.mtforum.util.UnlockLog.skip(tid, "冷却期内（6 小时），不重复回帖");
+            return false;
+        }
         try {
             HttpClient client = HttpClient.getInstance();
             if (!client.isLoggedIn()) client.syncFromCookieManager();

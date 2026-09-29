@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build77: 侧边栏头部，上圆角与外框(22dp)对齐，风格与底栏统一 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/background_secondary" />
+    <corners android:topLeftRadius="22dp" android:topRightRadius="22dp" />
+</shape>

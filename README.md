@@ -2,9 +2,16 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.7（versionCode 22）**
+当前版本：**v3.8（versionCode 23）**
 
 ---
+
+## v3.8：自动解锁重复回复真因 · 日志可复制 · 侧边栏统一
+
+重复回复的真因是 ThreadDetailActivity 里还有第二条独立解锁链路(maybeAutoUnlock →
+unlockSingleThread)完全没有防重，已删除并补齐保护；日志卡片可选中复制；
+侧边栏改为与底栏同款悬浮胶囊、共用同一档不透明度。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.7：图片消失真因 · 记录中心双模式
 
