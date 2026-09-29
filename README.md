@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.2（versionCode 17）**
+当前版本：**v3.3（versionCode 18）**
 
 ---
+
+## v3.3：渐变字 · 附件下载 · 渲染耗时埋点
+
+渐变字（8 种预设，两色平滑插值）；附件解析与下载（带金币消耗二次确认）；
+新增渲染耗时埋点定位「感觉慢」的真凶。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.2：BBCode 编辑器 · 浏览历史
 

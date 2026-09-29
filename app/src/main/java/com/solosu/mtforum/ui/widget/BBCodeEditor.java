@@ -93,6 +93,8 @@ public final class BBCodeEditor {
                     v -> showColorPicker(act, input)));
             bar.addView(chip(act, "彩虹字", padH, padV, gap,
                     v -> applyRainbow(act, input)));
+            bar.addView(chip(act, "渐变字", padH, padV, gap,
+                    v -> showGradientPicker(act, input)));
         }
         for (final String[] p : PRESETS) {
             bar.addView(chip(act, p[0], padH, padV, gap,
@@ -326,5 +328,94 @@ public final class BBCodeEditor {
     private static String hex(int color) {
         return String.format("#%02X%02X%02X",
                 Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    // ==================== 渐变字 ====================
+
+    /** 内置渐变预设：{名称, 起色, 末色} */
+    private static final Object[][] GRADIENTS = {
+            {"日落 橙→粉", 0xFFFF8008, 0xFFFFC837},
+            {"海洋 蓝→青", 0xFF2193B0, 0xFF6DD5ED},
+            {"极光 紫→蓝", 0xFF8E2DE2, 0xFF4A00E0},
+            {"薄荷 绿→青", 0xFF11998E, 0xFF38EF7D},
+            {"樱花 粉→紫", 0xFFFF758C, 0xFFFF7EB3},
+            {"火焰 红→黄", 0xFFF12711, 0xFFF5AF19},
+            {"深海 深蓝→紫", 0xFF141E30, 0xFF243B55},
+            {"彩虹 全色相", 0, 0},          // 特殊：走 HSV 全环
+    };
+
+    /**
+     * 渐变字：让每个字的颜色在起末两色之间<b>平滑过渡</b>。
+     *
+     * <p>和「彩虹字」的区别 —— 彩虹字是 HSV 色相跑满 360°（七彩），
+     * 渐变字是在你选的两个颜色之间线性插值，观感更柔和、更适合标题。
+     */
+    public static void showGradientPicker(final Activity act, final EditText input) {
+        if (input == null) return;
+        Editable e = input.getText();
+        if (e == null) return;
+        if (input.getSelectionEnd() <= input.getSelectionStart()) {
+            Toast.makeText(act, "先选中要做渐变的文字", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] names = new String[GRADIENTS.length];
+        for (int i = 0; i < GRADIENTS.length; i++) names[i] = (String) GRADIENTS[i][0];
+        Dialog d = new AlertDialog.Builder(act)
+                .setTitle("选择渐变")
+                .setItems(names, (dlg, which) -> {
+                    int from = (Integer) GRADIENTS[which][1];
+                    int to = (Integer) GRADIENTS[which][2];
+                    applyGradient(input, from, to, which == GRADIENTS.length - 1);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(d, act);
+    }
+
+    /**
+     * @param hsvSweep true = 忽略起末色，走 HSV 全色相（即彩虹）
+     */
+    public static void applyGradient(EditText input, int from, int to, boolean hsvSweep) {
+        Editable e = input.getText();
+        if (e == null) return;
+        int st = Math.max(0, input.getSelectionStart());
+        int en = Math.max(st, input.getSelectionEnd());
+        String sel = e.subSequence(st, en).toString();
+        if (sel.isEmpty()) return;
+
+        // 先数一遍需要着色的字符（空白跳过，避免生成一堆空标签）
+        int n = 0;
+        for (int i = 0; i < sel.length(); i++) {
+            if (!Character.isWhitespace(sel.charAt(i))) n++;
+        }
+        StringBuilder sb = new StringBuilder();
+        int idx = 0;
+        for (int i = 0; i < sel.length(); i++) {
+            char ch = sel.charAt(i);
+            if (Character.isWhitespace(ch)) {
+                sb.append(ch);
+                continue;
+            }
+            float t = (n <= 1) ? 0f : (float) idx / (n - 1);
+            int color = hsvSweep
+                    ? Color.HSVToColor(new float[]{360f * t, 1f, 1f})
+                    : lerpColor(from, to, t);
+            sb.append("[color=").append(hex(color)).append(']').append(ch).append("[/color]");
+            idx++;
+        }
+        e.replace(st, en, sb.toString());
+        input.setSelection(Math.min(st + sb.length(), e.length()));
+    }
+
+    /** 两色之间线性插值 */
+    private static int lerpColor(int a, int b, float t) {
+        int r = (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * t);
+        int g = (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * t);
+        int bl = (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t);
+        return Color.rgb(clamp(r), clamp(g), clamp(bl));
+    }
+
+    private static int clamp(int v) {
+        return v < 0 ? 0 : (v > 255 ? 255 : v);
     }
 }

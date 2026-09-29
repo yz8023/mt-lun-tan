@@ -805,6 +805,15 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.binding.tvContent.setGravity(17);
         }
         boolean z3 = true;
+        final long tRenderStart = System.currentTimeMillis();
+        // build72: 量「解析完 → 界面真正画出来」这段主线程耗时。
+        // 之前 PerfLog 里的「解析」只统计 ForumParser，渲染(BBCode转换 + Html.fromHtml
+        // + 图片 getter + 代码块抽取)全在主线程，才是真正的体感来源。
+        this.binding.tvContent.post(() ->
+                com.solosu.mtforum.util.PerfLog.recordRender(
+                        System.currentTimeMillis() - tRenderStart));
+        // build72: 附件列表
+        renderAttachments(postDetail.getContentHtml());
         // build71: 记浏览历史
         com.solosu.mtforum.session.HistoryStore.record(this, this.tid,
                 postDetail.getTitle(), postDetail.getAuthor());
@@ -4532,4 +4541,148 @@ private void viewHiddenContent() {
         }
     }
 
+
+    // ==================== build72: 附件 ====================
+
+    /** 渲染附件列表。只展示，不下载 —— 下载要点按钮并二次确认 */
+    private void renderAttachments(String contentHtml) {
+        android.widget.LinearLayout box = this.binding.llAttachments;
+        if (box == null) return;
+        box.removeAllViews();
+        java.util.List<com.solosu.mtforum.util.AttachmentParser.Attachment> list =
+                com.solosu.mtforum.util.AttachmentParser.parse(contentHtml);
+        if (list.isEmpty()) {
+            box.setVisibility(View.GONE);
+            return;
+        }
+        box.setVisibility(View.VISIBLE);
+        float d = getResources().getDisplayMetrics().density;
+
+        TextView title = new TextView(this);
+        title.setText("附件（" + list.size() + "）");
+        title.setTextSize(12f);
+        title.setTextColor(getColor(R.color.text_hint));
+        title.setPadding(0, 0, 0, (int) (6 * d));
+        box.addView(title);
+
+        for (final com.solosu.mtforum.util.AttachmentParser.Attachment a : list) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setBackgroundResource(R.drawable.bg_code_block);
+            row.setPadding((int) (12 * d), (int) (10 * d), (int) (12 * d), (int) (10 * d));
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            rlp.bottomMargin = (int) (6 * d);
+            row.setLayoutParams(rlp);
+
+            ImageView icon = new ImageView(this);
+            icon.setLayoutParams(new LinearLayout.LayoutParams((int) (22 * d), (int) (22 * d)));
+            icon.setImageResource(a.isImage() ? R.drawable.ic_image : R.drawable.ic_attach);
+            icon.setImageTintList(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.primary)));
+            row.addView(icon);
+
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            clp.leftMargin = (int) (10 * d);
+            col.setLayoutParams(clp);
+
+            TextView name = new TextView(this);
+            name.setText(a.name);
+            name.setTextSize(14f);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            name.setTextColor(getColor(R.color.text_primary));
+            col.addView(name);
+
+            String sub = a.subtitle();
+            if (!TextUtils.isEmpty(sub)) {
+                TextView meta = new TextView(this);
+                meta.setText(sub);
+                meta.setTextSize(11f);
+                meta.setTextColor(getColor(R.color.text_hint));
+                col.addView(meta);
+            }
+            row.addView(col);
+
+            TextView btn = new TextView(this);
+            btn.setText(a.isImage() ? "查看" : "下载");
+            btn.setTextSize(12f);
+            btn.setTextColor(getColor(R.color.primary));
+            btn.setBackgroundResource(R.drawable.bg_pill_soft);
+            btn.setPadding((int) (12 * d), (int) (6 * d), (int) (12 * d), (int) (6 * d));
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(btn, 0.92f);
+            btn.setOnClickListener(v -> {
+                if (a.isImage() && !TextUtils.isEmpty(a.imageUrl)) {
+                    openImagePreview(a.imageUrl);
+                } else {
+                    confirmDownloadAttachment(a);
+                }
+            });
+            row.addView(btn);
+            box.addView(row);
+        }
+    }
+
+    /**
+     * 下载附件前二次确认。
+     *
+     * <p>论坛的附件可能扣金币/积分，所以<b>绝不自动下载</b>，
+     * 必须用户点了按钮、再确认一次才真正发起。
+     */
+    private void confirmDownloadAttachment(
+            final com.solosu.mtforum.util.AttachmentParser.Attachment a) {
+        android.app.Dialog dlg = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("下载附件")
+                .setMessage(a.name
+                        + (TextUtils.isEmpty(a.subtitle()) ? "" : "\n" + a.subtitle())
+                        + "\n\n论坛部分附件下载会扣除金币/积分，确定继续吗？")
+                .setPositiveButton("下载", (d2, w) -> startAttachmentDownload(a))
+                .setNegativeButton("取消", null)
+                .show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(dlg, this);
+    }
+
+    /** 用系统下载器下载，带上当前登录 Cookie */
+    private void startAttachmentDownload(
+            com.solosu.mtforum.util.AttachmentParser.Attachment a) {
+        try {
+            android.app.DownloadManager dm =
+                    (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (dm == null) throw new IllegalStateException("无下载服务");
+            android.app.DownloadManager.Request req =
+                    new android.app.DownloadManager.Request(
+                            android.net.Uri.parse(a.downloadUrl()));
+            String cookie = this.httpClient.getCookieHeader();
+            if (!TextUtils.isEmpty(cookie)) req.addRequestHeader("Cookie", cookie);
+            req.addRequestHeader("User-Agent", com.solosu.mtforum.network.HttpClient.USER_AGENT);
+            req.addRequestHeader("Referer",
+                    com.solosu.mtforum.network.HttpClient.BASE_URL);
+            req.setTitle(a.name);
+            req.setDescription("MT 论坛附件");
+            req.setNotificationVisibility(
+                    android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalPublicDir(
+                    android.os.Environment.DIRECTORY_DOWNLOADS, sanitizeFileName(a.name));
+            dm.enqueue(req);
+            Toast.makeText(this, "已加入下载队列：" + a.name, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            // 退回浏览器，至少不至于卡死
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        android.net.Uri.parse(a.downloadUrl())));
+            } catch (Exception ignored) {
+                Toast.makeText(this, "下载失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private static String sanitizeFileName(String name) {
+        if (TextUtils.isEmpty(name)) return "attachment";
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+    }
 }

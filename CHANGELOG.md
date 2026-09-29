@@ -1,5 +1,53 @@
 # 更新日志
 
+## v3.3 (versionCode 18) — 渐变字 · 附件下载 · 渲染耗时埋点
+
+### 渐变彩虹字
+
+「彩虹字」是 HSV 色相跑满 360°（七彩），新增的**「渐变字」**是在两个颜色之间
+**平滑插值**，每个字的颜色连续过渡，观感更柔和、更适合做标题。
+
+内置 8 种预设：日落橙→粉、海洋蓝→青、极光紫→蓝、薄荷绿→青、樱花粉→紫、
+火焰红→黄、深海深蓝→紫，以及「彩虹全色相」。空白字符不着色，不产生空标签。
+
+### 附件解析与下载
+
+DOM 结构参考 [Forinxy/mtbbs_app](https://github.com/Forinxy/mtbbs_app) 的
+`core/parser/html2bbcode.dart`（我这边 IP 被论坛封了，抓不到登录后的页面，
+结构是从那个项目的解析代码里对出来的）：
+
+```
+普通附件：<ignore_js_op><img src="...filetype/xxx.gif">
+          <span id="attach_N"><a href="forum.php?mod=attachment&aid=XXX">name.ext</a>
+          <em class="xg1">(2.3 MB, 下载次数: 12)</em></span></ignore_js_op>
+
+图片附件：<ignore_js_op><img class="zoom" aid="XXX" src="...">
+          <div class="aimg_tip"><strong>名字</strong><em class="xg1">(大小, 下载次数: N)</em>
+          <p class="xg1 y">时间 上传</p></div></ignore_js_op>
+```
+
+正文下方渲染成附件列表：文件名 + 大小 + 下载次数 + 上传时间。
+
+**关于金币**：解析阶段<b>不发任何请求</b>；图片附件点「查看」直接全屏预览（不走下载接口）；
+文件附件点「下载」会先弹二次确认并明确提示「部分附件下载会扣除金币/积分」，
+确认后才用系统下载器带 Cookie 下载。
+
+### 渲染耗时埋点 —— 找「感觉慢」的真凶
+
+你的日志里 `合计 221–343ms` 其实已经很快了，但体感还是慢。原因是
+**`PerfLog` 里的「解析」只统计了 `ForumParser.parseThreadDetail`**，
+而 BBCode→HTML、`Html.fromHtml`、内联图片 getter、代码块抽取这些
+**全在主线程跑**，一点没被统计进去。
+
+现在加了一行：
+
+```
+04:21:31  帖子 tid=173653  网络 321ms | 解析 22ms | 合计 343ms | 81KB | 本次请求 2 个
+          └ 渲染 xxxms（主线程：BBCode→HTML、Html.fromHtml、图片、代码块）
+```
+
+---
+
 ## v3.2 (versionCode 17) — BBCode 编辑器 · 浏览历史 · 三处修复
 
 ### BBCode 编辑器（参考论坛「发帖预览插件」）

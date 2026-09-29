@@ -303,6 +303,17 @@
 
                     </FrameLayout>
 
+                    <!-- build72: 附件列表（点击才下载，解析阶段不发请求） -->
+                    <LinearLayout
+                        android:id="@+id/ll_attachments"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical"
+                        android:visibility="gone" />
+
                     <!-- build64: 主楼代码块，摘出来单独渲染成可折叠 + 可复制的卡片 -->
                     <LinearLayout
                         android:id="@+id/ll_code_blocks_main"

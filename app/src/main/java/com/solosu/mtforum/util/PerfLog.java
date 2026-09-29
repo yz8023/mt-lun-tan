@@ -52,6 +52,16 @@ public final class PerfLog {
     }
 
     /** 倒序输出（最新在上） */
+    /** build72: 记录「解析完 → 界面画出来」的主线程渲染耗时 */
+    public static void recordRender(long renderMs) {
+        String line = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date())
+                + "    └ 渲染 " + renderMs + "ms（主线程：BBCode→HTML、Html.fromHtml、图片、代码块）";
+        synchronized (ENTRIES) {
+            ENTRIES.add(line);
+            while (ENTRIES.size() > MAX) ENTRIES.remove(0);
+        }
+    }
+
     public static String dump() {
         synchronized (ENTRIES) {
             if (ENTRIES.isEmpty()) {
