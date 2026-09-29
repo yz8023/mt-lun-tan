@@ -21,6 +21,20 @@ public class PostCountsCache {
         LIKES.put(tid, likes);
     }
 
+    /** build68: 已知含隐藏内容的帖子（进过详情页就记下，列表里据此打标） */
+    private static final java.util.Set<String> HIDDEN_TIDS =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    public static void markHasHidden(String tid, boolean hasHidden) {
+        if (TextUtils.isEmpty(tid)) return;
+        if (hasHidden) HIDDEN_TIDS.add(tid);
+        else HIDDEN_TIDS.remove(tid);
+    }
+
+    public static boolean hasHidden(String tid) {
+        return !TextUtils.isEmpty(tid) && HIDDEN_TIDS.contains(tid);
+    }
+
     /** 读取最新点赞数, 无则返回 null */
     public static Integer getLikes(String tid) {
         if (TextUtils.isEmpty(tid)) return null;

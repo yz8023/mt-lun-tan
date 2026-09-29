@@ -11,8 +11,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 13
-        versionName "2.8"
+        versionCode 14
+        versionName "2.9"
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }

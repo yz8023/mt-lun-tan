@@ -352,6 +352,18 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_ai_summary_row, swAiSummary);
         }
 
+        // build68: 正文图片位置开关
+        SwitchMaterial swImagesInline = findViewById(R.id.drawer_switch_images_inline);
+        if (swImagesInline != null) {
+            swImagesInline.setChecked(com.solosu.mtforum.ui.UiSettings.isImagesInline(this));
+            swImagesInline.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setImagesInline(this, checked);
+                Toast.makeText(this, checked ? "图片将留在正文原位" : "图片将汇总到帖子底部",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_images_inline_row, swImagesInline);
+        }
+
         // build67: 隐藏内容就地展开开关
         SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);
         if (swHiddenInline != null) {
@@ -951,7 +963,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** 弹出运行日志 */
     private void showRunLog() {
-        String text = AiLog.dump();
+        // build68: 先给一段加载耗时摘要，再接完整运行日志 ——
+        // 之前性能记录会被自动回复/角标刷新的日志挤出 300 条缓冲，等于看不到
+        String text = "===== 页面加载耗时（最新在上）=====\n"
+                + com.solosu.mtforum.util.PerfLog.dump()
+                + "\n===== 运行日志 =====\n"
+                + AiLog.dump();
         final android.widget.ScrollView sv = new android.widget.ScrollView(this);
         final TextView tv = new TextView(this);
         tv.setText(text);

@@ -281,39 +281,66 @@ public final class AutoReplyEngine {
     public static boolean tryUnlockOnOpen(Context context, PostDetail detail, String pageHtml) {
         if (context == null || detail == null) return false;
         Context app = context.getApplicationContext();
-        // build67 修复：这里原本<b>完全没有检查开关</b>，用户把「自动解锁隐藏内容」
-        // 关掉之后，只要点开带隐藏块的帖子照样会自动回帖。
-        // 两个开关任意一个关掉都不该动作。
-        if (!AiConfigManager.isUnlockMode(app) || !AiConfigManager.isUnlockOnView(app)) {
-            AiLog.i("auto-unlock", "进帖解锁：开关已关闭，跳过");
+        String tid = detail.getTid();
+
+        // build68: 这一串原本有 5 个「静默 return false」，出问题完全看不出卡在哪，
+        // 现在每个分支都记一行日志（运行日志里搜 auto-unlock 就能看到全过程）。
+
+        // 只认「进帖自动解锁」这一个开关。
+        // build67 我写成了 isUnlockMode && isUnlockOnView 两个都要为真 —— 太严了：
+        // AI 配置页里这两个开关是分开的，只要有一个被独立关掉，进帖解锁就整个失效。
+        if (!AiConfigManager.isUnlockOnView(app)) {
+            AiLog.i("auto-unlock", "跳过：进帖自动解锁开关已关闭");
             return false;
         }
-        String tid = detail.getTid();
-        if (TextUtils.isEmpty(tid)) return false;
-        if (TextUtils.isEmpty(pageHtml)) return false;
+        if (TextUtils.isEmpty(tid)) {
+            AiLog.i("auto-unlock", "跳过：缺少 tid");
+            return false;
+        }
+        if (TextUtils.isEmpty(pageHtml)) {
+            AiLog.i("auto-unlock", "跳过：页面快照为空 tid=" + tid);
+            return false;
+        }
         HttpClient client = HttpClient.getInstance();
         if (!client.isLoggedIn()) client.syncFromCookieManager();
         if (!client.isLoggedIn()) {
-            AiLog.e("auto-unlock", "进帖解锁：未登录，跳过 tid=" + tid);
+            AiLog.i("auto-unlock", "跳过：未登录 tid=" + tid);
             return false;
         }
-        if (!detail.isHasHiddenContent()) return false;   // 没有隐藏块，啥也不干
+        if (!detail.isHasHiddenContent()) {
+            AiLog.i("auto-unlock", "跳过：本帖没有隐藏块 tid=" + tid);
+            return false;
+        }
         String hidden = detail.getHiddenContentHtml();
-        if (TextUtils.isEmpty(hidden) || !isLockedHidden(hidden)) return false; // 已解锁
-        // build61: 原子认领——连开多帖/重复进入同一帖只回一次
-        if (!claimTid(tid)) return false;
+        if (TextUtils.isEmpty(hidden)) {
+            AiLog.i("auto-unlock", "跳过：隐藏块内容为空 tid=" + tid);
+            return false;
+        }
+        if (!isLockedHidden(hidden)) {
+            AiLog.i("auto-unlock", "跳过：隐藏内容已解锁 tid=" + tid);
+            return false;
+        }
+        if (!claimTid(tid)) {
+            AiLog.i("auto-unlock", "跳过：本次运行内已处理过 tid=" + tid);
+            return false;
+        }
         String text = buildUnlockText(app, detail);
-        if (TextUtils.isEmpty(text)) { releaseTid(tid); return false; }
-        boolean dryRun = AiConfigManager.isDryRun(app);
-        if (dryRun) {
-            AiLog.i("auto-unlock", "进帖解锁(演练) tid=" + tid + " 回复=" + text);
+        if (TextUtils.isEmpty(text)) {
+            releaseTid(tid);
+            AiLog.i("auto-unlock", "跳过：解锁回复模板为空 tid=" + tid);
+            return false;
+        }
+        if (AiConfigManager.isDryRun(app)) {
+            AiLog.i("auto-unlock", "演练模式：只生成不发送 tid=" + tid + " 回复=" + text);
             return true;
         }
         boolean ok = sendUnlockReply(client, detail, pageHtml, tid, text);
-        AiLog.i("auto-unlock", "进帖解锁" + (ok ? "成功" : "失败") + " tid=" + tid
-                + " 回复=" + text);
+        // build68: 失败要释放认领，否则这个 tid 在本次运行内永远不会再试
+        if (!ok) releaseTid(tid);
+        AiLog.i("auto-unlock", "进帖解锁" + (ok ? "成功" : "失败") + " tid=" + tid + " 回复=" + text);
         return ok;
     }
+
     /** build61: 原子认领 tid(已认领返回 false,防并发重复回帖) */
     private static boolean claimTid(String tid) {
         synchronized (HANDLED_TIDS) {

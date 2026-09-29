@@ -321,8 +321,11 @@ public class AccountManager {
         Account a = get(c, uid);
         if (a == null) return;
         a.lastSignStatus = status;
-        a.lastSignRanking = ranking;
-        a.lastSignReward = reward;
+        // build68: "今日已签"这种情况服务端页面上拿不到当天的奖励数字
+        // （lxreward 只在未签到的按钮上有值），此时不能用空串把之前记下的覆盖掉，
+        // 否则同一天再点一次签到，金币/排名就没了 —— 这就是"有的显示详情有的只显示今日已签"。
+        if (!TextUtils.isEmpty(ranking)) a.lastSignRanking = ranking;
+        if (!TextUtils.isEmpty(reward) && !"0".equals(reward)) a.lastSignReward = reward;
         a.lastSignTime = System.currentTimeMillis();
         if (success) a.lastSignDate = today();
         put(c, a);

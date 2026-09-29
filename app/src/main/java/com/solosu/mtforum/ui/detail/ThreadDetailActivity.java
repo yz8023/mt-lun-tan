@@ -429,12 +429,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
             final PostDetail detail = ForumParser.parseThreadDetail(html);
             // build67: 分阶段耗时埋点，慢的时候能从「运行日志」直接看出卡在网络还是解析
-            com.solosu.mtforum.ai.AiLog.i("thread-load",
-                    "tid=" + this.tid
-                            + " 网络 " + (tFetched - tLoadStart) + "ms"
-                            + " 解析 " + (System.currentTimeMillis() - tFetched) + "ms"
-                            + " 页面 " + (html == null ? 0 : html.length() / 1024) + "KB"
-                            + " 节流[" + com.solosu.mtforum.network.RequestThrottle.stats() + "]");
+            com.solosu.mtforum.util.PerfLog.record("帖子 tid=" + this.tid,
+                    tFetched - tLoadStart,
+                    System.currentTimeMillis() - tFetched,
+                    html == null ? 0 : html.length());
             if (detail == null) {
                 throw new IllegalStateException("帖子内容解析失败");
             }
@@ -682,7 +680,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.binding.tvContent.setVisibility(0);
             ArrayList arrayList = new ArrayList();
             String[] strArrSplitEditFooter = splitEditFooter(strConvertBBCodeToHtml);
-            String strExtractAndSeparateImages = extractAndSeparateImages(strArrSplitEditFooter[0], arrayList);
+            // build68: 图片位置可配。原位 = 不抽离，交给 ImageGetter 图文混排；
+            // 底部汇总 = 抽出来放帖子底部的横滑图廊（旧行为）。
+            boolean imagesInline = com.solosu.mtforum.ui.UiSettings.isImagesInline(this);
+            String strExtractAndSeparateImages = imagesInline
+                    ? strArrSplitEditFooter[0]
+                    : extractAndSeparateImages(strArrSplitEditFooter[0], arrayList);
             List<String> imageUrls = postDetail.getImageUrls();
             if (imageUrls != null && !imageUrls.isEmpty()) {
                 for (String str : imageUrls) {
@@ -775,6 +778,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
         }
         boolean z3 = true;
         boolean hasHidden = postDetail.isHasHiddenContent();
+        // build68: 记下来，回到列表时给这个帖子打「隐藏」标
+        com.solosu.mtforum.session.PostCountsCache.markHasHidden(this.tid, hasHidden);
         boolean hiddenUnlocked = hasHidden && this.httpClient.isLoggedIn()
                 && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                 && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
@@ -1789,7 +1794,23 @@ public class ThreadDetailActivity extends AppCompatActivity {
             if (idx < 0) {
                 return;
             }
-            sp.setSpan(new HiddenNoticeSpan(notice, dpToPx(9), dpToPx(12), dpToPx(11), -854017, -14721112), idx, HIDDEN_QUOTE_PLACEHOLDER.length() + idx, 33);
+            int end = HIDDEN_QUOTE_PLACEHOLDER.length() + idx;
+            sp.setSpan(new HiddenNoticeSpan(notice, dpToPx(9), dpToPx(12), dpToPx(11), -854017, -14721112), idx, end, 33);
+            // build68: 「请回复」这块以前是个普通链接，点了会拉起浏览器。
+            // 改成点击直接弹出本机的快捷回复面板。
+            sp.setSpan(new android.text.style.ClickableSpan() {
+                @Override
+                public void onClick(android.view.View widget) {
+                    currentReplyPid = "";
+                    currentReplyTarget = "";
+                    showReplyBottomSheet("");
+                }
+
+                @Override
+                public void updateDrawState(android.text.TextPaint ds) {
+                    ds.setUnderlineText(false);
+                }
+            }, idx, end, 33);
         }
     }
 

@@ -139,6 +139,19 @@
                 android:textColor="@color/sticky_text"
                 android:textSize="10sp"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_hidden_tag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/thread_sticky_bg"
+                android:paddingHorizontal="5dp"
+                android:paddingVertical="1dp"
+                android:text="隐藏"
+                android:textColor="@color/sticky_text"
+                android:textSize="10sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView

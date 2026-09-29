@@ -207,6 +207,18 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
          }
          holder.btnFollow.setText(thread.isFollowed() ? "已关注" : "关注");
         // AI 一键总结:拉帖+评论区,有隐藏先固定模板回复解锁再总结
+        // build68: 进过详情页确认含隐藏内容的帖子，在列表里打个「隐藏」标，方便快速区分
+        if (holder.tvHiddenTag != null) {
+            holder.tvHiddenTag.setVisibility(
+                    com.solosu.mtforum.session.PostCountsCache.hasHidden(thread.getTid())
+                            ? View.VISIBLE : View.GONE);
+        }
+
+        // build68: 列表卡片上也有一个 AI 总结按钮，之前只 gate 了详情页那个，
+        // 所以侧边栏关掉后每张卡片上还挂着，用户以为没生效。
+        holder.btnAiSummarize.setVisibility(
+                com.solosu.mtforum.ui.UiSettings.isAiSummaryVisible(context)
+                        ? View.VISIBLE : View.GONE);
         holder.btnAiSummarize.setOnClickListener(v -> {
             Intent it = new Intent(context, com.solosu.mtforum.ai.AiSummarizeActivity.class);
             it.putExtra("tid", thread.getTid());
@@ -390,6 +402,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         TextView tvTitle, tvAuthor, tvLevel, tvTime, tvForum, tvSummary;
         TextView tvViews, tvReplies, tvLikes, tvSticky;
         TextView btnAiSummarize;
+        TextView tvHiddenTag;
 
         ViewHolder(View itemView) {
             super(itemView);
@@ -409,6 +422,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             tvLikes = itemView.findViewById(R.id.tv_likes);
             tvSticky = itemView.findViewById(R.id.tv_sticky);
             btnAiSummarize = itemView.findViewById(R.id.btn_ai_summary);
+            tvHiddenTag = itemView.findViewById(R.id.tv_hidden_tag);
         }
     }
 

@@ -11,6 +11,7 @@ public final class UiSettings {
     private static final String KEY_CODE_WRAP = "code_wrap";
     private static final String KEY_AI_SUMMARY = "show_ai_summary";
     private static final String KEY_HIDDEN_INLINE = "hidden_content_inline";
+    private static final String KEY_IMAGES_INLINE = "post_images_inline";
 
     private UiSettings() {
     }
@@ -61,5 +62,18 @@ public final class UiSettings {
 
     public static void setHiddenContentInline(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_HIDDEN_INLINE, v).apply();
+    }
+
+    /**
+     * 正文图片位置（默认「原位」）。
+     * true  = 图片留在正文里原来的位置，图文混排；
+     * false = 全部抽出来汇总到帖子底部的横滑图廊（旧行为）。
+     */
+    public static boolean isImagesInline(Context c) {
+        return sp(c).getBoolean(KEY_IMAGES_INLINE, true);
+    }
+
+    public static void setImagesInline(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_IMAGES_INLINE, v).apply();
     }
 }
