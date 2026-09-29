@@ -425,7 +425,25 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // 实测令牌耗尽时这一个请求要白等 2 秒多，而真实网络只要 300ms。
             com.solosu.mtforum.network.RequestThrottle.markForeground();
             this.httpClient.syncFromCookieManager();
+            // build70: 先看内存缓存 —— 刚看过的帖子直接秒开，再后台静默刷新。
+            // 网络已经压到 ~320ms 了，想再快只能不发请求。
+            String cached = com.solosu.mtforum.network.ThreadHtmlCache.get(
+                    this.tid, getReplyOrder());
+            if (cached != null) {
+                final String cachedHtml = cached;
+                final PostDetail cachedDetail = ForumParser.parseThreadDetail(cachedHtml);
+                if (cachedDetail != null) {
+                    com.solosu.mtforum.util.PerfLog.record("帖子 tid=" + this.tid + "(缓存)",
+                            0, System.currentTimeMillis() - tLoadStart, cachedHtml.length());
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        bindData(cachedDetail, false);
+                    });
+                }
+            }
+
             String html = this.httpClient.get(detailUrl);
+            com.solosu.mtforum.network.ThreadHtmlCache.put(this.tid, getReplyOrder(), html);
             final long tFetched = System.currentTimeMillis();
             if (TextUtils.isEmpty(html)) {
                 throw new IllegalStateException("服务器返回空页面，请检查网络后重试");
@@ -734,7 +752,6 @@ public class ThreadDetailActivity extends AppCompatActivity {
             if (extractedMain.hasBlocks()) bodyHtmlForRender = extractedMain.html;
             this.binding.tvContent.setText(safeFromHtml(bodyHtmlForRender, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
             // build69: 给正文里的内联图片挂点击，之前原位显示的图根本点不开
-            attachInlineImageClicks(this.binding.tvContent);
             boolean unlocked = postDetail.isHasHiddenContent() && this.httpClient.isLoggedIn()
                     && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                     && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
@@ -742,6 +759,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
                     : strArrReplaceHiddenQuoteWithPlaceholder[1];
             applyHiddenNoticeHighlight(this.binding.tvContent.getText(), hiddenNotice);
             setupClickableLinks(this.binding.tvContent);
+            // build70: 必须放在 setupClickableLinks 之后 —— 它会把 textIsSelectable 设为 true，
+            // 选择模式会吞掉 ClickableSpan 的点击，所以这里改用触摸命中测试，不依赖 MovementMethod
+            attachInlineImageClicks(this.binding.tvContent);
             if (!galleryUrls.isEmpty()) {
                 this.binding.cardImageGallery.setVisibility(0);
                 this.binding.hsvImageGallery.setVisibility(0);
@@ -1056,6 +1076,28 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.mBottomSheetDialog = new BottomSheetDialog(this);
         this.mBottomSheetDialog.setContentView(dialogView);
         DialogHelper.applyToBottomSheet(this.mBottomSheetDialog, dialogView, this);
+        // build70: 回复框三件套修复
+        //  1) 输入法遮挡输入框 -> ADJUST_RESIZE，让弹窗随键盘上移
+        //  2) 输入内容上下滑动会把整个弹窗拖走 -> 关掉 BottomSheet 的拖拽手势
+        //  3) 长内容看不全 -> 展开到全高并禁止折叠
+        android.view.Window sheetWin = this.mBottomSheetDialog.getWindow();
+        if (sheetWin != null) {
+            sheetWin.setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                            | android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        this.mBottomSheetDialog.setOnShowListener(d -> {
+            View sheet = this.mBottomSheetDialog.findViewById(
+                    com.google.android.material.R.id.design_bottom_sheet);
+            if (sheet == null) return;
+            com.google.android.material.bottomsheet.BottomSheetBehavior<View> b =
+                    com.google.android.material.bottomsheet.BottomSheetBehavior.from(sheet);
+            b.setState(com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
+            b.setSkipCollapsed(true);
+            b.setDraggable(false);   // 关键：否则在输入框里上下滑会把弹窗拖下去
+        });
+
+        setupBBCodeTools(dialogView, etReplyDialog);
         this.mBottomSheetDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override // android.content.DialogInterface.OnDismissListener
             public final void onDismiss(DialogInterface dialogInterface) {
@@ -4385,46 +4427,166 @@ private void viewHiddenContent() {
 
 
     /**
-     * build69: 让正文里的内联图片可点击放大。
+     * build70: 让正文里的内联图片可点击放大。
      *
-     * <p>ImageGetter 画出来的是 {@link android.text.style.ImageSpan}，本身不响应点击。
-     * 这里遍历所有 ImageSpan，在同样的区间叠一个 ClickableSpan，
-     * 点哪张就把哪张作为起始位置打开全屏预览（仍可左右翻页）。
+     * <p>v2.9 用的是「叠一层 ClickableSpan」，实测无效 —— 因为紧随其后的
+     * {@code setupClickableLinks()} 会把 {@code textIsSelectable} 设为 true，
+     * TextView 进入文本选择模式后，单击会被 Editor 拿去放光标，
+     * ClickableSpan 根本收不到。
+     *
+     * <p>改成直接在 TextView 上做<b>触摸命中测试</b>：按下时算出触点落在第几个字符上，
+     * 看该位置有没有 ImageSpan，有就拦下这一次触摸并打开全屏预览。
+     * 完全不依赖 MovementMethod，也不影响文本选择和链接点击。
      */
-    private void attachInlineImageClicks(TextView tv) {
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void attachInlineImageClicks(final TextView tv) {
         if (tv == null) return;
-        CharSequence cs = tv.getText();
-        if (!(cs instanceof android.text.Spannable)) return;
-        android.text.Spannable sp = (android.text.Spannable) cs;
-        android.text.style.ImageSpan[] spans =
-                sp.getSpans(0, sp.length(), android.text.style.ImageSpan.class);
-        if (spans == null || spans.length == 0) return;
+        tv.setOnTouchListener(new View.OnTouchListener() {
+            private String pendingUrl;
 
-        boolean any = false;
-        for (android.text.style.ImageSpan img : spans) {
-            final String url = img.getSource();
-            if (TextUtils.isEmpty(url)) continue;
-            // 表情之类的小图不做点击放大
-            if (url.contains("/smiley/") || url.contains("/static/image/")) continue;
-            int st = sp.getSpanStart(img);
-            int en = sp.getSpanEnd(img);
-            if (st < 0 || en <= st) continue;
-            sp.setSpan(new android.text.style.ClickableSpan() {
-                @Override
-                public void onClick(android.view.View widget) {
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent event) {
+                int action = event.getActionMasked();
+                if (action == android.view.MotionEvent.ACTION_DOWN) {
+                    pendingUrl = imageUrlAt(tv, event);
+                    return pendingUrl != null;      // 命中图片才拦截，否则放行给选择/链接
+                }
+                if (action == android.view.MotionEvent.ACTION_UP && pendingUrl != null) {
+                    String url = pendingUrl;
+                    pendingUrl = null;
                     openImagePreview(url);
+                    return true;
                 }
+                if (action == android.view.MotionEvent.ACTION_CANCEL) {
+                    pendingUrl = null;
+                }
+                return false;
+            }
+        });
+    }
 
-                @Override
-                public void updateDrawState(android.text.TextPaint ds) {
-                    // 图片不要被染成链接色
+    /** 触点落在哪张内联图片上；没命中返回 null */
+    private String imageUrlAt(TextView tv, android.view.MotionEvent event) {
+        CharSequence cs = tv.getText();
+        if (!(cs instanceof android.text.Spanned)) return null;
+        android.text.Layout layout = tv.getLayout();
+        if (layout == null) return null;
+
+        int x = (int) event.getX() - tv.getTotalPaddingLeft() + tv.getScrollX();
+        int y = (int) event.getY() - tv.getTotalPaddingTop() + tv.getScrollY();
+        int line = layout.getLineForVertical(y);
+        int offset = layout.getOffsetForHorizontal(line, x);
+
+        android.text.Spanned sp = (android.text.Spanned) cs;
+        android.text.style.ImageSpan[] spans =
+                sp.getSpans(offset, offset, android.text.style.ImageSpan.class);
+        if (spans == null || spans.length == 0) {
+            // 触点可能落在图片字符的右半边，向前退一格再试
+            if (offset > 0) {
+                spans = sp.getSpans(offset - 1, offset - 1, android.text.style.ImageSpan.class);
+            }
+            if (spans == null || spans.length == 0) return null;
+        }
+        String url = spans[0].getSource();
+        if (TextUtils.isEmpty(url)) return null;
+        // 表情和站点静态图不放大
+        if (url.contains("/smiley/") || url.contains("/static/image/")) return null;
+        return url;
+    }
+
+    // ==================== build70: BBCode 工具条与预览 ====================
+
+    /** 常用 BBCode 预设：标签名 -> {插入前缀, 插入后缀} */
+    private static final String[][] BBCODE_PRESETS = {
+            {"加粗", "[b]", "[/b]"},
+            {"斜体", "[i]", "[/i]"},
+            {"下划线", "[u]", "[/u]"},
+            {"删除线", "[s]", "[/s]"},
+            {"颜色", "[color=#ff0000]", "[/color]"},
+            {"字号", "[size=4]", "[/size]"},
+            {"链接", "[url=]", "[/url]"},
+            {"图片", "[img]", "[/img]"},
+            {"代码", "[code]\n", "\n[/code]"},
+            {"引用", "[quote]", "[/quote]"},
+            {"隐藏", "[hide]", "[/hide]"},
+            {"居中", "[align=center]", "[/align]"},
+    };
+
+    private void setupBBCodeTools(final View dialogView,
+                                  final com.google.android.material.textfield.TextInputEditText input) {
+        final android.widget.LinearLayout bar = dialogView.findViewById(R.id.ll_bbcode_tools);
+        final View btnPreview = dialogView.findViewById(R.id.btn_preview_bbcode);
+        final View previewBox = dialogView.findViewById(R.id.sv_bbcode_preview);
+        final TextView previewText = dialogView.findViewById(R.id.tv_bbcode_preview);
+        if (bar == null || input == null) return;
+
+        float density = getResources().getDisplayMetrics().density;
+        int gap = (int) (6 * density);
+        int padH = (int) (10 * density);
+        int padV = (int) (6 * density);
+
+        bar.removeAllViews();
+        for (final String[] preset : BBCODE_PRESETS) {
+            TextView chip = new TextView(this);
+            chip.setText(preset[0]);
+            chip.setTextSize(12f);
+            chip.setTextColor(getColor(R.color.primary));
+            chip.setBackgroundResource(R.drawable.bg_quick_reply_chip);
+            chip.setPadding(padH, padV, padH, padV);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = gap;
+            chip.setLayoutParams(lp);
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(chip, 0.92f);
+            chip.setOnClickListener(v -> wrapSelection(input, preset[1], preset[2]));
+            bar.addView(chip);
+        }
+
+        if (btnPreview != null && previewBox != null && previewText != null) {
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(btnPreview, 0.94f);
+            btnPreview.setOnClickListener(v -> {
+                boolean showing = previewBox.getVisibility() == View.VISIBLE;
+                if (showing) {
+                    previewBox.setVisibility(View.GONE);
+                    ((com.google.android.material.button.MaterialButton) btnPreview).setText("预览");
+                    return;
                 }
-            }, st, en, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            any = true;
+                String raw = input.getText() == null ? "" : input.getText().toString();
+                if (TextUtils.isEmpty(raw)) {
+                    Toast.makeText(this, "先写点内容再预览", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String html = com.solosu.mtforum.util.BBCodeUtil.convertBBCodeToHtml(raw);
+                previewText.setText(safeFromHtml(html,
+                        createInlineImageGetter(previewText),
+                        com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+                android.view.ViewGroup.LayoutParams lp = previewBox.getLayoutParams();
+                lp.height = (int) (180 * getResources().getDisplayMetrics().density);
+                previewBox.setLayoutParams(lp);
+                previewBox.setVisibility(View.VISIBLE);
+                ((com.google.android.material.button.MaterialButton) btnPreview).setText("编辑");
+            });
         }
-        if (any) {
-            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-            tv.setHighlightColor(android.graphics.Color.TRANSPARENT);
-        }
+    }
+
+    /**
+     * 把 BBCode 标签套在当前选区上；没选中就插入一对标签并把光标放中间。
+     */
+    private static void wrapSelection(
+            com.google.android.material.textfield.TextInputEditText input,
+            String open, String close) {
+        if (input == null) return;
+        android.text.Editable e = input.getText();
+        if (e == null) return;
+        int st = Math.max(0, input.getSelectionStart());
+        int en = Math.max(st, input.getSelectionEnd());
+        String selected = e.subSequence(st, en).toString();
+        String insert = open + selected + close;
+        e.replace(st, en, insert);
+        // 有选区就把光标放到闭合标签后，没选区就放中间方便直接打字
+        int caret = selected.isEmpty() ? st + open.length() : st + insert.length();
+        input.setSelection(Math.min(caret, e.length()));
     }
 }

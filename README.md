@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.0（versionCode 15）**
+当前版本：**v3.1（versionCode 16）**
 
 ---
+
+## v3.1：图片点击修对 · 帖子秒开 · 回复框重做
+
+触摸命中测试替代无效的 ClickableSpan；帖子页内存缓存（LRU 8 篇）实现秒开；
+回复框修输入法遮挡/滑动带走/长内容，新增 BBCode 预览与 12 个常用标签预设（发帖页同样支持）。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.0：进帖慢的真正根因
 

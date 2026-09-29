@@ -48,8 +48,10 @@
                 android:id="@+id/et_reply_dialog"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minLines="3"
-                android:maxLines="6"
+                android:minLines="4"
+                android:maxLines="10"
+                android:scrollbars="vertical"
+                android:overScrollMode="ifContentScrolls"
                 android:hint="@string/reply_hint"
                 android:inputType="textMultiLine|textCapSentences"
                 android:gravity="top"
@@ -57,6 +59,42 @@
                 android:textColor="@color/text_primary"
                 android:backgroundTint="@color/text_hint" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- build70: BBCode 工具条（常用标签一键插入） -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/ll_bbcode_tools"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <!-- build70: BBCode 预览区（默认隐藏，点「预览」切换） -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/sv_bbcode_preview"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_code_block"
+            android:overScrollMode="never"
+            android:padding="10dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_bbcode_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+        </androidx.core.widget.NestedScrollView>
 
         <!-- build63: 快捷回复短语条（内容可自定义） -->
         <LinearLayout
@@ -147,6 +185,17 @@
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_preview_bbcode"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:text="预览"
+                android:textColor="@color/primary"
+                app:cornerRadius="20dp"
+                app:strokeColor="@color/primary" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_send_reply"

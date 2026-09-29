@@ -116,6 +116,25 @@ public class PostActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.post_activity);
+        // build70: 「高级」长按 = BBCode 预览；正文长按 = 插入 BBCode 预设
+        findViewById(R.id.btn_advanced).post(() -> {
+            View adv = findViewById(R.id.btn_advanced);
+            if (adv != null) {
+                adv.setOnLongClickListener(v -> {
+                    android.widget.EditText c = findViewById(R.id.et_content);
+                    showBBCodePreview(c == null || c.getText() == null
+                            ? "" : c.getText().toString());
+                    return true;
+                });
+            }
+            android.widget.EditText c = findViewById(R.id.et_content);
+            if (c != null) {
+                c.setOnLongClickListener(v -> {
+                    showBBCodePresets(c);
+                    return true;
+                });
+            }
+        });
 
         initViews();
         setupTitleCounter();
@@ -1366,5 +1385,66 @@ private void uploadImages(List<Uri> uris) {
                 .matcher(ai);
         if (m.find()) return m.group(1).trim();
         return "";
+    }
+
+    // ==================== build70: BBCode 预设与预览 ====================
+
+    private static final String[][] BBCODE_PRESETS = {
+            {"加粗", "[b]", "[/b]"}, {"斜体", "[i]", "[/i]"}, {"下划线", "[u]", "[/u]"},
+            {"删除线", "[s]", "[/s]"}, {"颜色", "[color=#ff0000]", "[/color]"},
+            {"字号", "[size=4]", "[/size]"}, {"链接", "[url=]", "[/url]"},
+            {"图片", "[img]", "[/img]"}, {"代码", "[code]\n", "\n[/code]"},
+            {"引用", "[quote]", "[/quote]"}, {"隐藏", "[hide]", "[/hide]"},
+            {"居中", "[align=center]", "[/align]"},
+    };
+
+    /** BBCode 预设选择器：套在选区上，没选区就插一对标签 */
+    protected void showBBCodePresets(final android.widget.EditText input) {
+        if (input == null) return;
+        String[] names = new String[BBCODE_PRESETS.length];
+        for (int i = 0; i < names.length; i++) names[i] = BBCODE_PRESETS[i][0];
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("插入 BBCode")
+                .setItems(names, (dlg, which) -> {
+                    String[] p = BBCODE_PRESETS[which];
+                    android.text.Editable e = input.getText();
+                    if (e == null) return;
+                    int st = Math.max(0, input.getSelectionStart());
+                    int en = Math.max(st, input.getSelectionEnd());
+                    String sel = e.subSequence(st, en).toString();
+                    String ins = p[1] + sel + p[2];
+                    e.replace(st, en, ins);
+                    input.setSelection(Math.min(
+                            sel.isEmpty() ? st + p[1].length() : st + ins.length(), e.length()));
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, this);
+    }
+
+    /** BBCode 预览：把当前正文渲染出来，发布前先看一眼排版对不对 */
+    protected void showBBCodePreview(String raw) {
+        if (android.text.TextUtils.isEmpty(raw)) {
+            android.widget.Toast.makeText(this, "先写点内容再预览",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.widget.TextView tv = new android.widget.TextView(this);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        tv.setTextSize(15f);
+        tv.setLineSpacing(3f, 1f);
+        tv.setTextColor(getColor(R.color.text_primary));
+        String html = com.solosu.mtforum.util.BBCodeUtil.convertBBCodeToHtml(raw);
+        tv.setText(android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_COMPACT,
+                null, com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(tv);
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("BBCode 预览")
+                .setView(sv)
+                .setPositiveButton("返回编辑", null)
+                .show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, this);
     }
 }
