@@ -3676,77 +3676,132 @@ private void viewHiddenContent() {
     }
 
     /** 删除自己的回复 */
+    /**
+     * 删除自己的回复。
+     *
+     * <p>build75 重写：前两版都在<b>猜参数</b>（v3.4 发 deletesubmit、v3.5 改 editsubmit），
+     * 但 Discuz 的编辑接口除了 delete/editsubmit 还要 <b>fid</b> 和一堆隐藏字段
+     * （posttime / wysiwyg / checkbox / 各种 hash），少一个就静默失败。
+     *
+     * <p>现在不猜了：<b>把编辑页那张表单整个解析出来，原样带上所有字段回提，
+     * 只额外塞一个 {@code delete=1}</b>。这样不管 Discuz 版本要什么字段都不会漏。
+     */
     private void deleteReply(final ReplyItem item) {
         if (item == null || TextUtils.isEmpty(item.getPid())) return;
-        new java.lang.Thread(new Runnable() {
-            @Override
-            public void run() {
-                String failReason = null;
-                boolean ok = false;
-                try {
-                    String pid = item.getPid();
-                    String formUrl = HttpClient.BASE_URL
-                            + "forum.php?mod=post&action=edit&tid=" + tid + "&pid=" + pid + "&mobile=2";
-                    String form = httpClient.get(formUrl);
-                    String fh = ForumParser.parseFormhash(form);
-                    if (TextUtils.isEmpty(fh) && postDetail != null) fh = postDetail.getFormhash();
-                    String delHash = extractDeleteHash(form, pid);
-                    if (!TextUtils.isEmpty(delHash)) fh = delHash;
-                    if (TextUtils.isEmpty(fh)) throw new IllegalStateException("获取操作验证失败");
+        final String pid = item.getPid();
+        new java.lang.Thread(() -> {
+            String fail = null;
+            boolean ok = false;
+            try {
+                String formUrl = HttpClient.BASE_URL
+                        + "forum.php?mod=post&action=edit&tid=" + tid + "&pid=" + pid + "&page=1&mobile=2";
+                String page = httpClient.get(formUrl);
+                if (TextUtils.isEmpty(page)) throw new IllegalStateException("打不开编辑页");
+                if (ForumParser.isLoginPage(page)) throw new IllegalStateException("登录态失效");
 
-                    // build74 修复：Discuz 的编辑接口要的是 editsubmit=yes，
-                    // 原来发的是 deletesubmit=yes —— 服务端根本不认，等于什么都没做。
-                    Map<String, String> params = new HashMap<>();
-                    params.put("formhash", fh);
-                    params.put("editsubmit", "yes");
-                    params.put("delete", "1");
-                    params.put("pid", pid);
-                    params.put("tid", tid);
-                    params.put("page", "1");
-                    String url = HttpClient.BASE_URL
-                            + "forum.php?mod=post&action=edit&extra=&editsubmit=yes&mobile=2"
-                            + "&handlekey=delpost&tid=" + tid + "&pid=" + pid + "&delete=1&page=1";
-                    String resp = httpClient.post(url, params);
-                    ok = isDeleteSuccess(resp);
+                org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(page, HttpClient.BASE_URL);
+                org.jsoup.nodes.Element form = pickEditForm(doc);
+                if (form == null) throw new IllegalStateException("页面里找不到编辑表单");
 
-                    // 退路：编辑接口不行就走版主删帖接口（自己的帖子通常也允许）
-                    if (!ok) {
-                        Map<String, String> p2 = new HashMap<>();
-                        p2.put("formhash", fh);
-                        p2.put("delete", "1");
-                        p2.put("deletesubmit", "true");
-                        String url2 = HttpClient.BASE_URL
-                                + "forum.php?mod=topicadmin&action=moderate&operation=delpost"
-                                + "&optgroup=3&modsubmit=yes&infloat=yes&inajax=1&mobile=2"
-                                + "&tid=" + tid + "&page=1";
-                        p2.put("delete[]", pid);
-                        String resp2 = httpClient.post(url2, p2);
-                        ok = isDeleteSuccess(resp2);
-                        if (!ok) failReason = extractServerMessage(resp2);
+                Map<String, String> params = new HashMap<>();
+                for (org.jsoup.nodes.Element in : form.select("input[name]")) {
+                    String type = in.attr("type").toLowerCase();
+                    String nm = in.attr("name");
+                    if (nm.isEmpty()) continue;
+                    // 未勾选的复选/单选不提交，跟浏览器行为一致
+                    if (("checkbox".equals(type) || "radio".equals(type)) && !in.hasAttr("checked")) {
+                        continue;
                     }
-                    if (!ok && failReason == null) failReason = extractServerMessage(resp);
-                } catch (Exception e) {
-                    failReason = TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage();
+                    if ("submit".equals(type) || "button".equals(type) || "file".equals(type)) continue;
+                    params.put(nm, in.attr("value"));
+                }
+                for (org.jsoup.nodes.Element ta : form.select("textarea[name]")) {
+                    params.put(ta.attr("name"), ta.val());
+                }
+                for (org.jsoup.nodes.Element sel : form.select("select[name]")) {
+                    org.jsoup.nodes.Element opt = sel.selectFirst("option[selected]");
+                    if (opt == null) opt = sel.selectFirst("option");
+                    if (opt != null) params.put(sel.attr("name"), opt.attr("value"));
+                }
+                // 关键三项
+                params.put("delete", "1");
+                params.put("editsubmit", "yes");
+                if (!params.containsKey("formhash")) {
+                    String fh = ForumParser.parseFormhash(page);
+                    if (!TextUtils.isEmpty(fh)) params.put("formhash", fh);
+                }
+                if (!params.containsKey("tid")) params.put("tid", tid);
+                if (!params.containsKey("pid")) params.put("pid", pid);
+                if (!params.containsKey("fid")) {
+                    String fid = extractFid(page);
+                    if (!TextUtils.isEmpty(fid)) params.put("fid", fid);
                 }
 
-                final boolean success = ok;
-                final String reason = failReason;
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (success) {
-                        Toast.makeText(ThreadDetailActivity.this, "已删除该回复",
-                                Toast.LENGTH_SHORT).show();
-                        refreshPostDetail();
-                    } else {
-                        // build74: 之前无论服务端返回什么都弹「已删除」，
-                        // 删没删成功用户完全不知道。现在如实报错。
-                        Toast.makeText(ThreadDetailActivity.this,
-                                "删除失败：" + (TextUtils.isEmpty(reason) ? "服务端未接受该操作" : reason),
-                                Toast.LENGTH_LONG).show();
+                String action = form.absUrl("action");
+                if (TextUtils.isEmpty(action)) {
+                    action = HttpClient.BASE_URL
+                            + "forum.php?mod=post&action=edit&extra=&editsubmit=yes&mobile=2";
+                }
+                if (!action.contains("editsubmit")) {
+                    action += (action.contains("?") ? "&" : "?") + "editsubmit=yes";
+                }
+                String resp = httpClient.post(action, params);
+                ok = isDeleteSuccess(resp);
+                if (!ok) fail = extractServerMessage(resp);
+
+                // 最后的验证：重拉帖子页，看这条 pid 还在不在
+                if (!ok) {
+                    String check = httpClient.get(
+                            ForumParser.getThreadDetailUrl(tid) + "&_del_check=" + System.currentTimeMillis());
+                    if (check != null && !check.contains("pid" + pid)
+                            && !check.contains("pid=" + pid)) {
+                        ok = true;                 // 服务端其实删掉了，只是返回没认出来
+                        fail = null;
                     }
-                });
+                }
+            } catch (Exception e) {
+                fail = TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage();
             }
+
+            final boolean success = ok;
+            final String reason = fail;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (success) {
+                    Toast.makeText(this, "已删除该回复", Toast.LENGTH_SHORT).show();
+                    refreshPostDetail();
+                } else {
+                    Toast.makeText(this,
+                            "删除失败：" + (TextUtils.isEmpty(reason) ? "服务端未接受该操作" : reason),
+                            Toast.LENGTH_LONG).show();
+                }
+            });
         }).start();
+    }
+
+    /** 从编辑页里挑出真正那张编辑表单 */
+    private static org.jsoup.nodes.Element pickEditForm(org.jsoup.nodes.Document doc) {
+        org.jsoup.nodes.Element f = doc.selectFirst("form[action*=editsubmit]");
+        if (f != null) return f;
+        f = doc.selectFirst("form#postform");
+        if (f != null) return f;
+        for (org.jsoup.nodes.Element cand : doc.select("form[method=post]")) {
+            if (cand.selectFirst("input[name=formhash]") != null
+                    && (cand.selectFirst("textarea[name=message]") != null
+                        || cand.attr("action").contains("action=edit"))) {
+                return cand;
+            }
+        }
+        return null;
+    }
+
+    private static String extractFid(String html) {
+        if (TextUtils.isEmpty(html)) return null;
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("[?&]fid=(\\d+)").matcher(html);
+        if (m.find()) return m.group(1);
+        m = java.util.regex.Pattern.compile("name=\"fid\"[^>]*value=\"(\\d+)\"").matcher(html);
+        return m.find() ? m.group(1) : null;
     }
 
     /** 判断删除是否真的成功 */
@@ -4813,18 +4868,47 @@ private void viewHiddenContent() {
      * <p>Discuz 的图片附件是 {@code <img src="缩略图" file="原图" zoomfile="原图">}，
      * 只用 src 会拿到小图；原位全宽显示时必须换成 file / zoomfile。
      */
+    /** 挑第一个像真实图片地址的候选：排除 none.gif / blank.gif 这类占位 */
+    private static String firstUsable(String... candidates) {
+        for (String c : candidates) {
+            if (c == null) continue;
+            String v = c.trim();
+            if (v.isEmpty()) continue;
+            String low = v.toLowerCase();
+            if (low.endsWith("none.gif") || low.endsWith("blank.gif")
+                    || low.contains("/image/common/none") || low.startsWith("data:")) {
+                continue;
+            }
+            return v;
+        }
+        return null;
+    }
+
+    private static String toAbsolute(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+        String u = url.trim();
+        if (u.startsWith("http://") || u.startsWith("https://")) return u;
+        if (u.startsWith("//")) return "https:" + u;
+        return HttpClient.BASE_URL + u.replaceFirst("^/", "");
+    }
+
     private static String upgradeThumbnailsToFull(String html) {
         if (TextUtils.isEmpty(html)) return html;
         try {
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
             boolean changed = false;
             for (org.jsoup.nodes.Element img : doc.select("img")) {
-                String full = img.attr("zoomfile");
-                if (TextUtils.isEmpty(full)) full = img.attr("file");
-                if (TextUtils.isEmpty(full)) full = img.attr("data-original");
+                String orig = img.attr("src");
+                String full = firstUsable(img.attr("zoomfile"), img.attr("file"),
+                        img.attr("data-original"));
                 if (TextUtils.isEmpty(full)) continue;
-                if (full.equals(img.attr("src"))) continue;
+                full = toAbsolute(full);
+                // build75: 之前直接把 src 换成属性值就完事，如果那是相对路径或占位图，
+                // 图片就整个加载不出来 ——「部分帖子图片直接消失」就是这么来的。
+                if (TextUtils.isEmpty(full) || full.equals(orig)) continue;
                 img.attr("src", full);
+                // 留一份原始 src，加载失败时可回退
+                if (!TextUtils.isEmpty(orig)) img.attr("data-fallback", toAbsolute(orig));
                 changed = true;
             }
             return changed ? doc.body().html() : html;

@@ -341,10 +341,18 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // build71: 浏览历史（长按运行日志入口打开，避免再加一行占空间）
+        // build75: 侧边栏「运行日志」改为进记录中心（四个分页 + 卡片，可点开帖子）
         View logRow = findViewById(R.id.drawer_log);
         if (logRow != null) {
+            logRow.setOnClickListener(v -> {
+                if (drawerLayout != null && drawerPanel != null
+                        && drawerLayout.isDrawerOpen(drawerPanel)) {
+                    drawerLayout.closeDrawer(drawerPanel);
+                }
+                startActivity(new Intent(this, com.solosu.mtforum.ui.LogCenterActivity.class));
+            });
             logRow.setOnLongClickListener(v -> {
-                showBrowseHistory();
+                showRunLog();
                 return true;
             });
         }
@@ -430,10 +438,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 运行日志
-        View logView = findViewById(R.id.drawer_log);
-        if (logView != null) {
-            logView.setOnClickListener(v -> showRunLog());
-        }
+        // build75: 旧的 drawer_log 绑定已移除，统一走上面的「记录中心」入口
 
         refreshDrawerHeader();
     }

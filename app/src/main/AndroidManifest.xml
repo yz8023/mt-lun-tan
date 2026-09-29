@@ -135,6 +135,12 @@
             android:label="个人小黑屋" />
 
         <!-- build60: 多账号与签到管理 -->
+        <!-- build75: 记录中心 -->
+        <activity
+            android:name=".ui.LogCenterActivity"
+            android:exported="false"
+            android:label="记录中心" />
+
         <activity
             android:name=".ui.account.AccountManagerActivity"
             android:exported="false"

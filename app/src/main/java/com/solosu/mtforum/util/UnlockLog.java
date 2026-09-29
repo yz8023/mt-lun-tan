@@ -7,57 +7,84 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 自动解锁记录（build69 新增）。
- *
- * <p>之前解锁的成功/跳过全混在运行日志里，和签到、角标、调度器的输出搅在一起，
- * 想看「哪些帖子解锁了、哪些跳过了、为什么跳过」根本看不出来。
- * 这里单独开一条，一行一个帖子，结果一目了然。
+ * 自动解锁记录（build75 改为结构化，可点击跳转）。
  */
 public final class UnlockLog {
 
-    private static final int MAX = 60;
-    private static final List<String> ENTRIES = new ArrayList<>();
+    public static class Item {
+        public String tid;
+        public String mark;     // 已解锁 / 跳过 / 失败
+        public String detail;
+        public long at;
+        public boolean success;
+    }
+
+    private static final int MAX = 80;
+    private static final List<Item> ENTRIES = new ArrayList<>();
 
     private UnlockLog() {
     }
 
-    /** 解锁成功 */
     public static void ok(String tid, String reply) {
-        add("✓ 已解锁", tid, reply);
+        add(tid, "已解锁", reply, true);
     }
 
-    /** 解锁失败 */
     public static void fail(String tid, String why) {
-        add("✗ 失败", tid, why);
+        add(tid, "失败", why, false);
     }
 
-    /** 跳过（带原因） */
     public static void skip(String tid, String why) {
-        add("○ 跳过", tid, why);
+        add(tid, "跳过", why, false);
     }
 
-    private static void add(String mark, String tid, String detail) {
-        String line = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(new Date())
-                + "  " + mark
-                + "  tid=" + (tid == null ? "?" : tid)
-                + (detail == null || detail.isEmpty() ? "" : "  " + detail);
+    private static void add(String tid, String mark, String detail, boolean success) {
+        Item it = new Item();
+        it.tid = tid;
+        it.mark = mark;
+        it.detail = detail == null ? "" : detail;
+        it.at = System.currentTimeMillis();
+        it.success = success;
         synchronized (ENTRIES) {
-            ENTRIES.add(line);
+            // 同一帖子的重复「跳过」只留最新一条，避免刷屏
+            if (!success) {
+                for (int i = ENTRIES.size() - 1; i >= 0; i--) {
+                    Item o = ENTRIES.get(i);
+                    if (o.tid != null && o.tid.equals(tid) && o.mark.equals(mark)) {
+                        ENTRIES.remove(i);
+                        break;
+                    }
+                }
+            }
+            ENTRIES.add(it);
             while (ENTRIES.size() > MAX) ENTRIES.remove(0);
         }
     }
 
-    /** 倒序输出（最新在上） */
-    public static String dump() {
+    /** 倒序（最新在上） */
+    public static List<Item> list() {
         synchronized (ENTRIES) {
-            if (ENTRIES.isEmpty()) {
-                return "还没有记录。\n\n开启「自动解锁隐藏内容」后，打开含隐藏块的帖子即可看到。";
-            }
-            StringBuilder sb = new StringBuilder();
-            for (int i = ENTRIES.size() - 1; i >= 0; i--) {
-                sb.append(ENTRIES.get(i)).append('\n');
-            }
-            return sb.toString();
+            List<Item> out = new ArrayList<>(ENTRIES);
+            java.util.Collections.reverse(out);
+            return out;
         }
+    }
+
+    public static void clear() {
+        synchronized (ENTRIES) {
+            ENTRIES.clear();
+        }
+    }
+
+    public static String dump() {
+        List<Item> list = list();
+        if (list.isEmpty()) return "还没有记录。";
+        SimpleDateFormat f = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
+        StringBuilder sb = new StringBuilder();
+        for (Item it : list) {
+            sb.append(f.format(new Date(it.at))).append("  ").append(it.mark)
+              .append("  tid=").append(it.tid)
+              .append(it.detail.isEmpty() ? "" : "  " + it.detail).append('\n');
+        }
+        return sb.toString();
     }
 }
