@@ -34,7 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.List;
 import java.util.Map;
 
-public class CommunityFragment extends Fragment {
+public class CommunityFragment extends Fragment implements com.solosu.mtforum.ui.Refreshable {
 
     private static CommunityFragment currentInstance;
 
@@ -416,4 +416,11 @@ public class CommunityFragment extends Fragment {
         super.onDestroyView();
         binding = null;
     }
+
+    // ==================== build63: 底栏再点刷新 ====================
+    @Override
+    public void onTabReselected() {
+        loadCommunityData();
+    }
+
 }

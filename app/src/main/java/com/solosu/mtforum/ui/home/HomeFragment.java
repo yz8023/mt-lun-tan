@@ -34,7 +34,7 @@ import java.util.List;
  * 首页 Fragment
  * 展示最新帖子列表,支持下拉刷新、翻页加载、热板推荐、搜索跳转
  */
-public class HomeFragment extends Fragment {
+public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refreshable {
 
     private FragmentHomeBinding binding;
     private HttpClient httpClient;
@@ -365,4 +365,15 @@ public class HomeFragment extends Fragment {
         super.onDestroyView();
         binding = null;
     }
+
+    // ==================== build63: 底栏再点刷新 ====================
+    @Override
+    public void onTabReselected() {
+        if (binding == null) return;
+        binding.recyclerView.smoothScrollToPosition(0);
+        if (binding.swipeRefresh.isRefreshing()) return;   // 正在刷就别叠请求
+        binding.swipeRefresh.setRefreshing(true);
+        refreshThreads();
+    }
+
 }

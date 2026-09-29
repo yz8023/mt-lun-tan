@@ -34,7 +34,7 @@ import java.util.concurrent.Executors;
  * “消息”是底部导航页;“我的消息”是本页面中的私信分类,二者不能混淆。
  * 所有分类通过 HttpClient 请求网页端数据接口/HTML,再由原生布局渲染,绝不使用 WebView 套壳。
  */
-public class NoticeFragment extends Fragment {
+public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Refreshable {
     private static final int REQUEST_CODE_DETAIL = 1001;
 
     private FragmentNoticeBinding binding;
@@ -213,4 +213,13 @@ public class NoticeFragment extends Fragment {
         executor = null;
         binding = null;
     }
+
+    // ==================== build63: 底栏再点刷新 ====================
+    @Override
+    public void onTabReselected() {
+        if (executor != null && !executor.isShutdown()) {
+            loadAllBadgeCounts();
+        }
+    }
+
 }

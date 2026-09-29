@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- build63: 代码块工具条（仅上圆角，与外框贴合） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/gray_alpha_09" />
+    <corners android:topLeftRadius="10dp" android:topRightRadius="10dp" />
+</shape>

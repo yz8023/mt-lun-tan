@@ -134,22 +134,58 @@
         android:background="@drawable/reply_quote_bg"
         android:visibility="gone">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- build63: 引用头部加折叠/复制 -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="回复原文"
-            android:textColor="@color/reply_quote_title"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="回复原文"
+                android:textColor="@color/reply_quote_title"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btn_quote_copy"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:background="@drawable/bg_pill_soft"
+                android:gravity="center"
+                android:minWidth="44dp"
+                android:paddingHorizontal="8dp"
+                android:text="复制"
+                android:textColor="@color/primary"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/btn_quote_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:layout_marginStart="5dp"
+                android:background="@drawable/bg_pill_soft"
+                android:gravity="center"
+                android:minWidth="44dp"
+                android:paddingHorizontal="8dp"
+                android:text="展开"
+                android:textColor="@color/primary"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_reply_quote"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
+            android:ellipsize="end"
+            android:lineSpacingExtra="2dp"
             android:textColor="@color/reply_quote_content"
-            android:textSize="13sp"
-            android:lineSpacingExtra="2dp" />
+            android:textSize="13sp" />
     </LinearLayout>
 
     <TextView
@@ -161,6 +197,16 @@
         android:textSize="14sp"
         android:textColor="@color/text_primary"
         android:lineSpacingExtra="3dp"
+        android:visibility="gone" />
+
+    <!-- build63: 代码块单独渲染成可折叠卡片，不再挤在正文 TextView 里 -->
+    <LinearLayout
+        android:id="@+id/ll_code_blocks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="45dp"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical"
         android:visibility="gone" />
 
     <LinearLayout

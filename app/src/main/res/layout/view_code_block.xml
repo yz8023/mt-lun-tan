@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  可折叠代码块（build63 新增）。
+  顶部工具条：语言标签 + 行数 + 复制 + 展开/收起；
+  正文等宽字体、可横向滚动（代码不该被强制折行）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_code_block"
+    android:orientation="vertical">
+
+    <!-- 工具条 -->
+    <LinearLayout
+        android:id="@+id/code_header"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_code_header"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:id="@+id/tv_code_lang"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="代码"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_code_lines"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btn_code_copy"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
+            android:background="@drawable/bg_pill_soft"
+            android:drawablePadding="3dp"
+            android:gravity="center"
+            android:minWidth="52dp"
+            android:paddingHorizontal="9dp"
+            android:text="复制"
+            android:textColor="@color/primary"
+            android:textSize="11sp"
+            app:drawableStartCompat="@drawable/ic_copy"
+            app:drawableTint="@color/primary" />
+
+        <TextView
+            android:id="@+id/btn_code_toggle"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_pill_soft"
+            android:gravity="center"
+            android:minWidth="52dp"
+            android:paddingHorizontal="9dp"
+            android:text="展开"
+            android:textColor="@color/primary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- 代码正文：横向可滚动，不折行 -->
+    <HorizontalScrollView
+        android:id="@+id/code_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <TextView
+            android:id="@+id/tv_code_content"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="2dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="10dp"
+            android:textColor="@color/code_block_text"
+            android:textIsSelectable="true"
+            android:textSize="12sp" />
+    </HorizontalScrollView>
+
+    <!-- 折叠时的渐隐提示条 -->
+    <TextView
+        android:id="@+id/tv_code_fade"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:background="@drawable/bg_code_fade"
+        android:gravity="center"
+        android:text="点击展开剩余内容"
+        android:textColor="@color/text_hint"
+        android:textSize="11sp" />
+</LinearLayout>

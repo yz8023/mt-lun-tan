@@ -37,7 +37,7 @@ import com.solosu.mtforum.ui.space.SettingsActivity;
  * 帖子/回复/好友/粉丝统计、积分/金币/在线时长、注册信息、
  * 功能菜单（我的帖子、收藏、好友、积分详情、编辑资料、设置）
  */
-public class ProfileFragment extends Fragment {
+public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.Refreshable {
 
     private FragmentProfileBinding binding;
     private HttpClient httpClient;
@@ -330,4 +330,11 @@ public class ProfileFragment extends Fragment {
         super.onDestroyView();
         binding = null;
     }
+
+    // ==================== build63: 底栏再点刷新 ====================
+    @Override
+    public void onTabReselected() {
+        loadProfile();
+    }
+
 }

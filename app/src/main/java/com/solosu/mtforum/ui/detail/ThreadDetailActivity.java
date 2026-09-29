@@ -887,6 +887,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             tvTarget.setText(prefillText);
             tvTarget.setVisibility(0);
         }
+        // build63: 快捷回复短语条
+        buildQuickReplyChips(dialogView, etReplyDialog);
+
         FrostedGlassHelper.applyToCardViews(dialogCard, this);
         this.mBottomSheetDialog = new BottomSheetDialog(this);
         this.mBottomSheetDialog.setContentView(dialogView);
@@ -3567,5 +3570,123 @@ private void viewHiddenContent() {
     }
     private int dpToPx(int dp) {
         return (int) ((dp * getResources().getDisplayMetrics().density) + 0.5f);
+    }
+
+    // ==================== build63: 快捷回复 ====================
+
+    /**
+     * 渲染快捷回复短语条。
+     * 轻点 = 把短语填进输入框（可继续改），长按 = 直接发送。
+     * 「自定义」按钮打开多行编辑，一行一条。
+     */
+    private void buildQuickReplyChips(final View dialogView,
+                                      final com.google.android.material.textfield.TextInputEditText input) {
+        final android.widget.LinearLayout container =
+                dialogView.findViewById(R.id.ll_quick_reply);
+        final View btnEdit = dialogView.findViewById(R.id.btn_quick_reply_edit);
+        if (container == null) return;
+
+        renderQuickReplyChips(container, input);
+
+        if (btnEdit != null) {
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(btnEdit, 0.92f);
+            btnEdit.setOnClickListener(v -> showQuickReplyEditor(container, input));
+        }
+    }
+
+    private void renderQuickReplyChips(final android.widget.LinearLayout container,
+                                       final com.google.android.material.textfield.TextInputEditText input) {
+        container.removeAllViews();
+        java.util.List<String> items =
+                com.solosu.mtforum.session.QuickReplyManager.list(this);
+        float density = getResources().getDisplayMetrics().density;
+        int gap = (int) (6 * density);
+        int padH = (int) (12 * density);
+        int padV = (int) (7 * density);
+
+        for (final String phrase : items) {
+            TextView chip = new TextView(this);
+            chip.setText(phrase);
+            chip.setTextSize(13f);
+            chip.setTextColor(getResources().getColor(R.color.text_primary, null));
+            chip.setBackgroundResource(R.drawable.bg_quick_reply_chip);
+            chip.setPadding(padH, padV, padH, padV);
+            chip.setMaxLines(1);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = gap;
+            chip.setLayoutParams(lp);
+
+            com.solosu.mtforum.ui.anim.Motion.pressFeedback(chip, 0.92f);
+
+            // 轻点：填进输入框，光标移到末尾
+            chip.setOnClickListener(v -> {
+                if (input == null) return;
+                String cur = input.getText() == null ? "" : input.getText().toString();
+                String next = android.text.TextUtils.isEmpty(cur) ? phrase : cur + phrase;
+                input.setText(next);
+                input.setSelection(next.length());
+            });
+            // 长按：直接发送
+            chip.setOnLongClickListener(v -> {
+                if (input == null) return false;
+                input.setText(phrase);
+                input.setSelection(phrase.length());
+                View send = ((View) container.getParent().getParent())
+                        .findViewById(R.id.btn_send_reply);
+                if (send != null) send.performClick();
+                return true;
+            });
+            container.addView(chip);
+        }
+    }
+
+    /** 多行编辑器：一行一条短语 */
+    private void showQuickReplyEditor(final android.widget.LinearLayout container,
+                                      final com.google.android.material.textfield.TextInputEditText input) {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(com.solosu.mtforum.session.QuickReplyManager.toLines(
+                com.solosu.mtforum.session.QuickReplyManager.list(this)));
+        et.setTextSize(14f);
+        et.setTextColor(getResources().getColor(R.color.text_primary, null));
+        et.setGravity(android.view.Gravity.TOP);
+        et.setMinLines(6);
+        et.setMaxLines(12);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout wrap = new android.widget.LinearLayout(this);
+        wrap.setPadding(pad, pad / 2, pad, 0);
+        wrap.addView(et, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("自定义快捷回复")
+                .setMessage("一行一条，最多 "
+                        + com.solosu.mtforum.session.QuickReplyManager.MAX_COUNT + " 条。\n"
+                        + "轻点短语填入输入框，长按直接发送。")
+                .setView(wrap)
+                .setPositiveButton("保存", (d, w) -> {
+                    com.solosu.mtforum.session.QuickReplyManager.save(this,
+                            com.solosu.mtforum.session.QuickReplyManager.parseLines(
+                                    et.getText().toString()));
+                    renderQuickReplyChips(container, input);
+                    android.widget.Toast.makeText(this, "已保存",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("恢复默认", (d, w) -> {
+                    com.solosu.mtforum.session.QuickReplyManager.resetToDefault(this);
+                    renderQuickReplyChips(container, input);
+                    android.widget.Toast.makeText(this, "已恢复默认短语",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
     }
 }

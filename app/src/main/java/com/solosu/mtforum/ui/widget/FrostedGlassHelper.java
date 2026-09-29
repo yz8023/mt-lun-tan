@@ -20,28 +20,39 @@ public final class FrostedGlassHelper {
 
     /** 递归处理 root 下的所有 CardView(包含 root 自身)。 */
     public static void applyToCardViews(View root, Context context) {
+        applyToCardViews(root, context, FrostedGlassDrawable.LEVEL_CARD);
+    }
+
+    /** build63: 带不透明度档位的版本，对话框传 LEVEL_DIALOG */
+    public static void applyToCardViews(View root, Context context, int level) {
         if (root == null || context == null) return;
         if (root instanceof CardView) {
-            applyToCard((CardView) root, context);
+            applyToCard((CardView) root, context, level);
         }
         if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
             for (int i = 0; i < group.getChildCount(); i++) {
-                applyToCardViews(group.getChildAt(i), context);
+                applyToCardViews(group.getChildAt(i), context, level);
             }
         }
     }
 
     /** 给单个卡片设置毛玻璃背景(与列表项一致的轻量样式)。 */
     public static void applyToCard(CardView card, Context context) {
+        applyToCard(card, context, FrostedGlassDrawable.LEVEL_CARD);
+    }
+
+    public static void applyToCard(CardView card, Context context, int level) {
         if (card == null || context == null) return;
         boolean isDark = isDarkMode(context);
         float density = context.getResources().getDisplayMetrics().density;
         float radius = card.getRadius();
         if (radius <= 0f) radius = 12f * density;
         card.setCardBackgroundColor(Color.TRANSPARENT);
-        card.setBackground(new FrostedGlassDrawable(
-                isDark ? 0xFF1E1E1E : 0xFFFFFFFF, radius, density));
+        FrostedGlassDrawable bg = new FrostedGlassDrawable(
+                isDark ? 0xFF1E1E1E : 0xFFFFFFFF, radius, density);
+        bg.setLevelPreset(level);
+        card.setBackground(bg);
     }
 
     /** RecyclerView 卡片创建时使用。 */

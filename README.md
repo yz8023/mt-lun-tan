@@ -2,9 +2,19 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v2.3（versionCode 8）**
+当前版本：**v2.4（versionCode 9）**
 
 ---
+
+## v2.4 新增：代码块折叠复制 · 快捷回复 · 底栏刷新 · 搜索风控修复
+
+- **代码块**从正文摘出来独立成可折叠卡片，带语言标签 / 行数 / 一键复制；引用块同样可折叠复制
+- **快捷回复**短语条，轻点填入、长按直发，内容可自定义（一行一条）
+- **底栏再点当前 Tab** 即刷新该页
+- **搜索风控修复**：原本一次性并发抓完所有结果页，改为按需分页 + 900ms 间隔 + 403 识别
+- **不透明度**：对话框由 50% 提到 97%，长文可读
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v2.3 新增：底栏重做 · 图标全矢量 · 动效体系
 
@@ -88,6 +98,9 @@ app/src/main/java/com/solosu/mtforum/
 │   ├── SignInNotifier.java        结果通知
 │   ├── SessionGuard.java          403/掉线时用已存密码静默重登
 ├── ui/anim/Motion.java            动效令牌：时长/缓动/弹簧/按压/错峰
+├── ui/widget/CodeBlockView.java   可折叠 + 一键复制的代码块
+├── ui/Refreshable.java            底栏再点当前 Tab 触发页面刷新
+└── session/QuickReplyManager.java 快捷回复短语（可自定义）
 │   └── AutoSignInManager.java     入口分流（多账号 / 单账号）
 ├── ui/account/
 │   ├── AccountManagerActivity.java 账号与签到管理页

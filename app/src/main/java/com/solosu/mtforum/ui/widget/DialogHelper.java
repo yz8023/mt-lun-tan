@@ -24,7 +24,7 @@ public final class DialogHelper {
             View parent = window != null ? window.getDecorView() : null;
             if (parent == null) return;
             parent.setBackgroundResource(android.R.color.transparent);
-            FrostedGlassHelper.applyToCardViews(parent, activity);
+            FrostedGlassHelper.applyToCardViews(parent, activity, FrostedGlassDrawable.LEVEL_DIALOG);
             View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheet != null) {
                 sheet.setBackground(new ColorDrawable(Color.TRANSPARENT));
@@ -40,7 +40,7 @@ public final class DialogHelper {
             View parent = window != null ? window.getDecorView() : null;
             if (parent != null) {
                 parent.setBackgroundResource(android.R.color.transparent);
-                FrostedGlassHelper.applyToCardViews(parent, activity);
+                FrostedGlassHelper.applyToCardViews(parent, activity, FrostedGlassDrawable.LEVEL_DIALOG);
             }
             View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheet != null) {
@@ -48,7 +48,7 @@ public final class DialogHelper {
                 sheet.setClipToOutline(false);
             }
             if (contentView != null) {
-                FrostedGlassHelper.applyToCardViews(contentView, activity);
+                FrostedGlassHelper.applyToCardViews(contentView, activity, FrostedGlassDrawable.LEVEL_DIALOG);
             }
         });
     }
@@ -75,7 +75,7 @@ public final class DialogHelper {
         View decorView = window.getDecorView();
         if (decorView == null) return;
 
-        FrostedGlassHelper.applyToCardViews(decorView, context);
+        FrostedGlassHelper.applyToCardViews(decorView, context, FrostedGlassDrawable.LEVEL_DIALOG);
 
         boolean isDark = isDarkMode(context);
         float density = context.getResources().getDisplayMetrics().density;
@@ -95,8 +95,11 @@ public final class DialogHelper {
         if (root == null) root = content;
 
         // 直接替换根容器背景为毛玻璃
-        root.setBackground(new FrostedGlassDrawable(
-                isDark ? 0xFF1E1E1E : 0xFFFFFFFF, radius, density));
+        // build63: 对话框用近乎不透明的档位，之前 50% 透明度下长文基本没法读
+        FrostedGlassDrawable bg = new FrostedGlassDrawable(
+                isDark ? 0xFF1E1E1E : 0xFFFFFFFF, radius, density);
+        bg.setLevelPreset(FrostedGlassDrawable.LEVEL_DIALOG);
+        root.setBackground(bg);
 
         // 递归清空子 ViewGroup 背景,让毛玻璃透出
         clearChildBackgrounds(root);

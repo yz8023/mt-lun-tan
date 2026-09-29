@@ -19,17 +19,42 @@ import android.graphics.drawable.Drawable;
  */
 public class FrostedGlassDrawable extends Drawable {
 
+    // ==================== 不透明度档位（build63） ====================
+    // 原实现固定 62%→50%，叠在帖子列表这种深浅混杂的背景上时文字几乎读不清。
+    // 拆成两档：卡片保留一点点通透，对话框基本不透明（对话框本来就该压住背景）。
+
+    /** 卡片 / 列表项：顶部 96% → 底部 93%，仍有玻璃感但不影响阅读 */
+    public static final int LEVEL_CARD = 0;
+    /** 对话框 / 底部弹窗：顶部 99% → 底部 97%，保证长文可读 */
+    public static final int LEVEL_DIALOG = 1;
+
+    private static final int[][] ALPHA = {
+            {245, 237},  // LEVEL_CARD
+            {252, 248},  // LEVEL_DIALOG
+    };
+
     /**
      * 暗色感知工厂:按当前主题自动选择填充色,radiusDp 为圆角半径(dp)。
      */
     public static FrostedGlassDrawable create(android.content.Context context, float radiusDp) {
+        return create(context, radiusDp, LEVEL_CARD);
+    }
+
+    /** 对话框专用：几乎不透明，避免背景文字透上来干扰阅读 */
+    public static FrostedGlassDrawable createDialog(android.content.Context context, float radiusDp) {
+        return create(context, radiusDp, LEVEL_DIALOG);
+    }
+
+    public static FrostedGlassDrawable create(android.content.Context context, float radiusDp, int level) {
         boolean isDark = (context.getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         float density = context.getResources().getDisplayMetrics().density;
-        return new FrostedGlassDrawable(
+        FrostedGlassDrawable d = new FrostedGlassDrawable(
                 isDark ? 0xFF1E1E1E : 0xFFFFFFFF,
                 radiusDp * density, density);
+        d.setLevelPreset(level);
+        return d;
     }
 
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -38,9 +63,17 @@ public class FrostedGlassDrawable extends Drawable {
     private final float radius;
     private final float density;
     private int fillColor;
+    private int levelPreset = LEVEL_CARD;
+
+    /** 切换不透明度档位 */
+    public void setLevelPreset(int level) {
+        this.levelPreset = (level >= 0 && level < ALPHA.length) ? level : LEVEL_CARD;
+        updateShaders();
+        invalidateSelf();
+    }
 
     /**
-     * @param fillColor 基础填充色(会被强制设为 50%-62% 不透明度)
+     * @param fillColor 基础填充色(实际不透明度由档位决定，见 {@link #setLevelPreset(int)})
      * @param radius    圆角半径(px)
      * @param density   屏幕密度(用于高光/边框尺寸)
      */
@@ -66,11 +99,12 @@ public class FrostedGlassDrawable extends Drawable {
         int r = Color.red(fillColor);
         int g = Color.green(fillColor);
         int b = Color.blue(fillColor);
-        // 顶部稍亮 62% → 底部 50%,留出背景透光
+        // build63: 不透明度按档位取（原来写死 158→128 即 62%→50%，文字读不清）
+        int[] a = ALPHA[levelPreset];
         bgPaint.setShader(new LinearGradient(
                 rect.left, rect.top, rect.left, rect.bottom,
-                Color.argb(158, r, g, b),
-                Color.argb(128, r, g, b),
+                Color.argb(a[0], r, g, b),
+                Color.argb(a[1], r, g, b),
                 Shader.TileMode.CLAMP));
         // 边框:按底色明暗自适应 — 浅底配深灰细边框(日间可见),深底配白色细边框(夜间)
         boolean lightBg = (r * 299 + g * 587 + b * 114) / 1000 > 128;

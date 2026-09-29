@@ -422,4 +422,92 @@ public final class BBCodeUtil {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
                 android.content.res.Resources.getSystem().getDisplayMetrics());
     }
+
+    // ==================== build63: 代码块抽取（供可折叠卡片渲染） ====================
+
+    /** 从正文里抽出来的一段代码 */
+    public static final class CodeBlock {
+        public final String lang;
+        public final String code;
+
+        CodeBlock(String lang, String code) {
+            this.lang = lang;
+            this.code = code;
+        }
+    }
+
+    /** 抽取结果：剩余正文 HTML + 代码块列表 */
+    public static final class Extracted {
+        public final String html;
+        public final java.util.List<CodeBlock> blocks;
+
+        Extracted(String html, java.util.List<CodeBlock> blocks) {
+            this.html = html;
+            this.blocks = blocks;
+        }
+
+        public boolean hasBlocks() {
+            return blocks != null && !blocks.isEmpty();
+        }
+    }
+
+    private static final Pattern P_PRE_BLOCK =
+            Pattern.compile("(?is)<pre[^>]*>(.*?)</pre>");
+    private static final Pattern P_LANG_SPAN =
+            Pattern.compile("(?is)^\\s*<span[^>]*>(.*?)</span>\\s*<br\\s*/?>");
+
+    /**
+     * 把 {@code <pre>} 代码块从正文 HTML 里摘出来。
+     *
+     * <p>摘出来后由 {@link com.solosu.mtforum.ui.widget.CodeBlockView} 单独渲染成
+     * 可折叠 + 可一键复制的卡片；剩余正文照旧走 {@code Html.fromHtml}。
+     * 这样几百行的代码不会再把整条回复撑得翻不完。
+     */
+    public static Extracted extractCodeBlocks(String html) {
+        java.util.List<CodeBlock> blocks = new ArrayList<>();
+        // 这里刻意不用 android.text.TextUtils，保持纯 Java 以便跑 JVM 单元测试
+        if (html == null || html.isEmpty()) return new Extracted(html, blocks);
+
+        Matcher m = P_PRE_BLOCK.matcher(html);
+        StringBuffer out = new StringBuffer();
+        while (m.find()) {
+            String inner = m.group(1);
+            String lang = null;
+
+            // 语言标签是渲染时加的 <span ...>lang</span><br>，还原时要剥掉
+            Matcher lm = P_LANG_SPAN.matcher(inner);
+            if (lm.find()) {
+                lang = unescapeHtmlText(lm.group(1));
+                inner = inner.substring(lm.end());
+            }
+            blocks.add(new CodeBlock(lang, htmlToPlainCode(inner)));
+            // 正文里留一个占位提示，避免代码块位置感丢失
+            m.appendReplacement(out, Matcher.quoteReplacement(""));
+        }
+        m.appendTail(out);
+        return new Extracted(out.toString(), blocks);
+    }
+
+    /** 把 <pre> 内部的 HTML 还原成纯代码文本 */
+    private static String htmlToPlainCode(String inner) {
+        if (inner == null) return "";
+        String s = inner
+                .replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?i)</?p[^>]*>", "\n")
+                .replaceAll("<[^>]+>", "");
+        s = unescapeHtmlText(s);
+        // 去掉结尾多余空行
+        return s.replaceAll("\\n+$", "");
+    }
+
+    private static String unescapeHtmlText(String s) {
+        if (s == null) return "";
+        return s.replace("&nbsp;", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&amp;", "&");
+    }
+
 }

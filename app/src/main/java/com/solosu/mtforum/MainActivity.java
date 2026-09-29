@@ -970,10 +970,10 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 前4项 — 首页/版块/我的使用NavController导航；消息直接启动NoticeActivity
-        navHome.setOnClickListener(v -> switchPage(MainPagerAdapter.PAGE_HOME));
-        navCommunity.setOnClickListener(v -> switchPage(MainPagerAdapter.PAGE_COMMUNITY));
-        navMessage.setOnClickListener(v -> switchPage(MainPagerAdapter.PAGE_MESSAGE));
-        navProfile.setOnClickListener(v -> switchPage(MainPagerAdapter.PAGE_PROFILE));
+        navHome.setOnClickListener(v -> onTabTapped(MainPagerAdapter.PAGE_HOME));
+        navCommunity.setOnClickListener(v -> onTabTapped(MainPagerAdapter.PAGE_COMMUNITY));
+        navMessage.setOnClickListener(v -> onTabTapped(MainPagerAdapter.PAGE_MESSAGE));
+        navProfile.setOnClickListener(v -> onTabTapped(MainPagerAdapter.PAGE_PROFILE));
 
         // 中间凸起发布按钮 — 启动 PostActivity
         navPost.setOnClickListener(v -> {
@@ -1064,6 +1064,54 @@ public class MainActivity extends AppCompatActivity {
             slot.post(move);
         } else {
             move.run();
+        }
+    }
+
+    /**
+     * 底栏 Tab 点击（build63）。
+     * 不在当前页 → 切页；已经在当前页 → 触发该页刷新（回到顶部 + 重拉数据）。
+     */
+    private void onTabTapped(int position) {
+        if (mainPager != null && mainPager.getCurrentItem() == position) {
+            triggerRefresh(position);
+            return;
+        }
+        switchPage(position);
+    }
+
+    /** 找到 ViewPager2 当前页的 Fragment，若实现了 Refreshable 就调它 */
+    private void triggerRefresh(int position) {
+        try {
+            // ViewPager2 + FragmentStateAdapter 的 Fragment tag 固定为 "f" + itemId
+            androidx.fragment.app.Fragment fragment =
+                    getSupportFragmentManager().findFragmentByTag("f" + position);
+            if (fragment instanceof com.solosu.mtforum.ui.Refreshable) {
+                ((com.solosu.mtforum.ui.Refreshable) fragment).onTabReselected();
+                // 图标回弹一下，给出「已响应」的反馈
+                ImageView icon = iconOfPage(position);
+                if (icon != null) {
+                    icon.setScaleX(0.8f);
+                    icon.setScaleY(0.8f);
+                    com.solosu.mtforum.ui.anim.Motion.spring(icon,
+                            androidx.dynamicanimation.animation.DynamicAnimation.SCALE_X, 1f,
+                            com.solosu.mtforum.ui.anim.Motion.springBouncy());
+                    com.solosu.mtforum.ui.anim.Motion.spring(icon,
+                            androidx.dynamicanimation.animation.DynamicAnimation.SCALE_Y, 1f,
+                            com.solosu.mtforum.ui.anim.Motion.springBouncy());
+                }
+            }
+        } catch (Exception e) {
+            AiLog.i("nav", "刷新当前页失败：" + e);
+        }
+    }
+
+    private ImageView iconOfPage(int position) {
+        switch (position) {
+            case MainPagerAdapter.PAGE_HOME: return ivHomeIcon;
+            case MainPagerAdapter.PAGE_COMMUNITY: return ivCommunityIcon;
+            case MainPagerAdapter.PAGE_MESSAGE: return ivMessageIcon;
+            case MainPagerAdapter.PAGE_PROFILE: return ivProfileIcon;
+            default: return null;
         }
     }
 

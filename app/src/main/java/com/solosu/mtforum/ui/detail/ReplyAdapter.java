@@ -108,6 +108,9 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         private final TextView tvTime;
         private final TextView tvContent;
         private final LinearLayout layoutReplyQuote;
+        LinearLayout llCodeBlocks;
+        TextView btnQuoteCopy;
+        TextView btnQuoteToggle;
         private final TextView tvReplyQuote;
         private final LinearLayout llReplyImages;
         private final TextView btnReplyTo;
@@ -123,6 +126,9 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             tvContent = itemView.findViewById(R.id.tv_reply_content);
             layoutReplyQuote = itemView.findViewById(R.id.layout_reply_quote);
             tvReplyQuote = itemView.findViewById(R.id.tv_reply_quote);
+            llCodeBlocks = itemView.findViewById(R.id.ll_code_blocks);
+            btnQuoteCopy = itemView.findViewById(R.id.btn_quote_copy);
+            btnQuoteToggle = itemView.findViewById(R.id.btn_quote_toggle);
             llReplyImages = itemView.findViewById(R.id.ll_reply_images);
             btnReplyTo = itemView.findViewById(R.id.btn_reply_to);
         }
@@ -215,6 +221,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 layoutReplyQuote.setVisibility(View.VISIBLE);
                 tvReplyQuote.setText(Html.fromHtml(quotedText, Html.FROM_HTML_MODE_COMPACT,
                         createInlineImageGetter(tvReplyQuote), BBCodeUtil.createTagHandler(itemView.getContext())));
+                // build63: 长引用默认折 4 行，可展开；旁边给一键复制
+                setupQuoteControls(tvReplyQuote, btnQuoteToggle, btnQuoteCopy);
             } else {
                 layoutReplyQuote.setVisibility(View.GONE);
                 tvReplyQuote.setText("");
@@ -222,8 +230,24 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
             String contentText = item.getContentText();
             String htmlContent = item.getContentHtml();
-            boolean hasCodeBlock = htmlContent != null
-                    && (htmlContent.contains("comiis_blockcode") || htmlContent.contains("<pre"));
+
+            // build63: 先把 <pre> 代码块摘出来，单独渲染成可折叠 + 可复制的卡片。
+            // 摘完之后正文就没有代码块了，走原来的纯文本分支即可。
+            boolean hasCodeBlock = false;
+            if (htmlContent != null
+                    && (htmlContent.contains("comiis_blockcode") || htmlContent.contains("<pre"))) {
+                BBCodeUtil.Extracted extracted = BBCodeUtil.extractCodeBlocks(htmlContent);
+                if (extracted.hasBlocks()) {
+                    renderCodeBlocks(llCodeBlocks, extracted.blocks);
+                    htmlContent = extracted.html;
+                    contentText = null;      // 纯文本版仍含代码，弃用，改用摘干净的 html
+                } else {
+                    hasCodeBlock = true;     // 有 <pre> 但没抽出来，退回旧行为
+                }
+            } else {
+                llCodeBlocks.setVisibility(View.GONE);
+                llCodeBlocks.removeAllViews();
+            }
 
             if (!TextUtils.isEmpty(contentText) && !hasCodeBlock) {
                 tvContent.setVisibility(View.VISIBLE);
@@ -590,5 +614,87 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
     private static int dpToPx(Context context, int dp) {
         return (int) (dp * context.getResources().getDisplayMetrics().density);
+    }
+
+    // ==================== build63: 代码块 / 引用 的折叠与复制 ====================
+
+    /** 把抽出来的代码块渲染成一排可折叠卡片 */
+    private static void renderCodeBlocks(LinearLayout container,
+                                         java.util.List<BBCodeUtil.CodeBlock> blocks) {
+        if (container == null) return;
+        container.removeAllViews();
+        if (blocks == null || blocks.isEmpty()) {
+            container.setVisibility(View.GONE);
+            return;
+        }
+        container.setVisibility(View.VISIBLE);
+        int gap = (int) (8 * container.getResources().getDisplayMetrics().density);
+        for (int i = 0; i < blocks.size(); i++) {
+            BBCodeUtil.CodeBlock b = blocks.get(i);
+            com.solosu.mtforum.ui.widget.CodeBlockView view =
+                    new com.solosu.mtforum.ui.widget.CodeBlockView(container.getContext());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = gap;
+            view.setLayoutParams(lp);
+            view.bind(b.lang, b.code);
+            container.addView(view);
+        }
+    }
+
+    /** 引用块：超过 4 行折叠，按钮切换；复制按钮拷贝纯文本 */
+    private static void setupQuoteControls(final TextView quote,
+                                           final TextView btnToggle,
+                                           final TextView btnCopy) {
+        if (quote == null) return;
+        final int collapsedLines = 4;
+        quote.setMaxLines(collapsedLines);
+
+        if (btnToggle != null) {
+            btnToggle.setVisibility(View.GONE);
+            quote.post(() -> {
+                android.text.Layout layout = quote.getLayout();
+                boolean overflow = layout != null && layout.getLineCount() > collapsedLines;
+                // getLineCount 在 maxLines 生效时已被截断，改用测量整段行数
+                if (!overflow) {
+                    overflow = quote.getText() != null
+                            && countTextLines(quote.getText().toString()) > collapsedLines;
+                }
+                if (!overflow) return;
+                btnToggle.setVisibility(View.VISIBLE);
+                btnToggle.setText("展开");
+                final boolean[] expanded = {false};
+                btnToggle.setOnClickListener(v -> {
+                    expanded[0] = !expanded[0];
+                    quote.setMaxLines(expanded[0] ? Integer.MAX_VALUE : collapsedLines);
+                    btnToggle.setText(expanded[0] ? "收起" : "展开");
+                });
+            });
+        }
+
+        if (btnCopy != null) {
+            btnCopy.setOnClickListener(v -> {
+                try {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            v.getContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                    if (cm == null) return;
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                            "quote", quote.getText() == null ? "" : quote.getText().toString()));
+                    android.widget.Toast.makeText(v.getContext(), "引用内容已复制",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                } catch (Exception ignored) {
+                }
+            });
+        }
+    }
+
+    private static int countTextLines(String s) {
+        if (TextUtils.isEmpty(s)) return 0;
+        int n = 1;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == '\n') n++;
+        }
+        return n;
     }
 }
