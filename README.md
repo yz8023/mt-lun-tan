@@ -2,9 +2,14 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.4（versionCode 19）**
+当前版本：**v3.5（versionCode 20）**
 
 ---
+
+## v3.5：紧急修复
+
+修复对隐藏帖反复自动回复（三因叠加）与删除自己回复无效（参数错 + 从不校验响应）。
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.4：角标误报 · 隐藏标注 · 图片全宽 · 主题透明度
 

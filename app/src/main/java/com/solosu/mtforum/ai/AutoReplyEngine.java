@@ -335,17 +335,43 @@ public final class AutoReplyEngine {
             return true;
         }
         boolean ok = sendUnlockReply(client, detail, pageHtml, tid, text);
-        // build68: 失败要释放认领，否则这个 tid 在本次运行内永远不会再试
-        if (!ok) releaseTid(tid);
+        // build74: 失败<b>不再立即释放</b>。
+        // 「失败」常常只是我们的成功判定没认出来，服务端其实已经回帖成功了，
+        // 一释放下次进来就又发一条 —— 这是重复回帖的另一个来源。
+        // 认领记录保留 6 小时，到点才允许重试一次。
         if (ok) com.solosu.mtforum.util.UnlockLog.ok(tid, text);
         else com.solosu.mtforum.util.UnlockLog.fail(tid, "回帖未成功");
         return ok;
     }
 
-    /** build61: 原子认领 tid(已认领返回 false,防并发重复回帖) */
+    // ==================== build74: 认领持久化 ====================
+    //
+    // 之前有两个坑，叠在一起导致「对同一个隐藏帖反复自动回复」：
+    //   1) HANDLED_TIDS 只在内存里，杀进程/重启后全忘，同一帖子会被再回一次
+    //   2) 回帖失败就 releaseTid 允许重试 —— 但「失败」很多时候是我们的
+    //      成功判定没认出来，服务端其实已经发出去了，于是又发一条
+    // 现在：认领落盘（带时间戳），失败也不立即释放，只在 6 小时后允许再试一次。
+
+    private static final String PREF_UNLOCK = "auto_unlock_claims";
+    private static final long RETRY_AFTER_MS = 6 * 60 * 60 * 1000L;
+    private static android.content.SharedPreferences claimPrefs;
+
+    public static void attachClaims(Context c) {
+        if (claimPrefs != null || c == null) return;
+        claimPrefs = c.getApplicationContext()
+                .getSharedPreferences(PREF_UNLOCK, Context.MODE_PRIVATE);
+    }
+
     private static boolean claimTid(String tid) {
         synchronized (HANDLED_TIDS) {
             if (HANDLED_TIDS.contains(tid)) return false;
+            if (claimPrefs != null) {
+                long at = claimPrefs.getLong("t_" + tid, 0L);
+                if (at > 0 && System.currentTimeMillis() - at < RETRY_AFTER_MS) {
+                    return false;   // 冷却期内，不再回
+                }
+                claimPrefs.edit().putLong("t_" + tid, System.currentTimeMillis()).apply();
+            }
             HANDLED_TIDS.add(tid);
             return true;
         }

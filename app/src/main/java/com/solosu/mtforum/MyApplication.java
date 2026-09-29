@@ -47,6 +47,7 @@ public class MyApplication extends Application {
         });
 
         com.solosu.mtforum.session.PostCountsCache.attach(this);
+        com.solosu.mtforum.ai.AutoReplyEngine.attachClaims(this);
         HttpClient.getInstance().init(this);
 
         // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登

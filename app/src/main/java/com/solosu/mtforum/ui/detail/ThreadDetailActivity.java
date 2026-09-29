@@ -492,7 +492,20 @@ public class ThreadDetailActivity extends AppCompatActivity {
     /* build61: 待解锁页面快照(加载线程写,渲染后读一次即清) */
     private String pendingUnlockHtml;
     /** build61: 渲染后异步解锁——16 秒节流在后台线程里等,不卡首屏 */
+    /** build74: 本次进入该帖是否已经解锁过一次，防止刷新链路二次回帖 */
+    private boolean unlockAttemptedThisVisit = false;
+
     private void runUnlockInBackground(final PostDetail detail) {
+        // build74 关键修复：解锁成功后会调 refreshPostDetail()，
+        // 刷新链路又会设置 pendingUnlockHtml 并再次进到这里 ——
+        // 服务端刚回帖完，页面状态可能还没更新，于是又回一条。
+        // 这就是「有概率对隐藏帖多次自动回复，且概率很大」的主因。
+        if (unlockAttemptedThisVisit) {
+            com.solosu.mtforum.util.UnlockLog.skip(
+                    detail == null ? null : detail.getTid(), "本次进入已尝试过，跳过");
+            this.pendingUnlockHtml = null;
+            return;
+        }
         if (detail == null || !detail.isHasHiddenContent()) return;
         final String pageHtml = this.pendingUnlockHtml;
         this.pendingUnlockHtml = null;
@@ -501,6 +514,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
         new java.lang.Thread(new Runnable() {
             @Override // java.lang.Runnable
             public final void run() {
+                unlockAttemptedThisVisit = true;
                 boolean ok = com.solosu.mtforum.ai.AutoReplyEngine
                         .tryUnlockOnOpen(ThreadDetailActivity.this, detail, pageHtml);
                 if (ok) {
@@ -3667,36 +3681,111 @@ private void viewHiddenContent() {
         new java.lang.Thread(new Runnable() {
             @Override
             public void run() {
+                String failReason = null;
+                boolean ok = false;
                 try {
                     String pid = item.getPid();
-                    String formUrl = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&tid=" + tid + "&pid=" + pid + "&mobile=2";
+                    String formUrl = HttpClient.BASE_URL
+                            + "forum.php?mod=post&action=edit&tid=" + tid + "&pid=" + pid + "&mobile=2";
                     String form = httpClient.get(formUrl);
                     String fh = ForumParser.parseFormhash(form);
                     if (TextUtils.isEmpty(fh) && postDetail != null) fh = postDetail.getFormhash();
-                    // build73c: 编辑页 HTML 里带该楼专用删除校验哈希,优先用它
                     String delHash = extractDeleteHash(form, pid);
                     if (!TextUtils.isEmpty(delHash)) fh = delHash;
                     if (TextUtils.isEmpty(fh)) throw new IllegalStateException("获取操作验证失败");
 
+                    // build74 修复：Discuz 的编辑接口要的是 editsubmit=yes，
+                    // 原来发的是 deletesubmit=yes —— 服务端根本不认，等于什么都没做。
                     Map<String, String> params = new HashMap<>();
                     params.put("formhash", fh);
+                    params.put("editsubmit", "yes");
                     params.put("delete", "1");
                     params.put("pid", pid);
                     params.put("tid", tid);
-                    String url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&tid=" + tid
-                            + "&pid=" + pid + "&delete=1&deletesubmit=yes&mobile=2";
+                    params.put("page", "1");
+                    String url = HttpClient.BASE_URL
+                            + "forum.php?mod=post&action=edit&extra=&editsubmit=yes&mobile=2"
+                            + "&handlekey=delpost&tid=" + tid + "&pid=" + pid + "&delete=1&page=1";
                     String resp = httpClient.post(url, params);
-                    runOnUiThread(() -> {
-                        Toast.makeText(ThreadDetailActivity.this, "已删除该回复", Toast.LENGTH_SHORT).show();
-                        refreshPostDetail();
-                    });
-                } catch (final Exception e) {
-                    runOnUiThread(() -> Toast.makeText(ThreadDetailActivity.this,
-                            "删除失败：" + (TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage()),
-                            Toast.LENGTH_SHORT).show());
+                    ok = isDeleteSuccess(resp);
+
+                    // 退路：编辑接口不行就走版主删帖接口（自己的帖子通常也允许）
+                    if (!ok) {
+                        Map<String, String> p2 = new HashMap<>();
+                        p2.put("formhash", fh);
+                        p2.put("delete", "1");
+                        p2.put("deletesubmit", "true");
+                        String url2 = HttpClient.BASE_URL
+                                + "forum.php?mod=topicadmin&action=moderate&operation=delpost"
+                                + "&optgroup=3&modsubmit=yes&infloat=yes&inajax=1&mobile=2"
+                                + "&tid=" + tid + "&page=1";
+                        p2.put("delete[]", pid);
+                        String resp2 = httpClient.post(url2, p2);
+                        ok = isDeleteSuccess(resp2);
+                        if (!ok) failReason = extractServerMessage(resp2);
+                    }
+                    if (!ok && failReason == null) failReason = extractServerMessage(resp);
+                } catch (Exception e) {
+                    failReason = TextUtils.isEmpty(e.getMessage()) ? "网络异常" : e.getMessage();
                 }
+
+                final boolean success = ok;
+                final String reason = failReason;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (success) {
+                        Toast.makeText(ThreadDetailActivity.this, "已删除该回复",
+                                Toast.LENGTH_SHORT).show();
+                        refreshPostDetail();
+                    } else {
+                        // build74: 之前无论服务端返回什么都弹「已删除」，
+                        // 删没删成功用户完全不知道。现在如实报错。
+                        Toast.makeText(ThreadDetailActivity.this,
+                                "删除失败：" + (TextUtils.isEmpty(reason) ? "服务端未接受该操作" : reason),
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
             }
         }).start();
+    }
+
+    /** 判断删除是否真的成功 */
+    private static boolean isDeleteSuccess(String resp) {
+        if (TextUtils.isEmpty(resp)) return false;
+        String r = resp;
+        if (r.contains("删除成功") || r.contains("操作成功")
+                || r.contains("succeedhandle_delpost")
+                || r.contains("已经被删除")) {
+            return true;
+        }
+        if (r.contains("您没有权限") || r.contains("没有权限")
+                || r.contains("抱歉") || r.contains("错误")
+                || r.contains("请先登录") || r.contains("超时")) {
+            return false;
+        }
+        // 回到主题页且不再包含该操作表单，通常也算成功
+        return r.contains("viewthread") && !r.contains("editsubmit");
+    }
+
+    /** 从服务端返回里抠出人话错误信息 */
+    private static String extractServerMessage(String resp) {
+        if (TextUtils.isEmpty(resp)) return null;
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("(?s)<!\\[CDATA\\[(.*?)\\]\\]>").matcher(resp);
+            if (m.find()) {
+                String t = m.group(1).replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
+                if (!t.isEmpty()) return t.length() > 80 ? t.substring(0, 80) : t;
+            }
+            java.util.regex.Matcher m2 = java.util.regex.Pattern
+                    .compile("(?s)id=\"messagetext\"[^>]*>(.*?)</").matcher(resp);
+            if (m2.find()) {
+                String t = m2.group(1).replaceAll("<[^>]+>", "").trim();
+                if (!t.isEmpty()) return t;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /** build73c: 从编辑页 HTML 抽取该楼删除用的校验哈希(找不到返回 null,退回通用 formhash) */
