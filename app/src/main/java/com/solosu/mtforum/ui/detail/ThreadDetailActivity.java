@@ -2059,7 +2059,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
                     ThreadDetailActivity.this.lambda$renderHiddenContent$39(imgUrl, view);
                 }
             });
-            Glide.with((FragmentActivity) this).load(imgUrl).placeholder(new ColorDrawable(getColor(R.color.background_secondary))).error((Drawable) new ColorDrawable(getColor(R.color.divider))).into(imageView);
+            Glide.with((FragmentActivity) this).load(com.solosu.mtforum.util.ForumImageLoader.model(imgUrl)).placeholder(new ColorDrawable(getColor(R.color.background_secondary))).error((Drawable) new ColorDrawable(getColor(R.color.divider))).into(imageView);
             this.binding.llImageGallery.addView(imageView);
         }
         this.binding.cardImageGallery.setVisibility(0);
@@ -2530,9 +2530,7 @@ private void viewHiddenContent() {
                 // 论坛分区链接: forum-{fid}-1.html 或 forum.php?mod=forumdisplay&fid={fid}
                 Matcher forumMatcher = Pattern.compile("(?:forum-|(?<=[?&])fid=)(\\d+)").matcher(lower);
                 if (forumMatcher.find()) {
-                    Toast.makeText(this, "论坛分区链接", Toast.LENGTH_SHORT).show();
-                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    startActivity(browser);
+                    com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
                     return;
                 }
 
@@ -2555,9 +2553,8 @@ private void viewHiddenContent() {
                 }
             }
 
-            // 非论坛链接或无法识别的论坛链接,用浏览器打开
-            Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(browser);
+            // 非论坛链接或无法识别的论坛链接遵循“应用内下载/浏览器”偏好。
+            com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
         } catch (Exception e) {
             Toast.makeText(this, "没有可用的浏览器", Toast.LENGTH_SHORT).show();
         }
@@ -4332,6 +4329,11 @@ private void viewHiddenContent() {
             if (imgUrl == null) {
                 imgUrl = source;
             }
+            final String imageUrlForType = imgUrl.toLowerCase(java.util.Locale.ROOT);
+            final boolean inlineIcon = imageUrlForType.contains("smiley")
+                    || imageUrlForType.contains("emoticon")
+                    || imageUrlForType.contains("/static/image/")
+                    || imageUrlForType.contains("icon");
             final TextView tv = textView;
             final int measured = tv.getWidth() - tv.getCompoundPaddingLeft() - tv.getCompoundPaddingRight();
             final int maxW = Math.max(dpToPx(200), measured > 0 ? measured
@@ -4339,7 +4341,7 @@ private void viewHiddenContent() {
             final com.solosu.mtforum.util.UrlDrawable placeholder =
                     new com.solosu.mtforum.util.UrlDrawable(tv, dpToPx(120));
             com.bumptech.glide.Glide.with(this)
-                    .load(imgUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(imgUrl))
                     .into(new com.bumptech.glide.request.target.CustomTarget<Drawable>() {
                         @Override
                         public void onResourceReady(Drawable resource,
@@ -4352,11 +4354,17 @@ private void viewHiddenContent() {
                             if (h <= 0) {
                                 h = maxW;
                             }
-                            // build73: 原来只有「超宽才缩小」，论坛缩略图本身就小，
-                            // 于是原位显示出来是一张小图，还得点进去看。
-                            // 现在<b>无论大小都等比缩放到内容宽度</b>，直接看全图。
-                            h = (int) ((long) h * maxW / Math.max(1, w));
-                            w = maxW;
+                            if (inlineIcon) {
+                                int size = dpToPx(24);
+                                float ratio = (float) size / Math.max(1, Math.max(w, h));
+                                w = Math.max(1, (int) (w * ratio));
+                                h = Math.max(1, (int) (h * ratio));
+                            } else {
+                                // Content images always occupy the complete text width. The URL
+                                // has already been upgraded from lazy thumbnail to original.
+                                h = (int) ((long) h * maxW / Math.max(1, w));
+                                w = maxW;
+                            }
                             resource.setBounds(0, 0, w, h);
                             placeholder.setReal(resource, tv);
                         }

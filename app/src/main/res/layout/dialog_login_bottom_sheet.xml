@@ -10,6 +10,12 @@
     app:cardElevation="0dp"
     app:cardBackgroundColor="@android:color/transparent">
 
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="true"
+        android:clipToPadding="false">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -204,4 +210,5 @@
             android:clickable="true"
             android:focusable="true" />
     </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
 </com.google.android.material.card.MaterialCardView>

@@ -150,5 +150,16 @@
             android:exported="false"
             android:label="账号与签到"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.web.InAppBrowserActivity"
+            android:exported="false"
+            android:label="应用内浏览器"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".mcp.McpSettingsActivity"
+            android:exported="false"
+            android:label="MCP 服务"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

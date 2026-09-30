@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.2
+        default: v4.3
 
 permissions:
   contents: write
@@ -125,10 +125,10 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 站点验证进入登录页时，自动使用 Android Keystore 中保存的当前账号密码填写并登录。
-          - 修复打开登录面板会清除刚验证 Cookie、随后误报“登录页异常”的问题。
-          - 登录和自动重登复用 ESA 防护 Cookie，同时保持不同账号的认证 Cookie 隔离。
-          - 恢复本人回复的“编辑回复”入口，并按 Discuz 原始编辑表单完整提交字段。
+          - 外部链接按下载偏好进入带 Cookie 的应用内浏览器，支持浏览器打开、复制链接与电脑模式。
+          - 修复评论区、隐藏内容和全屏预览中受保护图片不显示，并完整识别 Discuz/Comiis 原图属性。
+          - 新增 Token 鉴权的只读 MCP 服务，可读取论坛、帖子、回复与用户资料，并支持局域网/隧道转发。
+          - 修复登录输入框被输入法遮挡，重新整理设置与工具入口。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -143,14 +143,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 全自动登录恢复与回复编辑" \
+              --title "MTForum v${VERSION} — 内置浏览器、图片与 MCP" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 全自动登录恢复与回复编辑" \
+              --title "MTForum v${VERSION} — 内置浏览器、图片与 MCP" \
               --notes-file release-notes.md \
               --latest
           fi

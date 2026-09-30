@@ -74,5 +74,10 @@ public class MyApplication extends Application {
         // build60: 多账号定时签到 —— 建好通知渠道并按设置重排 WorkManager 周期任务
         SignInNotifier.ensureChannel(this);
         SignInScheduler.reschedule(this);
+
+        // Read-only MCP endpoint for AI clients; disabled by default and bearer-token protected.
+        if (com.solosu.mtforum.mcp.McpPreferences.enabled(this)) {
+            com.solosu.mtforum.mcp.McpServer.get().start(this);
+        }
     }
 }

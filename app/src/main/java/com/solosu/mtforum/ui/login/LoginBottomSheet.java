@@ -161,8 +161,10 @@ public class LoginBottomSheet {
                                 parent.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                                 int contentHeight = dialogView.getHeight();
                                 if (contentHeight > 0) {
-                                    int maxHeight = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.75d);
+                                    int maxHeight = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.90d);
                                     behavior.setPeekHeight(Math.min(contentHeight + dp(activity, 48), maxHeight));
+                                    behavior.setSkipCollapsed(true);
+                                    behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
                                 }
                             }
                         });
@@ -170,6 +172,31 @@ public class LoginBottomSheet {
         });
 
         dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                            | android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+        }
+        etUsername.setOnFocusChangeListener((v, focused) -> {
+            if (focused) expandForKeyboard(dialogView);
+        });
+        etPassword.setOnFocusChangeListener((v, focused) -> {
+            if (focused) expandForKeyboard(dialogView);
+        });
+        etCookie.setOnFocusChangeListener((v, focused) -> {
+            if (focused) expandForKeyboard(dialogView);
+        });
+    }
+
+    private static void expandForKeyboard(View dialogView) {
+        try {
+            View parent = (View) dialogView.getParent();
+            if (parent != null) {
+                BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(parent);
+                behavior.setSkipCollapsed(true);
+                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            }
+        } catch (Exception ignored) {}
     }
 
     private static int dp(Activity activity, float dp) {

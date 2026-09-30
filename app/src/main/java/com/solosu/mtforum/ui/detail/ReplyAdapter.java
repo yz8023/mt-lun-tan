@@ -440,10 +440,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                     return;
                 }
             }
-            // 非论坛链接,用浏览器打开
-            Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
-            browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(browserIntent);
+            // 外部链接遵循“应用内下载/浏览器”偏好。
+            com.solosu.mtforum.ui.web.LinkRouter.open(context, url);
         } catch (Exception ignored) {
         }
     }
@@ -500,29 +498,32 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         return sb.toString();
     }
 
-    /** Replace Discuz thumbnail src values with their original-image attributes in-place. */
+    /** Resolve all known Discuz/Comiis lazy-load attributes, including tags without src. */
     private static String upgradeImageSources(String html) {
         if (TextUtils.isEmpty(html)) return html;
-        Pattern tags = Pattern.compile("<img\\b[^>]*>", Pattern.CASE_INSENSITIVE);
-        Pattern original = Pattern.compile("(?:data-original|zoomfile|file)\\s*=\\s*['\"]([^'\"]+)['\"]",
-                Pattern.CASE_INSENSITIVE);
-        Pattern src = Pattern.compile("src\\s*=\\s*['\"][^'\"]*['\"]", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = tags.matcher(html);
-        StringBuffer out = new StringBuffer();
-        while (matcher.find()) {
-            String tag = matcher.group();
-            Matcher originalMatcher = original.matcher(tag);
-            if (originalMatcher.find()) {
-                String full = normalizeImageUrl(originalMatcher.group(1));
-                Matcher srcMatcher = src.matcher(tag);
-                if (full != null && srcMatcher.find()) {
-                    tag = srcMatcher.replaceFirst(Matcher.quoteReplacement("src=\"" + full + "\""));
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html, HttpClient.BASE_URL);
+            String[] attrs = {"file", "comiis_loadimages", "zoomfile", "data-original",
+                    "data-src", "data-file", "src"};
+            for (org.jsoup.nodes.Element img : doc.select("img")) {
+                String selected = "";
+                for (String attr : attrs) {
+                    String value = img.attr(attr).trim();
+                    String lower = value.toLowerCase(java.util.Locale.ROOT);
+                    if (!value.isEmpty() && !lower.startsWith("data:")
+                            && !lower.endsWith("none.gif") && !lower.endsWith("blank.gif")
+                            && !lower.endsWith("grey.gif")) {
+                        selected = value;
+                        break;
+                    }
                 }
+                String full = normalizeImageUrl(selected);
+                if (!TextUtils.isEmpty(full)) img.attr("src", full);
             }
-            matcher.appendReplacement(out, Matcher.quoteReplacement(tag));
+            return doc.body().html();
+        } catch (Throwable ignored) {
+            return html;
         }
-        matcher.appendTail(out);
-        return out.toString();
     }
 
     /**
@@ -571,7 +572,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             imageView.setFocusable(true);
             setImageClick(context, imageView, imgUrl);
             Glide.with(context)
-                    .load(imgUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(imgUrl))
                     .placeholder(new ColorDrawable(context.getColor(R.color.background_secondary)))
                     .error(new ColorDrawable(context.getColor(R.color.divider)))
                     .into(imageView);
@@ -610,6 +611,11 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 imgUrl = HttpClient.BASE_URL + imgUrl;
             }
 
+            final String imageUrlForType = imgUrl.toLowerCase(java.util.Locale.ROOT);
+            final boolean inlineIcon = imageUrlForType.contains("smiley")
+                    || imageUrlForType.contains("emoticon")
+                    || imageUrlForType.contains("/static/image/")
+                    || imageUrlForType.contains("icon");
             final TextView tv = targetView;
             final com.solosu.mtforum.util.UrlDrawable placeholder =
                     new com.solosu.mtforum.util.UrlDrawable(tv, dpToPx(tv.getContext(), 24));
@@ -618,7 +624,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                     : Resources.getSystem().getDisplayMetrics().widthPixels - dpToPx(tv.getContext(), 32);
 
             Glide.with(tv.getContext())
-                    .load(imgUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(imgUrl))
                     .into(new CustomTarget<Drawable>() {
                         @Override
                         public void onResourceReady(@NonNull Drawable resource,
@@ -633,8 +639,9 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                             if (h <= 0) {
                                 h = emotSize;
                             }
-                            // 表情类小图（≤32dp）保持原尺寸；大图限宽
-                            if (w <= dpToPx(tv.getContext(), 32)) {
+                            // Only known emoji/icon URLs stay inline; even a low-resolution
+                            // attachment is a content image and must expand to the text width.
+                            if (inlineIcon) {
                                 if (w > emotSize || h > emotSize) {
                                     float r = (float) emotSize / Math.max(w, h);
                                     w = (int) (w * r);

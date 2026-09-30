@@ -124,7 +124,7 @@ public class ImagePreviewActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull VH holder, int position) {
             String url = urls.get(position);
             Glide.with(holder.itemView.getContext())
-                    .load(url)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(url))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(new android.graphics.drawable.ColorDrawable(0xFF333333))
                     .error(new android.graphics.drawable.ColorDrawable(0xFF111111))

@@ -22,6 +22,6 @@ public final class DownloadPreferences {
     }
 
     public static String label(Context context) {
-        return getMode(context) == MODE_BROWSER ? "跳转浏览器" : "应用内下载";
+        return getMode(context) == MODE_BROWSER ? "跳转系统浏览器" : "应用内打开与下载";
     }
 }

@@ -70,7 +70,7 @@ public class SettingsActivity extends AppCompatActivity {
         // 附件/文件下载方式：系统 DownloadManager（保存到 Download）或浏览器。
         updateDownloadModeText();
         binding.layoutDownloadMode.setOnClickListener(v -> {
-            String[] modes = {"应用内下载（保存到 Download）", "跳转浏览器下载"};
+            String[] modes = {"应用内打开（文件保存到 Download）", "跳转系统浏览器"};
             int current = com.solosu.mtforum.ui.DownloadPreferences.getMode(this);
             android.app.Dialog dialog = new AlertDialog.Builder(this)
                     .setTitle("文件下载方式")
@@ -83,6 +83,10 @@ public class SettingsActivity extends AppCompatActivity {
                     .show();
             DialogHelper.applyToAlertDialog(dialog, this);
         });
+
+        // Read-only MCP endpoint (loopback by default, optional token-protected LAN forwarding).
+        binding.cardMcp.setOnClickListener(v -> startActivity(
+                new Intent(this, com.solosu.mtforum.mcp.McpSettingsActivity.class)));
 
         // 错误日志查看
         binding.layoutErrorLog.setOnClickListener(v -> showErrorLogDialog());
