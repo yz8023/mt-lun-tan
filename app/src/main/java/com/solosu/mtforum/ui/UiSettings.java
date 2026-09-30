@@ -70,7 +70,9 @@ public final class UiSettings {
      * false = 全部抽出来汇总到帖子底部的横滑图廊（旧行为）。
      */
     public static boolean isImagesInline(Context c) {
-        return sp(c).getBoolean(KEY_IMAGES_INLINE, true);
+        // Full-size images are now always rendered at their original position. Keeping the
+        // method avoids a preference migration crash for existing installations.
+        return true;
     }
 
     public static void setImagesInline(Context c, boolean v) {

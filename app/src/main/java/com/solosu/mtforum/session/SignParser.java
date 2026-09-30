@@ -60,10 +60,19 @@ public final class SignParser {
     /** 站点防护拦截（阿里云 ESA / Cloudflare 之类） */
     public static boolean isBlocked(String html) {
         if (isBlank(html)) return false;
-        return html.contains("you have been blocked")
-                || html.contains("403 Forbidden")
-                || html.contains("Access Denied")
-                || html.contains("Attention Required");
+        String lower = html.toLowerCase();
+        boolean forum = lower.contains("discuz_uid") || lower.contains("comiis_")
+                || lower.contains("discuz_tips") || lower.contains("formhash");
+        boolean challenge = lower.contains("acw_sc__v2") || lower.contains("aliyungf_tc")
+                || lower.contains("__jsl_clearance") || lower.contains("window._config_")
+                || lower.contains("waf challenge") || lower.contains("esa challenge")
+                || html.contains("人机验证") || html.contains("安全验证")
+                || (lower.contains("document.cookie") && (lower.contains("challenge") || lower.contains("arg1")));
+        return lower.contains("you have been blocked")
+                || lower.contains("403 forbidden")
+                || lower.contains("access denied")
+                || lower.contains("attention required")
+                || (challenge && !forum);
     }
 
     public static boolean isLoginSuccess(String body) {

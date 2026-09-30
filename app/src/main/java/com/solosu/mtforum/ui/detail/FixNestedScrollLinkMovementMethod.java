@@ -91,9 +91,16 @@ public class FixNestedScrollLinkMovementMethod extends LinkMovementMethod {
             android.text.Layout layout = widget.getLayout();
             if (layout == null) return false;
             
-            int line = layout.getLineForVertical((int) y);
-            int offset = layout.getOffsetForHorizontal(line, x);
-            
+            // MotionEvent coordinates include TextView padding while Layout coordinates do not.
+            // Scroll offsets matter as well (notably while dragging selection handles). Using raw
+            // x/y shifted link hit-testing away from the fingertip by exactly the content inset.
+            int localX = (int) x - widget.getTotalPaddingLeft() + widget.getScrollX();
+            int localY = (int) y - widget.getTotalPaddingTop() + widget.getScrollY();
+            if (localX < 0 || localY < 0 || localY > layout.getHeight()) return false;
+            int line = layout.getLineForVertical(localY);
+            if (localX < layout.getLineLeft(line) || localX > layout.getLineRight(line)) return false;
+            int offset = layout.getOffsetForHorizontal(line, localX);
+
             if (offset < 0) return false;
             
             ClickableSpan[] spans = buffer.getSpans(offset, offset, ClickableSpan.class);

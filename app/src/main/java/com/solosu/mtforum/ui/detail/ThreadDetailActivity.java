@@ -4305,9 +4305,9 @@ private void viewHiddenContent() {
                 imgUrl = source;
             }
             final TextView tv = textView;
-            final int maxW = Math.max(dpToPx(200),
-                    (int) (tv.getWidth() > 0 ? tv.getWidth() * 0.92f
-                            : getResources().getDisplayMetrics().widthPixels * 0.92f));
+            final int measured = tv.getWidth() - tv.getCompoundPaddingLeft() - tv.getCompoundPaddingRight();
+            final int maxW = Math.max(dpToPx(200), measured > 0 ? measured
+                    : getResources().getDisplayMetrics().widthPixels - dpToPx(32));
             final com.solosu.mtforum.util.UrlDrawable placeholder =
                     new com.solosu.mtforum.util.UrlDrawable(tv, dpToPx(120));
             com.bumptech.glide.Glide.with(this)

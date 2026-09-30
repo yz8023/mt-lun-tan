@@ -28,6 +28,14 @@ public final class SiteAccessManager {
         if (foreground.get() == activity) foreground.clear();
     }
 
+    public static boolean isRealForumPage(String html) {
+        if (TextUtils.isEmpty(html)) return false;
+        String s = html.toLowerCase(Locale.ROOT);
+        return s.contains("discuz_uid") || s.contains("comiis_")
+                || s.contains("discuz_tips") || s.contains("formhash")
+                || s.contains("id=\"wp\"");
+    }
+
     public static boolean isChallengePage(String html) {
         if (TextUtils.isEmpty(html)) return false;
         String s = html.toLowerCase(Locale.ROOT);
@@ -36,10 +44,7 @@ public final class SiteAccessManager {
                 || s.contains("waf challenge") || s.contains("esa challenge")
                 || s.contains("人机验证") || s.contains("安全验证")
                 || (s.contains("document.cookie") && (s.contains("challenge") || s.contains("arg1")));
-        boolean forumPage = s.contains("discuz_uid") || s.contains("comiis_")
-                || s.contains("discuz_tips") || s.contains("name=\"formhash\"")
-                || s.contains("id=\"wp\"");
-        return marker && !forumPage;
+        return marker && !isRealForumPage(html);
     }
 
     public static void onChallengeDetected(String url) {

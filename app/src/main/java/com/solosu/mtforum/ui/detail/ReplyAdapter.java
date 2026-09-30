@@ -280,61 +280,17 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 llCodeBlocks.removeAllViews();
             }
 
-            if (!TextUtils.isEmpty(contentText) && !hasCodeBlock) {
+            // 图片始终在正文原位渲染。优先使用 HTML，以免把图片抽到回帖底部，
+            // ImageGetter 会加载原图并按 TextView 实际可用宽度等比缩放。
+            String rendered = !TextUtils.isEmpty(htmlContent) ? upgradeImageSources(htmlContent) : contentText;
+            if (!TextUtils.isEmpty(rendered)) {
                 tvContent.setVisibility(View.VISIBLE);
-                // ★ 修复1：使用 ImageGetter 渲染内联图片（表情等），否则 <img> 标签被静默丢弃
-                tvContent.setText(Html.fromHtml(contentText, Html.FROM_HTML_MODE_COMPACT,
+                tvContent.setText(Html.fromHtml(rendered, Html.FROM_HTML_MODE_COMPACT,
                         createInlineImageGetter(tvContent), BBCodeUtil.createTagHandler(itemView.getContext())));
-                // ★ 修复2：先设置链接，再配置其他属性（避免 setText 覆盖文本）
                 setupClickableLinks(tvContent);
                 attachCopyOnLongClick(tvContent);
-                // 回复内容中的大图处理
-                if (!TextUtils.isEmpty(htmlContent)) {
-                    loadReplyImages(itemView.getContext(), htmlContent, llReplyImages);
-                } else {
-                    llReplyImages.setVisibility(View.GONE);
-                }
-            } else if (!TextUtils.isEmpty(htmlContent)) {
-                tvContent.setVisibility(View.VISIBLE);
-                // 提取图片URL，移除img标签后渲染文本（也保留内联表情）
-                List<String> replyImageUrls = new ArrayList<>();
-                String cleanHtml = extractImagesFromHtml(htmlContent, replyImageUrls);
-                // ★ 修复2：用 ImageGetter 渲染剩下的内联图片
-                tvContent.setText(Html.fromHtml(cleanHtml, Html.FROM_HTML_MODE_COMPACT,
-                        createInlineImageGetter(tvContent), BBCodeUtil.createTagHandler(itemView.getContext())));
-                // ★ 修复2：先设置链接，再配置其他属性（避免 setText 覆盖文本）
-                setupClickableLinks(tvContent);
-                attachCopyOnLongClick(tvContent);
-                // 加载图片
-                if (!replyImageUrls.isEmpty()) {
-                    llReplyImages.removeAllViews();
-                    llReplyImages.setVisibility(View.VISIBLE);
-                    for (String imgUrl : replyImageUrls) {
-                        ImageView imageView = new ImageView(itemView.getContext());
-                        imageView.setLayoutParams(new LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                LinearLayout.LayoutParams.WRAP_CONTENT));
-                        imageView.setAdjustViewBounds(true);
-                        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                        imageView.setBackgroundColor(itemView.getContext().getColor(R.color.background_secondary));
-                        // 限制图片最大尺寸，防止撑爆屏幕
-                        int maxImgWidth = getMaxImageWidth(itemView.getContext());
-                        imageView.setMaxWidth(maxImgWidth);
-                        imageView.setMaxHeight((int)(maxImgWidth * 1.2f));
-                        // ★ 添加点击预览
-                        imageView.setClickable(true);
-                        imageView.setFocusable(true);
-                        setImageClick(itemView.getContext(), imageView, imgUrl);
-                        Glide.with(itemView.getContext())
-                                .load(imgUrl)
-                                .placeholder(new ColorDrawable(itemView.getContext().getColor(R.color.background_secondary)))
-                                .error(new ColorDrawable(itemView.getContext().getColor(R.color.divider)))
-                                .into(imageView);
-                        llReplyImages.addView(imageView);
-                    }
-                } else {
-                    llReplyImages.setVisibility(View.GONE);
-                }
+                llReplyImages.removeAllViews();
+                llReplyImages.setVisibility(View.GONE);
             } else {
                 tvContent.setVisibility(View.GONE);
                 llReplyImages.setVisibility(View.GONE);
@@ -544,6 +500,31 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         return sb.toString();
     }
 
+    /** Replace Discuz thumbnail src values with their original-image attributes in-place. */
+    private static String upgradeImageSources(String html) {
+        if (TextUtils.isEmpty(html)) return html;
+        Pattern tags = Pattern.compile("<img\\b[^>]*>", Pattern.CASE_INSENSITIVE);
+        Pattern original = Pattern.compile("(?:data-original|zoomfile|file)\\s*=\\s*['\"]([^'\"]+)['\"]",
+                Pattern.CASE_INSENSITIVE);
+        Pattern src = Pattern.compile("src\\s*=\\s*['\"][^'\"]*['\"]", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = tags.matcher(html);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String tag = matcher.group();
+            Matcher originalMatcher = original.matcher(tag);
+            if (originalMatcher.find()) {
+                String full = normalizeImageUrl(originalMatcher.group(1));
+                Matcher srcMatcher = src.matcher(tag);
+                if (full != null && srcMatcher.find()) {
+                    tag = srcMatcher.replaceFirst(Matcher.quoteReplacement("src=\"" + full + "\""));
+                }
+            }
+            matcher.appendReplacement(out, Matcher.quoteReplacement(tag));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
     /**
      * 补全图片URL：处理 //、/ 和 ./ 开头的相对路径
      */
@@ -619,7 +600,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
      */
     private static Html.ImageGetter createInlineImageGetter(TextView targetView) {
         return source -> {
-            String imgUrl = source;
+            String imgUrl = normalizeImageUrl(source);
+            if (imgUrl == null) imgUrl = source;
             if (imgUrl.startsWith("//")) {
                 imgUrl = "https:" + imgUrl;
             } else if (imgUrl.startsWith("/")) {
@@ -631,7 +613,9 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             final TextView tv = targetView;
             final com.solosu.mtforum.util.UrlDrawable placeholder =
                     new com.solosu.mtforum.util.UrlDrawable(tv, dpToPx(tv.getContext(), 24));
-            final int maxW = getMaxImageWidth(tv.getContext());
+            final int measured = tv.getWidth() - tv.getCompoundPaddingLeft() - tv.getCompoundPaddingRight();
+            final int maxW = measured > 0 ? measured
+                    : Resources.getSystem().getDisplayMetrics().widthPixels - dpToPx(tv.getContext(), 32);
 
             Glide.with(tv.getContext())
                     .load(imgUrl)

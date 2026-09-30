@@ -260,17 +260,20 @@ public final class MtSignApi {
             // ③ 提交签到（text 格式返回最干净）
             String raw = session.get(BASE_URL
                     + "plugin.php?id=k_misign:sign&operation=qiandao&format=text&formhash=" + formhash);
+            if (SignParser.isBlocked(raw)) return blocked(result, session);
             String status = SignParser.parseSignResponse(raw);
 
             // 伪静态按钮接口兜底：部分账号 plugin.php 会被重写规则拦掉
             if (TextUtils.isEmpty(status)) {
                 raw = session.get(BASE_URL + "k_misign-sign.html?operation=qiandao&format=button"
                         + "&formhash=" + formhash + "&inajax=1&ajaxtarget=midaben_sign");
+                if (SignParser.isBlocked(raw)) return blocked(result, session);
                 status = SignParser.parseSignResponse(raw);
             }
 
             // ④ 回读签到页，以页面真实状态为准（接口文案各版本差异太大）
             String after = session.get(BASE_URL + "k_misign-sign.html");
+            if (SignParser.isBlocked(after)) return blocked(result, session);
             boolean signedNow = SignParser.isAlreadySigned(after);
             result.ranking = SignParser.extractRanking(after);
 
@@ -295,6 +298,13 @@ public final class MtSignApi {
             result.message = "网络错误：" + safeMessage(e);
             return result;
         }
+    }
+
+    private static SignResult blocked(SignResult result, Session session) {
+        result.blocked = true;
+        result.message = "站点要求安全验证，后台验证后将自动重试";
+        result.refreshedCookie = session.cookieHeader();
+        return result;
     }
 
     // ==================== 会话封装 ====================

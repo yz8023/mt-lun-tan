@@ -67,6 +67,9 @@ public class SignParserTest {
     public void blockedPageIsDetected() {
         assertTrue(SignParser.isBlocked("<html><body>403 Forbidden</body></html>"));
         assertTrue(SignParser.isBlocked("Sorry, you have been blocked"));
+        assertTrue(SignParser.isBlocked("<script>var acw_sc__v2='challenge';document.cookie='acw_tc=x'</script>"));
+        assertTrue(SignParser.isBlocked("<html><body>请完成人机验证</body></html>"));
+        assertFalse(SignParser.isBlocked("<html><input name=\"formhash\"><script>var acw_sc__v2='old'</script></html>"));
         assertFalse(SignParser.isBlocked("<html>正常页面</html>"));
     }
 

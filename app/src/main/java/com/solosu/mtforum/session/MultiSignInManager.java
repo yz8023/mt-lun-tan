@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.text.TextUtils;
 
 import com.solosu.mtforum.ai.AiLog;
+import com.solosu.mtforum.network.HttpClient;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -232,6 +233,17 @@ public final class MultiSignInManager {
             result = MtSignApi.signWithCookie(cookieHeader);
         }
 
+        // ESA challenge cookies are shared by the browser/domain rather than by forum account.
+        // Resolve it in an invisible WebView, copy only protection cookies into this account's
+        // header (never overwrite its auth cookie), and retry at most three times.
+        for (int attempt = 1; result != null && result.blocked && attempt <= 3; attempt++) {
+            AiLog.i("sign-in", account.displayName() + " 遇到站点验证，后台处理 " + attempt + "/3");
+            String browserCookies = HeadlessSiteVerifier.verify(app, HttpClient.BASE_URL);
+            if (TextUtils.isEmpty(browserCookies)) continue;
+            cookieHeader = mergeProtectionCookies(cookieHeader, browserCookies);
+            result = MtSignApi.signWithCookie(cookieHeader);
+        }
+
         boolean needRelogin = result == null || (result.cookieInvalid && !result.blocked);
         if (needRelogin && SignInSettings.isAutoReloginEnabled(app)) {
             String password = AccountManager.decryptPassword(account);
@@ -274,6 +286,30 @@ public final class MultiSignInManager {
             UserSessionManager.getInstance().saveSignInDate(app);
         }
         return item;
+    }
+
+    private static String mergeProtectionCookies(String accountHeader, String browserHeader) {
+        java.util.LinkedHashMap<String, String> values = new java.util.LinkedHashMap<>();
+        for (String part : (accountHeader == null ? "" : accountHeader).split(";")) {
+            int eq = part.indexOf('=');
+            if (eq > 0) values.put(part.substring(0, eq).trim(), part.substring(eq + 1).trim());
+        }
+        for (String part : (browserHeader == null ? "" : browserHeader).split(";")) {
+            int eq = part.indexOf('=');
+            if (eq <= 0) continue;
+            String name = part.substring(0, eq).trim();
+            String lower = name.toLowerCase(java.util.Locale.ROOT);
+            if (lower.contains("clearance") || lower.startsWith("acw_")
+                    || lower.startsWith("aliyungf_") || lower.startsWith("__jsl")) {
+                values.put(name, part.substring(eq + 1).trim());
+            }
+        }
+        StringBuilder out = new StringBuilder();
+        for (java.util.Map.Entry<String, String> entry : values.entrySet()) {
+            if (out.length() > 0) out.append("; ");
+            out.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return out.toString();
     }
 
     private static Summary busySummary() {

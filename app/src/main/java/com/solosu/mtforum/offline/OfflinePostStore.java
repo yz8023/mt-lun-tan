@@ -59,16 +59,26 @@ public final class OfflinePostStore {
         String title = value(detail == null ? null : detail.getTitle(), "离线帖子");
         String author = value(detail == null ? null : detail.getAuthor(), "未知作者");
         String content = detail == null ? "" : value(detail.getContentHtml(), "");
+        String hidden = detail == null ? "" : value(detail.getHiddenContentHtml(), "");
+        boolean hiddenUnlocked = !TextUtils.isEmpty(hidden)
+                && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(hidden);
         StringBuilder body = new StringBuilder();
         body.append("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
                 .append("<title>").append(escape(title)).append("</title><style>")
                 .append("body{max-width:900px;margin:auto;padding:20px;font-family:sans-serif;line-height:1.75;color:#202124;background:#fff}")
                 .append("h1{font-size:24px}.meta{color:#777;border-bottom:1px solid #ddd;padding-bottom:12px}.post,.reply{overflow-wrap:anywhere}")
-                .append("img{max-width:100%;height:auto}.replies{margin-top:30px}.reply{border-top:1px solid #ddd;padding:16px 0}.who{font-weight:bold}.when{color:#888;font-size:12px}")
+                .append("img{display:block;max-width:100%;height:auto;margin:10px 0}.hidden{margin:20px 0;padding:14px;border-left:4px solid #ff9800;background:#fff8e8}.hidden h2{margin-top:0;font-size:17px}.replies{margin-top:30px}.reply{border-top:1px solid #ddd;padding:16px 0}.who{font-weight:bold}.when{color:#888;font-size:12px}")
                 .append("pre{white-space:pre-wrap;background:#f5f5f5;padding:12px;overflow:auto}@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}.reply,.meta{border-color:#444}pre{background:#222}}")
                 .append("</style></head><body><h1>").append(escape(title)).append("</h1><div class=\"meta\">")
                 .append(escape(author)).append(" · ").append(escape(value(detail == null ? null : detail.getPublishTime(), "")))
                 .append("</div><article class=\"post\">").append(content).append("</article>");
+        // Preserve content that this authenticated session has already unlocked. Locked prompts
+        // are intentionally not duplicated, while actual hidden HTML remains available offline
+        // and in exported HTML for later analysis.
+        if (hiddenUnlocked && !content.contains(hidden)) {
+            body.append("<section class=\"hidden\"><h2>已解锁的隐藏内容</h2>")
+                    .append(hidden).append("</section>");
+        }
         if (includeReplies) {
             body.append("<section class=\"replies\"><h2>评论区（")
                     .append(replies == null ? 0 : replies.size()).append("）</h2>");
@@ -94,6 +104,11 @@ public final class OfflinePostStore {
             int count = 0;
             for (Element img : doc.select("img[src]")) {
                 if (count >= 40) break;
+                // Discuz often puts a thumbnail in src and the original in one of these attrs.
+                String original = img.hasAttr("data-original") ? img.attr("data-original")
+                        : img.hasAttr("zoomfile") ? img.attr("zoomfile")
+                        : img.hasAttr("file") ? img.attr("file") : img.attr("src");
+                img.attr("src", original);
                 String url = img.absUrl("src");
                 if (TextUtils.isEmpty(url) || url.startsWith("data:") || !done.add(url)) continue;
                 try {

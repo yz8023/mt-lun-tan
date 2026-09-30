@@ -390,17 +390,9 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_ai_summary_row, swAiSummary);
         }
 
-        // build68: 正文图片位置开关
-        SwitchMaterial swImagesInline = findViewById(R.id.drawer_switch_images_inline);
-        if (swImagesInline != null) {
-            swImagesInline.setChecked(com.solosu.mtforum.ui.UiSettings.isImagesInline(this));
-            swImagesInline.setOnCheckedChangeListener((v, checked) -> {
-                com.solosu.mtforum.ui.UiSettings.setImagesInline(this, checked);
-                Toast.makeText(this, checked ? "图片将留在正文原位" : "图片将汇总到帖子底部",
-                        Toast.LENGTH_SHORT).show();
-            });
-            bindSwitchRow(R.id.drawer_images_inline_row, swImagesInline);
-        }
+        // 正文图片现在固定以原图在原位展示，旧版“底部图廊”开关不再适用。
+        View imagesInlineRow = findViewById(R.id.drawer_images_inline_row);
+        if (imagesInlineRow != null) imagesInlineRow.setVisibility(View.GONE);
 
         // build67: 隐藏内容就地展开开关
         SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);
