@@ -2372,21 +2372,8 @@ private void viewHiddenContent() {
             doc.select("*:matchesOwn(^border\\s*=\\s*[\"']?\\d)").remove();
             Elements imgs = doc.select("img");
             for (Element img : imgs) {
-                String realUrl = null;
-                if (img.hasAttr("file") && !TextUtils.isEmpty(img.attr("file"))) {
-                    realUrl = img.attr("file");
-                } else if (img.hasAttr("comiis_loadimages") && !TextUtils.isEmpty(img.attr("comiis_loadimages"))) {
-                    realUrl = img.attr("comiis_loadimages");
-                } else if (img.hasAttr("data-original") && !TextUtils.isEmpty(img.attr("data-original"))) {
-                    realUrl = img.attr("data-original");
-                } else if (img.hasAttr("data-src") && !TextUtils.isEmpty(img.attr("data-src"))) {
-                    realUrl = img.attr("data-src");
-                } else if (img.hasAttr("data-file") && !TextUtils.isEmpty(img.attr("data-file"))) {
-                    realUrl = img.attr("data-file");
-                } else if (img.hasAttr("src") && !TextUtils.isEmpty(img.attr("src"))) {
-                    realUrl = img.attr("src");
-                }
-                if (realUrl != null && !realUrl.isEmpty() && (fullUrl = normalizeImageUrl(realUrl)) != null && !fullUrl.contains("smiley") && !fullUrl.contains("emoticon") && !fullUrl.contains("face") && !fullUrl.contains("/static/image/smiley") && !fullUrl.contains("stamp") && !fullUrl.contains("magic") && !fullUrl.contains("mini") && !fullUrl.contains("icon") && !fullUrl.contains("none.gif") && !fullUrl.contains("common_") && !imageUrls.contains(fullUrl)) {
+                String realUrl = pickRealImageUrl(img);
+                if (realUrl != null && !realUrl.isEmpty() && (fullUrl = normalizeImageUrl(realUrl)) != null && !isInlineForumImage(fullUrl) && !isPlaceholderImage(fullUrl) && !imageUrls.contains(fullUrl)) {
                     imageUrls.add(fullUrl);
                 }
             }
@@ -2405,7 +2392,7 @@ private void viewHiddenContent() {
         while (matcher.find()) {
             String url = matcher.group(1);
             String fullUrl = normalizeImageUrl(url);
-            if (fullUrl != null && !fullUrl.contains("smiley") && !fullUrl.contains("face") && !fullUrl.contains("emoticon") && !fullUrl.contains("icon") && !fullUrl.contains("none.gif") && !fullUrl.contains("common_") && !imageUrls.contains(fullUrl)) {
+            if (fullUrl != null && !isInlineForumImage(fullUrl) && !isPlaceholderImage(fullUrl) && !imageUrls.contains(fullUrl)) {
                 imageUrls.add(fullUrl);
             }
         }
@@ -4329,11 +4316,7 @@ private void viewHiddenContent() {
             if (imgUrl == null) {
                 imgUrl = source;
             }
-            final String imageUrlForType = imgUrl.toLowerCase(java.util.Locale.ROOT);
-            final boolean inlineIcon = imageUrlForType.contains("smiley")
-                    || imageUrlForType.contains("emoticon")
-                    || imageUrlForType.contains("/static/image/")
-                    || imageUrlForType.contains("icon");
+            final boolean inlineIcon = isInlineForumImage(imgUrl);
             final TextView tv = textView;
             final int measured = tv.getWidth() - tv.getCompoundPaddingLeft() - tv.getCompoundPaddingRight();
             final int maxW = Math.max(dpToPx(200), measured > 0 ? measured
@@ -4908,10 +4891,28 @@ private void viewHiddenContent() {
             String v = img.attr(a);
             if (v == null) continue;
             v = v.trim();
-            if (v.isEmpty() || isPlaceholderImage(v)) continue;
+            if (!isUsableImageValue(v) || isPlaceholderImage(v)) continue;
             return v;
         }
         return null;
+    }
+
+    private static boolean isUsableImageValue(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        String low=value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (low.matches("\\d+") || "true".equals(low) || "false".equals(low)
+                || "lazy".equals(low) || low.startsWith("javascript:") || low.startsWith("data:")) return false;
+        return low.startsWith("http://") || low.startsWith("https://") || low.startsWith("//")
+                || low.startsWith("/") || low.startsWith("./") || low.contains("/") || low.contains(".");
+    }
+
+    /** Only actual Discuz smiley paths are inline; words such as face/icon in a normal
+     * attachment filename must never cause a content image to be discarded. */
+    private static boolean isInlineForumImage(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String low=url.toLowerCase(java.util.Locale.ROOT);
+        return low.contains("/static/image/smiley/") || low.contains("/smiley/")
+                || low.contains("/emoticon/") || low.contains("static/image/common/smiley");
     }
 
     private static boolean isPlaceholderImage(String url) {

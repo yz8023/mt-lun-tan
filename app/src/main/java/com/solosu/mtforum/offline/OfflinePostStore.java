@@ -136,10 +136,12 @@ public final class OfflinePostStore {
         for (String attr : attrs) {
             String value = img.attr(attr).trim();
             String lower = value.toLowerCase(java.util.Locale.ROOT);
-            if (!value.isEmpty() && !lower.startsWith("data:")
-                    && !lower.endsWith("none.gif") && !lower.endsWith("blank.gif")) {
-                return value;
-            }
+            boolean flag = lower.matches("\\d+") || "true".equals(lower) || "false".equals(lower) || "lazy".equals(lower);
+            boolean looksLikeUrl = lower.startsWith("http://") || lower.startsWith("https://")
+                    || lower.startsWith("//") || lower.startsWith("/") || lower.startsWith("./")
+                    || lower.contains("/") || lower.contains(".");
+            if (!value.isEmpty() && !flag && looksLikeUrl && !lower.startsWith("data:")
+                    && !lower.endsWith("none.gif") && !lower.endsWith("blank.gif")) return value;
         }
         return img.attr("src");
     }

@@ -152,7 +152,7 @@ public class ForumParser {
                 // 提取帖子封面图URL
                 Element imgEl = item.select(".mmlist_li_box .comiis_pyqlist_imgs img, .mmlist_li_box .comiis_pyqlist_img img, .mmlist_li_box img").first();
                 if (imgEl != null) {
-                    String imgSrc = firstNonEmptyAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
+                    String imgSrc = firstUsableImageAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
                     if (!TextUtils.isEmpty(imgSrc)) {
                         String fullUrl = resolveAttachmentUrl(imgSrc);
                         if (isPostImageUrl(fullUrl)) {
@@ -308,7 +308,7 @@ public class ForumParser {
                 // 提取帖子封面图URL
                 Element imgEl = item.select(".mmlist_li_box .comiis_pyqlist_imgs img, .mmlist_li_box .comiis_pyqlist_img img, .mmlist_li_box img").first();
                 if (imgEl != null) {
-                    String imgSrc = firstNonEmptyAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
+                    String imgSrc = firstUsableImageAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
                     if (!TextUtils.isEmpty(imgSrc)) {
                         String fullUrl = resolveAttachmentUrl(imgSrc);
                         if (isPostImageUrl(fullUrl)) {
@@ -439,7 +439,7 @@ public class ForumParser {
                 // 提取帖子封面图URL
                 Element imgEl = item.select(".mmlist_li_box .comiis_pyqlist_imgs img, .mmlist_li_box .comiis_pyqlist_img img, .mmlist_li_box img").first();
                 if (imgEl != null) {
-                    String imgSrc = firstNonEmptyAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
+                    String imgSrc = firstUsableImageAttr(imgEl, "comiis_loadimages", "data-original", "data-src", "data-file", "file", "src");
                     if (!TextUtils.isEmpty(imgSrc)) {
                         String fullUrl = resolveAttachmentUrl(imgSrc);
                         if (isPostImageUrl(fullUrl)) {
@@ -1831,7 +1831,7 @@ public class ForumParser {
             if (messagesDiv == null) messagesDiv = opMsg;
             List<String> attachImageUrls = new ArrayList<>();
             for (Element img : messagesDiv.select("img")) {
-                String realSrc = firstNonEmptyAttr(img,
+                String realSrc = firstUsableImageAttr(img,
                         "comiis_loadimages", "file", "data-original", "data-src",
                         "data-file", "data-lazy-src", "src");
                 String fullUrl = resolveAttachmentUrl(realSrc);
@@ -2548,6 +2548,27 @@ detail.setTotalPages(maxPage);
         return null;
     }
 
+    /** Image attributes such as comiis_loadimages are sometimes boolean flags ("1"),
+     * not URLs. Never turn those flags into bbs.binmt.cc/1 placeholder/emoji pages. */
+    private static String firstUsableImageAttr(Element element, String... names) {
+        if (element == null || names == null) return null;
+        for (String name : names) {
+            String value = element.attr(name).trim();
+            if (isUsableImageValue(value)) return value;
+        }
+        return null;
+    }
+
+    private static boolean isUsableImageValue(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        String lower=value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (lower.matches("\\d+") || "true".equals(lower) || "false".equals(lower)
+                || "lazy".equals(lower) || lower.startsWith("javascript:") || lower.startsWith("data:")) return false;
+        if (lower.endsWith("none.gif") || lower.endsWith("blank.gif") || lower.endsWith("grey.gif")) return false;
+        return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("//")
+                || lower.startsWith("/") || lower.startsWith("./") || lower.contains("/") || lower.contains(".");
+    }
+
     private static String resolveAvatarUrl(String url) {
         if (TextUtils.isEmpty(url)) return null;
         if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -2600,7 +2621,7 @@ detail.setTotalPages(maxPage);
         Elements imageElements = item.select(
                 ".comiis_pyqlist_imgs img, .comiis_pyqlist_img img");
         for (Element image : imageElements) {
-            String src = firstNonEmptyAttr(image,
+            String src = firstUsableImageAttr(image,
                     "comiis_loadimages", "data-original", "data-src",
                     "data-file", "file", "data-lazy-src", "src");
             String fullUrl = resolveAttachmentUrl(src);
@@ -2614,7 +2635,7 @@ detail.setTotalPages(maxPage);
         if (imageUrls.isEmpty()) {
             Elements fallbackImages = item.select(".mmlist_li_box img");
             for (Element image : fallbackImages) {
-                String src = firstNonEmptyAttr(image,
+                String src = firstUsableImageAttr(image,
                         "comiis_loadimages", "data-original", "data-src",
                         "data-file", "file", "data-lazy-src", "src");
                 String fullUrl = resolveAttachmentUrl(src);

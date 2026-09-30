@@ -477,10 +477,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             if (fullUrl == null) fullUrl = url;
 
             // 过滤内联小图/表情，保留在文本中
-            if (fullUrl.contains("smiley") || fullUrl.contains("emoticon")
-                    || fullUrl.contains("face") || fullUrl.contains("/static/image/")
-                    || fullUrl.contains("stamp") || fullUrl.contains("magic")
-                    || fullUrl.contains("mini") || fullUrl.contains("icon")) {
+            if (isInlineForumImage(fullUrl)) {
                 // 将原img标签中的src替换为补全后的完整URL
                 String origTag = matcher.group(0);
                 String newTag = origTag.replaceFirst("src\\s*=\\s*['\"][^'\"]*['\"]",
@@ -510,9 +507,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 for (String attr : attrs) {
                     String value = img.attr(attr).trim();
                     String lower = value.toLowerCase(java.util.Locale.ROOT);
-                    if (!value.isEmpty() && !lower.startsWith("data:")
-                            && !lower.endsWith("none.gif") && !lower.endsWith("blank.gif")
-                            && !lower.endsWith("grey.gif")) {
+                    if (isUsableImageValue(value) && !lower.endsWith("none.gif")
+                            && !lower.endsWith("blank.gif") && !lower.endsWith("grey.gif")) {
                         selected = value;
                         break;
                     }
@@ -529,6 +525,22 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     /**
      * 补全图片URL：处理 //、/ 和 ./ 开头的相对路径
      */
+    private static boolean isUsableImageValue(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        String low=value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (low.matches("\\d+") || "true".equals(low) || "false".equals(low)
+                || "lazy".equals(low) || low.startsWith("javascript:") || low.startsWith("data:")) return false;
+        return low.startsWith("http://") || low.startsWith("https://") || low.startsWith("//")
+                || low.startsWith("/") || low.startsWith("./") || low.contains("/") || low.contains(".");
+    }
+
+    private static boolean isInlineForumImage(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String low=url.toLowerCase(java.util.Locale.ROOT);
+        return low.contains("/static/image/smiley/") || low.contains("/smiley/")
+                || low.contains("/emoticon/") || low.contains("static/image/common/smiley");
+    }
+
     private static String normalizeImageUrl(String url) {
         if (TextUtils.isEmpty(url)) return null;
         if (url.startsWith("//")) {
@@ -611,11 +623,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 imgUrl = HttpClient.BASE_URL + imgUrl;
             }
 
-            final String imageUrlForType = imgUrl.toLowerCase(java.util.Locale.ROOT);
-            final boolean inlineIcon = imageUrlForType.contains("smiley")
-                    || imageUrlForType.contains("emoticon")
-                    || imageUrlForType.contains("/static/image/")
-                    || imageUrlForType.contains("icon");
+            final boolean inlineIcon = isInlineForumImage(imgUrl);
             final TextView tv = targetView;
             final com.solosu.mtforum.util.UrlDrawable placeholder =
                     new com.solosu.mtforum.util.UrlDrawable(tv, dpToPx(tv.getContext(), 24));
