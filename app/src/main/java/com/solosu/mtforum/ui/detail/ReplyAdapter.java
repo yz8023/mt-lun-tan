@@ -640,7 +640,9 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                                     w = (int) (w * r);
                                     h = (int) (h * r);
                                 }
-                            } else if (w > maxSize) {
+                            } else {
+                                // 正文图片无论原始像素大小都占满正文可用宽度；原图地址已在
+                                // upgradeImageSources 中优先替换，避免继续显示小缩略图。
                                 h = (int) ((long) h * maxSize / Math.max(1, w));
                                 w = maxSize;
                             }

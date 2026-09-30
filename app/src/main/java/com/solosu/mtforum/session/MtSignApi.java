@@ -286,7 +286,16 @@ public final class MtSignApi {
                 result.success = false;
             } else if (signedNow || SignParser.isSuccessText(status)) {
                 result.success = true;
-                result.status = SignParser.isAlreadySigned(status) ? "今日已签" : "签到成功";
+                if (SignParser.isAlreadySigned(status)) {
+                    result.status = "今日已签";
+                } else if (!TextUtils.isEmpty(status) && status.length() <= 100
+                        && !"succeed".equalsIgnoreCase(status)
+                        && !"success".equalsIgnoreCase(status)) {
+                    // 保留“签到成功，获得随机奖励 5 金币”等服务器原文，日志不再只写成功。
+                    result.status = status;
+                } else {
+                    result.status = "签到成功";
+                }
             } else {
                 result.success = false;
                 result.status = TextUtils.isEmpty(status) ? "签到状态未知" : status;

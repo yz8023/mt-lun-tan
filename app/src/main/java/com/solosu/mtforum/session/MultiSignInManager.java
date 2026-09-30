@@ -56,7 +56,11 @@ public final class MultiSignInManager {
             } else if (success) {
                 sb.append(TextUtils.isEmpty(status) ? "签到成功" : status);
                 if (!TextUtils.isEmpty(ranking)) sb.append(" 排名").append(ranking);
-                if (!TextUtils.isEmpty(reward) && !"0".equals(reward)) sb.append(" +").append(reward);
+                boolean statusAlreadyHasReward = !TextUtils.isEmpty(status)
+                        && (status.contains("奖励") || status.contains("获得") || status.contains("增加"));
+                if (!statusAlreadyHasReward && !TextUtils.isEmpty(reward) && !"0".equals(reward)) {
+                    sb.append(" 签到奖励 +").append(reward);
+                }
                 if (reLogged) sb.append("（已自动重登）");
             } else {
                 sb.append(TextUtils.isEmpty(message) ? "失败" : message);
@@ -236,12 +240,26 @@ public final class MultiSignInManager {
         // ESA challenge cookies are shared by the browser/domain rather than by forum account.
         // Resolve it in an invisible WebView, copy only protection cookies into this account's
         // header (never overwrite its auth cookie), and retry at most three times.
+        String verifyFailure = "";
         for (int attempt = 1; result != null && result.blocked && attempt <= 3; attempt++) {
             AiLog.i("sign-in", account.displayName() + " 遇到站点验证，后台处理 " + attempt + "/3");
-            String browserCookies = HeadlessSiteVerifier.verify(app, HttpClient.BASE_URL);
-            if (TextUtils.isEmpty(browserCookies)) continue;
-            cookieHeader = mergeProtectionCookies(cookieHeader, browserCookies);
+            HeadlessSiteVerifier.Result verification =
+                    HeadlessSiteVerifier.verify(app, HttpClient.BASE_URL);
+            if (!verification.success) {
+                verifyFailure = verification.detail;
+                AiLog.i("sign-in", account.displayName() + " 后台验证 " + attempt + "/3 未通过："
+                        + verification.detail);
+                continue;
+            }
+            AiLog.i("sign-in", account.displayName() + " 后台验证 " + attempt
+                    + "/3 已通过，重新签到");
+            cookieHeader = mergeProtectionCookies(cookieHeader, verification.cookies);
             result = MtSignApi.signWithCookie(cookieHeader);
+        }
+        if (result != null && result.blocked) {
+            result.message = "站点验证连续 3 次未恢复"
+                    + (TextUtils.isEmpty(verifyFailure) ? "" : "（" + verifyFailure + "）")
+                    + "；请打开设置中的“站点验证与 Cookie 同步”后重试";
         }
 
         boolean needRelogin = result == null || (result.cookieInvalid && !result.blocked);

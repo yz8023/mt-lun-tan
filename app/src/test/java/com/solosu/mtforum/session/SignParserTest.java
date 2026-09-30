@@ -100,6 +100,9 @@ public class SignParserTest {
 
         assertEquals("5", SignParser.extractRewardFromText("签到成功，获得 5 金币"));
         assertEquals("12", SignParser.extractRewardFromText("恭喜，奖励12威望"));
+        assertEquals("9", SignParser.extractRewardFromText("本次签到获得随机奖励 9 金币"));
+        assertEquals("3", SignParser.extractRewardFromText("签到后增加 3 积分"));
+        assertEquals("7", SignParser.extractReward("<div>本次签到获得 7 金币</div>"));
         assertEquals("0", SignParser.extractRewardFromText("签到成功"));
     }
 

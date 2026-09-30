@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.0
+        default: v4.1
 
 permissions:
   contents: write
@@ -91,13 +91,21 @@ jobs:
           echo "source_sha256=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "size=$SIZE" >> "$GITHUB_OUTPUT"
 
-      - name: Upload release APK and source artifacts
+      # APK 与源码分别上传，避免 Actions 再把二者套进同一个下载压缩包。
+      # 正式 GitHub Release 中也保持为两个独立资产，但归属于同一个版本标签。
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MTForum-v${{ steps.artifact.outputs.version }}-release
-          path: |
-            ${{ steps.artifact.outputs.path }}
-            ${{ steps.artifact.outputs.source_path }}
+          name: MTForum-v${{ steps.artifact.outputs.version }}-apk
+          path: ${{ steps.artifact.outputs.path }}
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MTForum-v${{ steps.artifact.outputs.version }}-source
+          path: ${{ steps.artifact.outputs.source_path }}
           compression-level: 0
           if-no-files-found: error
 
@@ -117,12 +125,11 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 发帖页新增完整 BBCode 快捷工具栏、色板和实时预览。
-          - 帖子可在后台保存为应用内离线页面，可选是否抓取全部评论，并内嵌正文图片。
-          - 新增已保存帖子列表，支持无网络查看和删除本地留存。
-          - 支持导出 HTML、纯文本及 PDF，可选择保存位置和是否包含评论。
-          - 侧边栏新增用户 UID / 帖子 TID 快速跳转。
-          - 延续 v3.9 的图片压缩、视频转 GIF、下载方式选择及 R8 安装包瘦身。
+          - 自动签到遇到 ESA/403 时后台执行站点验证，最多重试 3 次，并输出每次失败原因。
+          - 签到日志保留服务器返回的奖励内容，并完善已签到页面的奖励数值读取。
+          - 正文和回帖原图按正文宽度完整显示，离线 HTML 图片也占满内容宽度。
+          - 离线 HTML 保留已解锁隐藏内容并优先内嵌原图。
+          - 修复文本选择坐标偏移。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -137,14 +144,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 离线导出与快捷编辑" \
+              --title "MTForum v${VERSION} — 签到验证与原图离线优化" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 离线导出与快捷编辑" \
+              --title "MTForum v${VERSION} — 签到验证与原图离线优化" \
               --notes-file release-notes.md \
               --latest
           fi

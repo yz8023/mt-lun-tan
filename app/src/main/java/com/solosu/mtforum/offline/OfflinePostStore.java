@@ -67,7 +67,7 @@ public final class OfflinePostStore {
                 .append("<title>").append(escape(title)).append("</title><style>")
                 .append("body{max-width:900px;margin:auto;padding:20px;font-family:sans-serif;line-height:1.75;color:#202124;background:#fff}")
                 .append("h1{font-size:24px}.meta{color:#777;border-bottom:1px solid #ddd;padding-bottom:12px}.post,.reply{overflow-wrap:anywhere}")
-                .append("img{display:block;max-width:100%;height:auto;margin:10px 0}.hidden{margin:20px 0;padding:14px;border-left:4px solid #ff9800;background:#fff8e8}.hidden h2{margin-top:0;font-size:17px}.replies{margin-top:30px}.reply{border-top:1px solid #ddd;padding:16px 0}.who{font-weight:bold}.when{color:#888;font-size:12px}")
+                .append("img{max-width:100%;height:auto}.offline-content-image{display:block;width:100%;height:auto;object-fit:contain;margin:10px 0}.hidden{margin:20px 0;padding:14px;border-left:4px solid #ff9800;background:#fff8e8}.hidden h2{margin-top:0;font-size:17px}.replies{margin-top:30px}.reply{border-top:1px solid #ddd;padding:16px 0}.who{font-weight:bold}.when{color:#888;font-size:12px}")
                 .append("pre{white-space:pre-wrap;background:#f5f5f5;padding:12px;overflow:auto}@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}.reply,.meta{border-color:#444}pre{background:#222}}")
                 .append("</style></head><body><h1>").append(escape(title)).append("</h1><div class=\"meta\">")
                 .append(escape(author)).append(" · ").append(escape(value(detail == null ? null : detail.getPublishTime(), "")))
@@ -105,11 +105,15 @@ public final class OfflinePostStore {
             for (Element img : doc.select("img[src]")) {
                 if (count >= 40) break;
                 // Discuz often puts a thumbnail in src and the original in one of these attrs.
-                String original = img.hasAttr("data-original") ? img.attr("data-original")
-                        : img.hasAttr("zoomfile") ? img.attr("zoomfile")
-                        : img.hasAttr("file") ? img.attr("file") : img.attr("src");
+                String original = firstImageSource(img, "file", "comiis_loadimages", "zoomfile",
+                        "data-original", "data-src", "data-file", "src");
                 img.attr("src", original);
                 String url = img.absUrl("src");
+                String lowerSource = original.toLowerCase(java.util.Locale.ROOT);
+                if (!lowerSource.contains("smiley") && !lowerSource.contains("emoticon")
+                        && !lowerSource.contains("/static/image/") && !lowerSource.contains("icon")) {
+                    img.addClass("offline-content-image");
+                }
                 if (TextUtils.isEmpty(url) || url.startsWith("data:") || !done.add(url)) continue;
                 try {
                     byte[] bytes = client.getBytes(url, 5 * 1024 * 1024);
@@ -126,6 +130,18 @@ public final class OfflinePostStore {
         } catch (Exception e) {
             return html;
         }
+    }
+
+    private static String firstImageSource(Element img, String... attrs) {
+        for (String attr : attrs) {
+            String value = img.attr(attr).trim();
+            String lower = value.toLowerCase(java.util.Locale.ROOT);
+            if (!value.isEmpty() && !lower.startsWith("data:")
+                    && !lower.endsWith("none.gif") && !lower.endsWith("blank.gif")) {
+                return value;
+            }
+        }
+        return img.attr("src");
     }
 
     public static List<Item> list(Context context) {

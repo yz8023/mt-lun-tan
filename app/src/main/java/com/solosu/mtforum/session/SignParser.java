@@ -176,7 +176,9 @@ public final class SignParser {
             String v = extract(html, p);
             if (!isBlank(v)) return v.trim();
         }
-        return "0";
+        // 已签到页面经常移除 lxreward 隐藏域，只留下结果文案。
+        String fromResult = extractRewardFromText(stripTags(html));
+        return isBlank(fromResult) ? "0" : fromResult;
     }
 
     /** 从签到接口当次返回里抓奖励数量（页面兜底常常拿不到） */
@@ -185,8 +187,10 @@ public final class SignParser {
         String[] patterns = {
                 "奖励\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",
                 "奖励\\s*([0-9]+)",
-                "获得\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",
-                "获得\\s*([0-9]+)",
+                "获得(?:随机)?(?:奖励)?\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",
+                "获得(?:随机)?(?:奖励)?\\s*([0-9]+)",
+                "增加\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)?",
+                "本次签到.{0,40}?([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",
                 "\\+\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)"
         };
         for (String p : patterns) {
