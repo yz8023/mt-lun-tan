@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v3.9
+        default: v4.0
 
 permissions:
   contents: write
@@ -117,11 +117,12 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 修复侧边栏右上角矩形白底，保持悬浮面板圆角。
-          - 超过 1MB 的图片自动清晰度优先压缩，小图保持原文件。
-          - 发帖和回复支持短视频自动转换循环 GIF。
-          - 设置中可选择应用内保存到 Download 或跳转浏览器下载。
-          - Release 启用 R8 代码与资源压缩，减小安装包体积。
+          - 发帖页新增完整 BBCode 快捷工具栏、色板和实时预览。
+          - 帖子可在后台保存为应用内离线页面，可选是否抓取全部评论，并内嵌正文图片。
+          - 新增已保存帖子列表，支持无网络查看和删除本地留存。
+          - 支持导出 HTML、纯文本及 PDF，可选择保存位置和是否包含评论。
+          - 侧边栏新增用户 UID / 帖子 TID 快速跳转。
+          - 延续 v3.9 的图片压缩、视频转 GIF、下载方式选择及 R8 安装包瘦身。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -136,14 +137,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 媒体上传与下载优化" \
+              --title "MTForum v${VERSION} — 离线导出与快捷编辑" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 媒体上传与下载优化" \
+              --title "MTForum v${VERSION} — 离线导出与快捷编辑" \
               --notes-file release-notes.md \
               --latest
           fi
