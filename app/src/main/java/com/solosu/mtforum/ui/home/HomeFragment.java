@@ -42,6 +42,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     private int currentPage = 1;
     private boolean isLoading = false;
     private boolean hasMore = true;
+    private String guideView = "newthread";
+    private int loadGeneration = 0;
     private static final int PAGE_SIZE = 20;
 
     @Nullable
@@ -64,6 +66,12 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         binding.ivSearch.setOnClickListener(v -> {
             Intent intent = new Intent(requireContext(), SearchActivity.class);
             startActivity(intent);
+        });
+        binding.guideFilters.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (checkedIds.isEmpty()) return;
+            int id=checkedIds.get(0);
+            guideView=id==R.id.chip_new?"new":id==R.id.chip_hot?"hot":id==R.id.chip_digest?"digest":"newthread";
+            refreshThreads();
         });
         // 搜索图标毛玻璃背景
         binding.ivAi.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
@@ -283,6 +291,7 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     private void refreshThreads() {
         currentPage = 1;
         hasMore = true;
+        loadGeneration++;
         loadThreads(currentPage, true);
     }
 
@@ -296,12 +305,14 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         com.solosu.mtforum.network.RequestThrottle.markForeground();
         isLoading = true;
         binding.swipeRefresh.setRefreshing(true);
+        final int requestGeneration=loadGeneration;
+        final String requestedView=guideView;
 
         new java.lang.Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    String url = ForumParser.getHomeUrl(page);
+                    String url = ForumParser.getGuideUrl(requestedView, page);
                     String html = httpClient.get(url);
                     List<Thread> threads = ForumParser.parseThreadList(html);
 
@@ -318,7 +329,7 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
                         }
                     }
                     requireActivity().runOnUiThread(() -> {
-                        if (!isAdded()) return;
+                        if (!isAdded() || requestGeneration!=loadGeneration) return;
                         if (threads != null && !threads.isEmpty()) {
                             if (isRefresh) {
                                 threadAdapter.setThreadList(threads);

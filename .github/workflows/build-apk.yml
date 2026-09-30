@@ -60,6 +60,22 @@ jobs:
           unzip -q gradle.zip -d "$HOME/gradle-dist"
           echo "$HOME/gradle-dist/gradle-8.13/bin" >> "$GITHUB_PATH"
 
+      # cloudflared 是 App 内免费公网 MCP 隧道的实际运行程序。固定官方版本和
+      # SHA256，避免 latest 漂移或供应链内容被静默替换。Android 会从
+      # nativeLibraryDir 以可执行权限解压这个 arm64 静态 ELF。
+      - name: Bundle verified cloudflared for arm64
+        run: |
+          set -euo pipefail
+          VERSION=2026.9.3
+          SHA256=aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d
+          DIR=app/src/main/jniLibs/arm64-v8a
+          mkdir -p "$DIR"
+          curl --fail --retry 3 -sSL \
+            -o "$DIR/libcloudflared.so" \
+            "https://github.com/cloudflare/cloudflared/releases/download/${VERSION}/cloudflared-linux-arm64"
+          echo "$SHA256  $DIR/libcloudflared.so" | sha256sum -c -
+          chmod 755 "$DIR/libcloudflared.so"
+
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --no-daemon
 

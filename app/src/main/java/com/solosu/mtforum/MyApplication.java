@@ -77,7 +77,7 @@ public class MyApplication extends Application {
 
         // Read-only MCP endpoint for AI clients; disabled by default and bearer-token protected.
         if (com.solosu.mtforum.mcp.McpPreferences.enabled(this)) {
-            com.solosu.mtforum.mcp.McpServer.get().start(this);
+            com.solosu.mtforum.mcp.McpService.start(this);
         }
     }
 }

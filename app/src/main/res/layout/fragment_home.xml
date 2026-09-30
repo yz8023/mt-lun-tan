@@ -56,7 +56,24 @@
 
         </RelativeLayout>
 
-
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingHorizontal="12dp">
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/guide_filters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:selectionRequired="true"
+                app:chipSpacingHorizontal="8dp">
+                <com.google.android.material.chip.Chip android:id="@+id/chip_newthread" style="@style/Widget.MaterialComponents.Chip.Choice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="新帖" android:checked="true" />
+                <com.google.android.material.chip.Chip android:id="@+id/chip_new" style="@style/Widget.MaterialComponents.Chip.Choice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="最新回复" />
+                <com.google.android.material.chip.Chip android:id="@+id/chip_hot" style="@style/Widget.MaterialComponents.Chip.Choice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="热门" />
+                <com.google.android.material.chip.Chip android:id="@+id/chip_digest" style="@style/Widget.MaterialComponents.Chip.Choice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="精华" />
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
 
         <!-- 帖子列表 -->
         <androidx.recyclerview.widget.RecyclerView
