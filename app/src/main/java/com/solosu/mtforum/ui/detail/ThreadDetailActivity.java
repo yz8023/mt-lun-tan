@@ -3536,6 +3536,29 @@ private void viewHiddenContent() {
         startActivityForResult(it, REQUEST_EDIT_THREAD);
     }
 
+    /** Restore editing for a reply owned by the active account. */
+    private void openEditReply(ReplyItem item) {
+        if (item == null || TextUtils.isEmpty(item.getPid())) {
+            Toast.makeText(this, "缺少回复编号，无法编辑", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!httpClient.isLoggedIn()) {
+            promptLogin();
+            return;
+        }
+        String editable = com.solosu.mtforum.util.HtmlToBBCode.convert(item.getContentHtml());
+        if (TextUtils.isEmpty(editable)) editable = item.getContentText();
+        Intent it = new Intent(this, com.solosu.mtforum.ui.post.PostActivity.class);
+        it.putExtra("edit_tid", tid);
+        it.putExtra("edit_pid", item.getPid());
+        it.putExtra("edit_fid", postDetail == null ? "" : postDetail.getForumFid());
+        it.putExtra("edit_forum_name", postDetail == null ? "" : postDetail.getForumName());
+        it.putExtra("edit_title", "");
+        it.putExtra("edit_message", editable);
+        it.putExtra("edit_is_reply", true);
+        startActivityForResult(it, REQUEST_EDIT_THREAD);
+    }
+
     /** 正文 HTML -> 可编辑的 BBCode/纯文本(交给 BBCodeUtil 反向处理,失败则剥标签) */
     private String stripContentHtml(String html) {
         if (TextUtils.isEmpty(html)) return "";
@@ -3878,6 +3901,11 @@ private void viewHiddenContent() {
                 }
             }, dialog);
         } else {
+            addActionRow(container, R.drawable.ic_post_text, "编辑回复", false, new Runnable() {
+                @Override public void run() {
+                    openEditReply(item);
+                }
+            }, dialog);
             addActionRow(container, R.drawable.ic_delete, "删除", true, new Runnable() {
                 @Override public void run() {
                     confirmDeleteReply(item);

@@ -72,5 +72,23 @@ public final class SiteAccessManager {
         activity.startActivity(intent);
     }
 
+    /** Keep only domain-level anti-bot cookies; never leak/replace an account's auth cookie. */
+    public static String protectionCookieHeader(String header) {
+        if (TextUtils.isEmpty(header)) return "";
+        StringBuilder out = new StringBuilder();
+        for (String part : header.split(";")) {
+            int eq = part.indexOf('=');
+            if (eq <= 0) continue;
+            String name = part.substring(0, eq).trim();
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (lower.contains("clearance") || lower.startsWith("acw_")
+                    || lower.startsWith("aliyungf_") || lower.startsWith("__jsl")) {
+                if (out.length() > 0) out.append("; ");
+                out.append(name).append('=').append(part.substring(eq + 1).trim());
+            }
+        }
+        return out.toString();
+    }
+
     public static void markClosed() { OPENING.set(false); lastLaunch = System.currentTimeMillis(); }
 }

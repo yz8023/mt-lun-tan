@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.1
+        default: v4.2
 
 permissions:
   contents: write
@@ -125,11 +125,10 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 自动签到遇到 ESA/403 时后台执行站点验证，最多重试 3 次，并输出每次失败原因。
-          - 签到日志保留服务器返回的奖励内容，并完善已签到页面的奖励数值读取。
-          - 正文和回帖原图按正文宽度完整显示，离线 HTML 图片也占满内容宽度。
-          - 离线 HTML 保留已解锁隐藏内容并优先内嵌原图。
-          - 修复文本选择坐标偏移。
+          - 站点验证进入登录页时，自动使用 Android Keystore 中保存的当前账号密码填写并登录。
+          - 修复打开登录面板会清除刚验证 Cookie、随后误报“登录页异常”的问题。
+          - 登录和自动重登复用 ESA 防护 Cookie，同时保持不同账号的认证 Cookie 隔离。
+          - 恢复本人回复的“编辑回复”入口，并按 Discuz 原始编辑表单完整提交字段。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -144,14 +143,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 签到验证与原图离线优化" \
+              --title "MTForum v${VERSION} — 全自动登录恢复与回复编辑" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 签到验证与原图离线优化" \
+              --title "MTForum v${VERSION} — 全自动登录恢复与回复编辑" \
               --notes-file release-notes.md \
               --latest
           fi

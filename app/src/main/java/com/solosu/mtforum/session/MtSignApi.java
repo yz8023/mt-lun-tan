@@ -125,12 +125,18 @@ public final class MtSignApi {
      * 独立会话，不影响前台已登录的账号。
      */
     public static LoginResult login(String username, String password) {
+        return login(username, password, "");
+    }
+
+    /** Login in an isolated account session while reusing browser-obtained ESA cookies. */
+    public static LoginResult login(String username, String password, String protectionCookies) {
         LoginResult out = new LoginResult();
         if (TextUtils.isEmpty(username) || TextUtils.isEmpty(password)) {
             out.message = "账号或密码为空";
             return out;
         }
         Session session = new Session();
+        if (!TextUtils.isEmpty(protectionCookies)) session.applyCookieHeader(protectionCookies);
         try {
             String loginPage = session.get(BASE_URL + "member.php?mod=logging&action=login");
             if (SignParser.isBlocked(loginPage)) {
@@ -179,8 +185,12 @@ public final class MtSignApi {
      * 返回的 {@link SignResult#refreshedCookie} 一定要回存，否则下次还要重登。
      */
     public static SignResult loginAndSign(String username, String password) {
+        return loginAndSign(username, password, "");
+    }
+
+    public static SignResult loginAndSign(String username, String password, String protectionCookies) {
         SignResult result = new SignResult();
-        LoginResult login = login(username, password);
+        LoginResult login = login(username, password, protectionCookies);
         if (!login.success) {
             result.message = login.message;
             result.cookieInvalid = true;

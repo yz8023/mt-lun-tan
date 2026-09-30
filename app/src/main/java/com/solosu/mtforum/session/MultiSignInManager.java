@@ -265,8 +265,11 @@ public final class MultiSignInManager {
         boolean needRelogin = result == null || (result.cookieInvalid && !result.blocked);
         if (needRelogin && SignInSettings.isAutoReloginEnabled(app)) {
             String password = AccountManager.decryptPassword(account);
-            if (!TextUtils.isEmpty(password) && !TextUtils.isEmpty(account.username)) {
-                MtSignApi.SignResult relogin = MtSignApi.loginAndSign(account.username, password);
+            if (!TextUtils.isEmpty(password) && !TextUtils.isEmpty(account.credentialName())) {
+                String protection = SiteAccessManager.protectionCookieHeader(
+                        HttpClient.getInstance().getCookieHeader());
+                MtSignApi.SignResult relogin = MtSignApi.loginAndSign(
+                        account.credentialName(), password, protection);
                 if (!TextUtils.isEmpty(relogin.refreshedCookie)) {
                     AccountManager.updateCookieHeader(app, account.uid, relogin.refreshedCookie);
                 }

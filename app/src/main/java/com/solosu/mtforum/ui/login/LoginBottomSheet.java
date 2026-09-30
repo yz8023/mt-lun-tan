@@ -80,6 +80,20 @@ public class LoginBottomSheet {
 
         if (!TextUtils.isEmpty(presetUsername)) {
             etUsername.setText(presetUsername);
+            // The password is already encrypted in Android Keystore when “记住密码” was used.
+            // Reuse it locally instead of forcing the user to type the same account twice.
+            for (AccountManager.Account account : AccountManager.list(activity)) {
+                if (presetUsername.equals(account.username)
+                        || presetUsername.equals(account.credentialName())) {
+                    etUsername.setText(account.credentialName());
+                    String saved = AccountManager.decryptPassword(account);
+                    if (!TextUtils.isEmpty(saved)) {
+                        etPassword.setText(saved);
+                        cbRemember.setChecked(true);
+                    }
+                    break;
+                }
+            }
             etPassword.requestFocus();
         }
 
@@ -98,25 +112,9 @@ public class LoginBottomSheet {
             }
         });
 
-        // 预取 formhash(仅账号密码模式需要,失败静默)
-        // build57: [0]=formhash [1]=登录表单 action(含 loginhash)
+        // Kept for the call signature. Password login now uses an isolated MtSignApi session;
+        // opening this sheet must never clear the freshly verified global Cookie again.
         final String[] formhashRef = new String[2];
-        new Thread(() -> {
-            try {
-                // build59: 预取必须先清登录态. 带旧 _auth 访问登录页, 服务端直接返回
-                // "已登录"提示页, formhash/loginform 全没了 -> 切换账号死循环
-                if (HttpClient.getInstance().isLoggedIn()) {
-                    HttpClient.getInstance().clearCookies(activity);
-                }
-                String html = HttpClient.getInstance().get(ForumParser.getLoginUrl());
-                String fh = ForumParser.parseFormhash(html);
-                if (!TextUtils.isEmpty(fh)) {
-                    formhashRef[0] = fh;
-                    formhashRef[1] = ForumParser.extractLoginPostUrl(html);
-                }
-            } catch (Exception ignored) {
-            }
-        }).start();
 
         ivClose.setOnClickListener(v -> dialog.dismiss());
 
@@ -267,82 +265,43 @@ public class LoginBottomSheet {
 
         new Thread(() -> {
             try {
-                if (TextUtils.isEmpty(formhashRef[0])) {
-                    // build57: 带有效登录态访问登录页, 服务端直接返回已登录提示页, formhash 拿不到
-                    // (切换账号场景). 先清 Cookie 再 GET.
-                    if (HttpClient.getInstance().isLoggedIn()) {
-                        HttpClient.getInstance().clearCookies(activity);
-                    }
-                    String loginHtml = HttpClient.getInstance().get(ForumParser.getLoginUrl());
-                    formhashRef[0] = ForumParser.parseFormhash(loginHtml);
-                    if (!TextUtils.isEmpty(formhashRef[0])) {
-                        formhashRef[1] = ForumParser.extractLoginPostUrl(loginHtml);
-                    }
-                    // build58: formhash 仍为空 -> 分流报错, 不再糊一句"获取登录信息失败"
-                    if (TextUtils.isEmpty(formhashRef[0])) {
-                        final String msg;
-                        if (loginHtml == null) {
-                            msg = "网络错误,取不到登录页(检查网络后重试)";
-                        } else if (loginHtml.contains("you have been blocked")
-                                || loginHtml.contains("403 Forbidden")) {
-                            msg = "被站点防护拦截(403),请求太频繁,稍等几分钟再试";
-                        } else if (!loginHtml.contains("formhash")) {
-                            msg = "登录页异常(可能被风控),稍后再试或换Cookie方式登录";
-                        } else {
-                            msg = "解析登录页失败,请重新点登录";
-                        }
-                        runOnUi(activity, () -> {
-                            setLoading(btnLogin, progressBar, false);
-                            showError(tvError, msg);
-                        });
-                        return;
-                    }
-                }
-                Map<String, String> params = new HashMap<>();
-                params.put("formhash", formhashRef[0]);
-                params.put("username", username);
-                params.put("password", password);
-                params.put("loginsubmit", "yes");
-                params.put("fastloginfield", "username");
-                params.put("cookietime", "2592000");
-
-                // build57: 用登录表单真实 action(含 loginhash); 旧代码把 formhash 拼在 URL 尾是坏地址
-                String postUrl = TextUtils.isEmpty(formhashRef[1])
-                        ? ForumParser.getLoginPostUrl() : formhashRef[1];
-                String result = HttpClient.getInstance().post(postUrl, params);
-
-                if (HttpClient.getInstance().isLoggedIn()) {
-                    finishLoginSuccess(dialog, activity, username,
-                            rememberPassword ? password : null,
-                            btnLogin, progressBar, listener);
-                } else {
-                    // build58: 7 层错误分流, 不再糊成"请检查帐号和密码"
-                    String errorMsg = "登录失败:" + snippet(result);
-                    if (result.contains("密码错误") || (result.contains("密码") && result.contains("错误"))) {
-                        errorMsg = "密码错误";
-                    } else if (result.contains("用户名") && result.contains("不存在")) {
-                        errorMsg = "用户名不存在";
-                    } else if (result.contains("次数过多") || result.contains("次数超")) {
-                        errorMsg = "密码错误次数过多,临时锁定,请稍后再试";
-                    } else if (result.contains("您已经被禁止访问") || result.contains("禁止登录")
-                            || result.contains("禁止访问")) {
-                        errorMsg = "账号被禁/封禁,无法登录";
-                    } else if (result.contains("您已经登录") || result.contains("已经登录")) {
-                        errorMsg = "服务器认为当前会话已登录(切换账号场景):重试一次即可";
-                    } else if (result.contains("you have been blocked") || result.contains("403 Forbidden")) {
-                        errorMsg = "被站点防护拦截(403),请求太频繁,稍等几分钟再试";
-                    }
-                    final String msg = errorMsg;
+                String protection = com.solosu.mtforum.session.SiteAccessManager.protectionCookieHeader(
+                        HttpClient.getInstance().getCookieHeader());
+                com.solosu.mtforum.session.MtSignApi.LoginResult result =
+                        com.solosu.mtforum.session.MtSignApi.login(username, password, protection);
+                if (!result.success || TextUtils.isEmpty(result.cookie)) {
+                    final String msg = TextUtils.isEmpty(result.message)
+                            ? "登录失败，请检查账号状态" : result.message;
                     runOnUi(activity, () -> {
                         setLoading(btnLogin, progressBar, false);
                         showError(tvError, msg);
                     });
+                    return;
                 }
+
+                // Replace the active account only after isolated login succeeds. This preserves
+                // the just-obtained ESA clearance while avoiding old-account auth contamination.
+                HttpClient client = HttpClient.getInstance();
+                client.clearCookies();
+                client.applyCookiesFromString(result.cookie);
+                client.commitCookieStore(activity);
+                client.syncToCookieManager();
+                for (AccountManager.Account saved : AccountManager.list(activity)) {
+                    if (username.equals(saved.credentialName()) || username.equals(saved.username)) {
+                        AccountManager.updateCookieHeader(activity, saved.uid, result.cookie);
+                        if (rememberPassword) AccountManager.setPassword(activity, saved.uid, password);
+                        AccountManager.setActiveUid(activity, saved.uid);
+                        break;
+                    }
+                }
+                finishLoginSuccess(dialog, activity, username,
+                        rememberPassword ? password : null,
+                        btnLogin, progressBar, listener);
             } catch (Exception e) {
                 runOnUi(activity, () -> {
                     setLoading(btnLogin, progressBar, false);
-                    showError(tvError, "网络错误:" + (TextUtils.isEmpty(e.getMessage())
-                            ? "请稍后重试" : e.getMessage()));
+                    showError(tvError, "登录失败：" + (TextUtils.isEmpty(e.getMessage())
+                            ? "网络异常，请稍后重试" : e.getMessage()));
                 });
             }
         }).start();
@@ -476,7 +435,7 @@ public class LoginBottomSheet {
             AccountManager.saveCurrent(activity,
                     loginInfo.get("uid"), loginInfo.get("username"),
                     loginInfo.get("avatarUrl"), loginInfo.get("level"),
-                    plainPassword);
+                    plainPassword, username);
             UserSessionManager.getInstance().clearSignInDate(activity);
         } catch (Exception ignored) {
         }

@@ -84,6 +84,7 @@ public class PostActivity extends AppCompatActivity {
     // build73: 编辑模式(本人帖)上下文
     private String editTid;
     private String editPid;
+    private boolean editIsReply;
 
     // 附件列表
     private final List<AttachFile> attachFiles = new ArrayList<>();
@@ -1175,6 +1176,7 @@ private void uploadImages(List<Uri> uris) {
         android.content.Intent it = getIntent();
         editTid = it.getStringExtra("edit_tid");
         editPid = it.getStringExtra("edit_pid");
+        editIsReply = it.getBooleanExtra("edit_is_reply", false);
         if (android.text.TextUtils.isEmpty(editTid) || android.text.TextUtils.isEmpty(editPid)) {
             return; // 普通发帖模式
         }
@@ -1190,6 +1192,10 @@ private void uploadImages(List<Uri> uris) {
         if (etTitle != null) {
             etTitle.setText(it.getStringExtra("edit_title"));
             etTitle.setEnabled(false); // 编辑不改标题,避免触发审核
+            if (editIsReply) {
+                View titleContainer = etTitle.getParent() instanceof View ? (View) etTitle.getParent() : etTitle;
+                titleContainer.setVisibility(View.GONE);
+            }
         }
         if (etContent != null) {
             etContent.setText(it.getStringExtra("edit_message"));
@@ -1213,22 +1219,38 @@ private void uploadImages(List<Uri> uris) {
             runOnUiThread(() -> { showError("请输入正文内容"); resetPublishButton(); });
             return;
         }
-        String fh = null;
-        try {
-            String form = HttpClient.getInstance().get(HttpClient.BASE_URL
-                    + "forum.php?mod=post&action=edit&tid=" + editTid + "&pid=" + editPid + "&mobile=2");
-            fh = ForumParser.parseFormhash(form);
-        } catch (Exception ignored) {
+        String formHtml = HttpClient.getInstance().get(HttpClient.BASE_URL
+                + "forum.php?mod=post&action=edit&tid=" + editTid + "&pid=" + editPid
+                + "&page=1&mobile=2");
+        if (TextUtils.isEmpty(formHtml) || ForumParser.isLoginPage(formHtml)) {
+            throw new IllegalStateException("编辑页面不可用，请重新登录后再试");
         }
-        if (android.text.TextUtils.isEmpty(fh)) fh = currentFormhash;
-        if (android.text.TextUtils.isEmpty(fh)) {
-            runOnUiThread(() -> { showError("获取安全验证失败，请重试"); resetPublishButton(); });
-            return;
-        }
+        Document editDoc = Jsoup.parse(formHtml, HttpClient.BASE_URL);
+        Element editForm = editDoc.selectFirst("form[action*=editsubmit],form#postform");
+        if (editForm == null) editForm = editDoc.selectFirst("form:has(textarea[name=message])");
+        if (editForm == null) throw new IllegalStateException("页面中找不到编辑表单");
 
+        // Submit every hidden field from Discuz's real form. Reply editing needs posttime/fid/
+        // wysiwyg and plugin hashes too; sending only formhash/message made the old entry vanish.
         Map<String, String> params = new HashMap<>();
+        for (Element in : editForm.select("input[name]")) {
+            String type = in.attr("type").toLowerCase(java.util.Locale.ROOT);
+            if (("checkbox".equals(type) || "radio".equals(type)) && !in.hasAttr("checked")) continue;
+            if ("submit".equals(type) || "button".equals(type) || "file".equals(type)) continue;
+            params.put(in.attr("name"), in.attr("value"));
+        }
+        for (Element ta : editForm.select("textarea[name]")) params.put(ta.attr("name"), ta.val());
+        for (Element sel : editForm.select("select[name]")) {
+            Element opt = sel.selectFirst("option[selected]");
+            if (opt == null) opt = sel.selectFirst("option");
+            if (opt != null) params.put(sel.attr("name"), opt.attr("value"));
+        }
+        String fh = params.get("formhash");
+        if (TextUtils.isEmpty(fh)) fh = ForumParser.parseFormhash(formHtml);
+        if (TextUtils.isEmpty(fh)) throw new IllegalStateException("获取编辑验证信息失败");
         params.put("formhash", fh);
-        params.put("subject", etTitle.getText() == null ? "" : etTitle.getText().toString().trim());
+        params.put("subject", editIsReply ? ""
+                : (etTitle.getText() == null ? "" : etTitle.getText().toString().trim()));
         params.put("message", message);
         params.put("editsubmit", "yes");
         // 附件同样要带上 attachnew,否则编辑会丢附件
@@ -1240,8 +1262,11 @@ private void uploadImages(List<Uri> uris) {
             }
         }
 
-        String url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&extra=&editsubmit=yes&mobile=2"
-                + "&handlekey=editform&tid=" + editTid + "&pid=" + editPid + "&page=1";
+        String url = editForm.absUrl("action");
+        if (TextUtils.isEmpty(url)) {
+            url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&extra=&mobile=2";
+        }
+        if (!url.contains("editsubmit")) url += (url.contains("?") ? "&" : "?") + "editsubmit=yes";
         String response = HttpClient.getInstance().post(url, params);
 
         boolean ok = response != null && !ForumParser.isLoginPage(response)
@@ -1293,7 +1318,7 @@ private void uploadImages(List<Uri> uris) {
 
     private void resetPublishButton() {
         btnPublish.setEnabled(true);
-        btnPublish.setText(R.string.post_publish);
+        btnPublish.setText(isEditMode() ? "保存修改" : getString(R.string.post_publish));
     }
 
 

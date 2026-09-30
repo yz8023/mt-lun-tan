@@ -42,6 +42,8 @@ public class AccountManager {
     public static class Account {
         public String uid;
         public String username;
+        /** Actual credential name; may differ from the displayed forum nickname. */
+        public String loginName;
         public String avatar;
         public String level;
         /** 该账号完整 cookie 快照（HttpClient 的 cookies_json 格式） */
@@ -70,6 +72,10 @@ public class AccountManager {
 
         public String displayName() {
             return TextUtils.isEmpty(username) ? ("UID_" + uid) : username;
+        }
+
+        public String credentialName() {
+            return TextUtils.isEmpty(loginName) ? username : loginName;
         }
 
         /** 列表二级文案：今日签到状态 */
@@ -215,6 +221,7 @@ public class AccountManager {
         JSONObject o = new JSONObject();
         o.put("uid", a.uid);
         o.put("username", a.username);
+        o.put("loginName", a.loginName);
         o.put("avatar", a.avatar);
         o.put("level", a.level);
         o.put("cookies", a.cookies);
@@ -235,6 +242,7 @@ public class AccountManager {
         Account a = new Account();
         a.uid = uid;
         a.username = o.optString("username");
+        a.loginName = o.optString("loginName");
         a.avatar = o.optString("avatar");
         a.level = o.optString("level");
         a.cookies = o.optString("cookies");
@@ -263,6 +271,11 @@ public class AccountManager {
      */
     public static void saveCurrent(Context c, String uid, String username, String avatar,
                                    String level, String plainPassword) {
+        saveCurrent(c, uid, username, avatar, level, plainPassword, username);
+    }
+
+    public static void saveCurrent(Context c, String uid, String username, String avatar,
+                                   String level, String plainPassword, String credentialName) {
         if (TextUtils.isEmpty(uid)) return;
         String cookiesJson = readCurrentCookiesJson(c);
         if (TextUtils.isEmpty(cookiesJson)) return;
@@ -276,6 +289,7 @@ public class AccountManager {
         acc.cookies = cookiesJson;
         if (!TextUtils.isEmpty(plainPassword)) {
             acc.passwordEnc = CryptoUtils.encrypt(plainPassword);
+            if (!TextUtils.isEmpty(credentialName)) acc.loginName = credentialName;
         }
         if (acc.createTime <= 0) acc.createTime = System.currentTimeMillis();
 

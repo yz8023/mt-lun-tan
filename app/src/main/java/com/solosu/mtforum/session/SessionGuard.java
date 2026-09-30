@@ -138,11 +138,16 @@ public final class SessionGuard {
         if (TextUtils.isEmpty(password)) {
             return "未保存密码，请手动登录一次并勾选「记住密码」";
         }
-        if (TextUtils.isEmpty(account.username)) {
-            return "缺少用户名，无法重登";
+        if (TextUtils.isEmpty(account.credentialName())) {
+            return "缺少登录账号，无法重登";
         }
 
-        MtSignApi.LoginResult result = MtSignApi.login(account.username, password);
+        // ESA clearance is bound to this browser/UA. Reuse only its protection cookies in the
+        // isolated login session, otherwise verification succeeds but the following login GET
+        // immediately receives another 403 and is misreported as an abnormal login page.
+        String protection = SiteAccessManager.protectionCookieHeader(
+                HttpClient.getInstance().getCookieHeader());
+        MtSignApi.LoginResult result = MtSignApi.login(account.credentialName(), password, protection);
         if (!result.success || TextUtils.isEmpty(result.cookie)) {
             return TextUtils.isEmpty(result.message) ? "重新登录失败" : result.message;
         }
