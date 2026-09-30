@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.6
+        default: v4.7
 
 permissions:
   contents: write
@@ -141,11 +141,11 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - MCP 放到首页右上角原 AI 助手符号位置，移除突兀的大卡片并跟随应用主题色。
-          - 修复 cloudflared 代码 1：严格使用官方 cloudflared tunnel --url 最小命令，避免全局参数位置错误触发 usage 退出。
-          - 轻点符号启用或重试，连接成功后再次轻点即可复制包含 URL 与 Authorization 的完整配置。
-          - 长按符号进入详细设置；异常退出会展示 cloudflared 最后一行具体输出并自动重连。
-          - 保持只读白名单、Bearer 鉴权、敏感字段脱敏与访问审计。
+          - 修复 Android 上 cloudflared 使用 [::1]:53 导致 Quick Tunnel 注册失败：改由 App 注册隧道并预解析边缘 IP。
+          - 仅在真实 Tunnel Connection 成功后复制随机 trycloudflare hostname，不再把 API 域名误当公网 MCP 地址。
+          - 修复 Comiis 懒加载开关值 1 被当成图片 URL，导致帖子原图变成站点随机表情或占位图。
+          - 主楼、评论、列表与离线页面统一筛选真实图片属性，并收紧 Discuz 表情路径识别。
+          - 保留顶栏 MCP 一键启用/复制、只读白名单、Bearer 鉴权、脱敏与自动重连。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -160,14 +160,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 顶栏 MCP 与 Quick Tunnel 修复" \
+              --title "MTForum v${VERSION} — Android DNS 隧道与帖子图片修复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 顶栏 MCP 与 Quick Tunnel 修复" \
+              --title "MTForum v${VERSION} — Android DNS 隧道与帖子图片修复" \
               --notes-file release-notes.md \
               --latest
           fi

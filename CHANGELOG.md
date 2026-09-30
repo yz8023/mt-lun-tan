@@ -1,5 +1,16 @@
 # 更新日志
 
+## v4.7 (versionCode 32) — Android DNS 隧道与帖子图片修复
+
+- 根据真机错误确认 cloudflared 的 Go DNS 在 Android 上读取到占位解析器 `[::1]:53`，请求 `api.trycloudflare.com/tunnel` 因而直接失败；这不是公网服务地址，旧版还误把错误日志中的 API 域名复制成了 MCP URL。
+- Quick Tunnel 注册改由 App 的 OkHttp/Android 网络栈完成；生成临时凭据后，通过 Android DNS（失败时回退到 1.1.1.1 DoH）预解析 Cloudflare region1/region2 边缘 IPv4，并以 `--edge` 传给 cloudflared，完全避开其错误的本机 DNS。
+- 公网 URL 只采用注册接口返回的随机 hostname，并且仅在至少一个 Tunnel Connection 注册成功后开放复制，不会再生成 `https://api.trycloudflare.com/mcp` 这种无效配置。
+- 修复帖子图片变成随机表情的根因：部分 Comiis 模板的 `comiis_loadimages` 值只是开关 `1`，旧解析器却优先把它当 URL，最终请求 `bbs.binmt.cc/1` 并显示站点占位/随机表情。
+- 主楼、评论、帖子列表和离线页面统一拒绝 `1/true/false/lazy` 等伪图片属性，继续向后查找 `file/zoomfile/data-original/src` 的真实地址。
+- 收紧表情识别为真实 Discuz smiley 路径；普通附件 URL 或文件名中包含 `face`、`icon`、`mini` 等单词时不再被错误丢弃或缩成表情尺寸。
+
+---
+
 ## v4.6 (versionCode 31) — 顶栏 MCP · Quick Tunnel 参数修复
 
 - MCP 入口调整到首页右上角原 AI 助手符号位置，移除首页大卡片；图标尺寸、毛玻璃背景和主题色与旁边搜索按钮保持一致。

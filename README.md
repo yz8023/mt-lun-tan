@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v4.6（versionCode 31）**
+当前版本：**v4.7（versionCode 32）**
 
 ---
+
+## v4.7：修复 Android 隧道 DNS · 帖子原图识别
+
+- App 使用 Android 网络栈注册 Quick Tunnel，并预解析 Cloudflare 边缘 IP，绕过 cloudflared 误连 `[::1]:53` 的 DNS 问题。
+- 修复 Comiis 的 `comiis_loadimages=1` 被当成图片 URL，导致正文请求 `/1` 并显示站点随机表情/占位图。
+- 主楼、评论、列表和离线页面只接受真实图片候选，普通文件名含 face/icon 不再被误判成表情。
 
 ## v4.6：顶栏 MCP · 修复 cloudflared 参数
 
