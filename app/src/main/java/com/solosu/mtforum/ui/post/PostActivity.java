@@ -139,6 +139,11 @@ public class PostActivity extends AppCompatActivity {
 
         initViews();
         setupTitleCounter();
+        // 发帖页直接显示 BBCode 快捷键，并在输入停顿 300ms 后刷新预览。
+        LinearLayout bbcodeBar = findViewById(R.id.ll_bbcode_toolbar);
+        TextView bbcodePreview = findViewById(R.id.tv_bbcode_preview);
+        com.solosu.mtforum.ui.widget.BBCodeEditor.buildToolbar(this, bbcodeBar, etContent, true);
+        com.solosu.mtforum.ui.widget.BBCodeEditor.bindLivePreview(this, etContent, bbcodePreview);
         setupCircleSelector();
         setupToolbarButtons();
         setupPublishButton();

@@ -137,6 +137,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private final java.util.Map<android.net.Uri, String> uploadedAidMap = new java.util.HashMap<>();
     private static final int REQUEST_IMAGE_PICK = 1002;
     private static final int REQUEST_EDIT_THREAD = 1003; // build73: 编辑帖子
+    private static final int REQUEST_EXPORT_HTML = 1010;
+    private static final int REQUEST_EXPORT_TEXT = 1011;
+    private String pendingExportContent;
 
     @Override // androidx.fragment.app.FragmentActivity, androidx.activity.ComponentActivity, androidx.core.app.ComponentActivity, android.app.Activity
     protected void onCreate(Bundle savedInstanceState) {
@@ -203,6 +206,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             public final void onClick(View view) {
                 ThreadDetailActivity.this.lambda$onCreate$5(view);
             }
+        });
+        this.binding.btnExport.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { showExportMenu(); }
         });
         this.binding.btnShare.setOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
@@ -3014,6 +3020,11 @@ private void viewHiddenContent() {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if ((requestCode == REQUEST_EXPORT_HTML || requestCode == REQUEST_EXPORT_TEXT)
+                && resultCode == RESULT_OK && data != null) {
+            writePendingExport(data.getData());
+            return;
+        }
         if (requestCode == REQUEST_EDIT_THREAD && resultCode == RESULT_OK) {
             // build73: 编辑保存成功 -> 重新拉一次帖子
             refreshPostDetail();
@@ -3325,6 +3336,88 @@ private void viewHiddenContent() {
             }
             throw th;
         }
+    }
+
+    private void showExportMenu() {
+        if (postDetail == null) { Toast.makeText(this, "帖子仍在加载", Toast.LENGTH_SHORT).show(); return; }
+        String[] items = {"保存离线页面（后台）", "导出 HTML", "导出 PDF", "导出纯文本", "查看已保存帖子"};
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("导出与离线")
+                .setItems(items, (dlg, which) -> {
+                    if (which == 4) { startActivity(new Intent(this, com.solosu.mtforum.offline.OfflinePostsActivity.class)); return; }
+                    askIncludeComments(include -> {
+                        if (which == 0) enqueueOfflineSave(include);
+                        else if (which == 1) createDocument("text/html", "MTForum-" + tid + ".html", REQUEST_EXPORT_HTML, include, false);
+                        else if (which == 2) printPdf(include);
+                        else createDocument("text/plain", "MTForum-" + tid + ".txt", REQUEST_EXPORT_TEXT, include, true);
+                    });
+                }).setNegativeButton("取消", null).show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, this);
+    }
+
+    private void askIncludeComments(java.util.function.Consumer<Boolean> callback) {
+        final boolean[] checked = {true};
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("内容范围")
+                .setSingleChoiceItems(new String[]{"正文 + 评论区", "仅保存正文"}, 0,
+                        (x, which) -> checked[0] = which == 0)
+                .setPositiveButton("继续", (x, w) -> callback.accept(checked[0]))
+                .setNegativeButton("取消", null).show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(d, this);
+    }
+
+    private void enqueueOfflineSave(boolean comments) {
+        androidx.work.Data data = new androidx.work.Data.Builder().putString("tid", tid)
+                .putBoolean("comments", comments).build();
+        androidx.work.OneTimeWorkRequest request = new androidx.work.OneTimeWorkRequest.Builder(
+                com.solosu.mtforum.offline.OfflinePostWorker.class).setInputData(data).build();
+        androidx.work.WorkManager manager = androidx.work.WorkManager.getInstance(this);
+        manager.enqueueUniqueWork("offline-post-" + tid, androidx.work.ExistingWorkPolicy.REPLACE, request);
+        manager.getWorkInfoByIdLiveData(request.getId()).observe(this, info -> {
+            if (info == null || !info.getState().isFinished()) return;
+            if (info.getState() == androidx.work.WorkInfo.State.SUCCEEDED)
+                Toast.makeText(this, "帖子已保存，可在“已保存帖子”中离线查看", Toast.LENGTH_LONG).show();
+            else Toast.makeText(this, "离线保存失败：" + info.getOutputData().getString("error"), Toast.LENGTH_LONG).show();
+        });
+        Toast.makeText(this, "已转入后台保存，可继续正常使用应用", Toast.LENGTH_LONG).show();
+    }
+
+    private String currentExportHtml(boolean comments) {
+        return com.solosu.mtforum.offline.OfflinePostStore.buildHtml(postDetail,
+                comments ? displayedReplies : java.util.Collections.emptyList(), comments);
+    }
+
+    private void createDocument(String mime, String name, int requestCode, boolean comments, boolean plainText) {
+        String html = currentExportHtml(comments);
+        pendingExportContent = plainText ? org.jsoup.Jsoup.parse(html).text() : html;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE); intent.setType(mime); intent.putExtra(Intent.EXTRA_TITLE, name);
+        startActivityForResult(intent, requestCode);
+    }
+
+    private android.webkit.WebView printWebView;
+    private void printPdf(boolean comments) {
+        printWebView = new android.webkit.WebView(this);
+        printWebView.getSettings().setJavaScriptEnabled(false);
+        printWebView.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override public void onPageFinished(android.webkit.WebView view, String url) {
+                android.print.PrintManager manager = (android.print.PrintManager) getSystemService(PRINT_SERVICE);
+                if (manager != null) manager.print("MTForum-" + tid,
+                        view.createPrintDocumentAdapter("MTForum-" + tid), new android.print.PrintAttributes.Builder().build());
+            }
+        });
+        printWebView.loadDataWithBaseURL(HttpClient.BASE_URL, currentExportHtml(comments), "text/html", "UTF-8", null);
+        Toast.makeText(this, "请在打印页面选择“保存为 PDF”及保存位置", Toast.LENGTH_LONG).show();
+    }
+
+    private void writePendingExport(android.net.Uri uri) {
+        if (uri == null || pendingExportContent == null) return;
+        try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+            if (out == null) throw new java.io.IOException("无法打开目标文件");
+            out.write(pendingExportContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Toast.makeText(this, "导出成功", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) { Toast.makeText(this, "导出失败：" + e.getMessage(), Toast.LENGTH_LONG).show(); }
+        finally { pendingExportContent = null; }
     }
 
     private void shareThread() {

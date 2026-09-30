@@ -977,6 +977,39 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/drawer_quick_jump"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/bg_drawer_item"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="12dp">
+                <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_search_new" android:contentDescription="快速跳转" app:tint="@color/primary" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ID 快速跳转" android:textColor="@color/text_primary" android:textSize="14sp" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="用户 UID / 帖子 TID" android:textColor="@color/text_hint" android:textSize="11sp" />
+                </LinearLayout>
+                <ImageView android:layout_width="16dp" android:layout_height="16dp" android:src="@drawable/ic_arrow_right" android:contentDescription="前往" app:tint="@color/text_hint" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/drawer_offline_posts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/bg_drawer_item"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="12dp">
+                <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_history" android:contentDescription="已保存帖子" app:tint="@color/primary" />
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:layout_weight="1" android:text="已保存帖子" android:textColor="@color/text_primary" android:textSize="14sp" />
+                <ImageView android:layout_width="16dp" android:layout_height="16dp" android:src="@drawable/ic_arrow_right" android:contentDescription="前往" app:tint="@color/text_hint" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/drawer_log"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

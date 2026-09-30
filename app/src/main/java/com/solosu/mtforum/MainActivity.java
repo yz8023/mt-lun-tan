@@ -350,6 +350,17 @@ public class MainActivity extends AppCompatActivity {
             accountsRow.setOnClickListener(v -> openAccountManager());
         }
 
+        View quickJump = findViewById(R.id.drawer_quick_jump);
+        if (quickJump != null) quickJump.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(drawerPanel);
+            showQuickJumpDialog();
+        });
+        View offlinePosts = findViewById(R.id.drawer_offline_posts);
+        if (offlinePosts != null) offlinePosts.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(drawerPanel);
+            startActivity(new Intent(this, com.solosu.mtforum.offline.OfflinePostsActivity.class));
+        });
+
         // build71: 浏览历史（长按运行日志入口打开，避免再加一行占空间）
         // build75: 侧边栏「运行日志」改为进记录中心（四个分页 + 卡片，可点开帖子）
         View logRow = findViewById(R.id.drawer_log);
@@ -1634,6 +1645,37 @@ public class MainActivity extends AppCompatActivity {
 
 
     /** build71: 浏览历史（长按侧边栏「运行日志」打开） */
+    private void showQuickJumpDialog() {
+        float d = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding((int)(20*d), 0, (int)(20*d), 0);
+        android.widget.RadioGroup types = new android.widget.RadioGroup(this);
+        types.setOrientation(android.widget.RadioGroup.HORIZONTAL);
+        android.widget.RadioButton thread = new android.widget.RadioButton(this); thread.setId(View.generateViewId()); thread.setText("帖子 TID"); thread.setChecked(true);
+        android.widget.RadioButton user = new android.widget.RadioButton(this); user.setId(View.generateViewId()); user.setText("用户 UID");
+        types.addView(thread); types.addView(user); box.addView(types);
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("输入数字 ID，也可粘贴论坛链接"); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        box.addView(input, new android.widget.LinearLayout.LayoutParams(-1, (int)(56*d)));
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("ID 快速跳转").setView(box)
+                .setPositiveButton("跳转", null).setNegativeButton("取消", null).create();
+        dialog.setOnShowListener(x -> ((androidx.appcompat.app.AlertDialog)dialog).getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String raw = input.getText() == null ? "" : input.getText().toString().trim();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:tid=|thread-)?(\\d+)").matcher(raw);
+            if (!m.find()) { input.setError("请输入有效数字 ID"); return; }
+            String id = m.group(1); dialog.dismiss();
+            if (types.getCheckedRadioButtonId() == user.getId()) {
+                Intent it = new Intent(this, com.solosu.mtforum.ui.space.UserProfileActivity.class); it.putExtra("uid", id); startActivity(it);
+            } else {
+                com.solosu.mtforum.util.NavigationHelper.openThread(this, id);
+            }
+        }));
+        dialog.show();
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
     private void showBrowseHistory() {
         java.util.List<com.solosu.mtforum.session.HistoryStore.Item> list =
                 com.solosu.mtforum.session.HistoryStore.list(this);

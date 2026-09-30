@@ -182,6 +182,35 @@
                     android:textColorHint="@color/text_hint"
                     android:textSize="15sp" />
 
+                <!-- BBCode 快捷工具条：与回复编辑器共用同一套标签 -->
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@color/background_secondary"
+                    android:scrollbars="none"
+                    android:paddingVertical="8dp">
+
+                    <LinearLayout
+                        android:id="@+id/ll_bbcode_toolbar"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="6dp" />
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/tv_bbcode_preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="72dp"
+                    android:padding="16dp"
+                    android:background="@color/background_secondary"
+                    android:text="（实时预览：在上方输入内容）"
+                    android:textColor="@color/text_hint"
+                    android:textIsSelectable="true"
+                    android:textSize="14sp" />
+
                 <!-- 高级选项区域 -->
                 <LinearLayout
                     android:id="@+id/ll_advanced_options"

@@ -29,6 +29,9 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".offline.OfflinePostsActivity" android:exported="false" />
+        <activity android:name=".offline.OfflinePostActivity" android:exported="false" />
+
         <activity
             android:name=".ui.post.PostActivity"
             android:exported="false"

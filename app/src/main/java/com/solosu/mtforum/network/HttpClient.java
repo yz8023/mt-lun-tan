@@ -113,6 +113,26 @@ public class HttpClient {
                 .build();
     }
 
+    /** 下载二进制资源，沿用论坛 Cookie；超过 maxBytes 时中止，避免离线保存撑爆内存。 */
+    public byte[] getBytes(String url, int maxBytes) throws IOException {
+        Request request = new Request.Builder().url(url).header("User-Agent", USER_AGENT).build();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new IOException("HTTP " + response.code());
+            }
+            java.io.InputStream in = response.body().byteStream();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[16 * 1024];
+            int total = 0, n;
+            while ((n = in.read(buffer)) >= 0) {
+                total += n;
+                if (total > maxBytes) throw new IOException("资源过大");
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
+
     // ==================== build61: 掉线回调 ====================
 
     /**
