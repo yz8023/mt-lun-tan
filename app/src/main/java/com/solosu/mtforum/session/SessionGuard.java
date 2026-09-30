@@ -58,7 +58,9 @@ public final class SessionGuard {
         lastFailureAt = System.currentTimeMillis();
         final Context app = context.getApplicationContext();
         if (!shouldTry()) return;
-        ensureSession(app, null);
+        // 不能调用 ensureSession：本地仍有过期的 _auth Cookie 时 isLoggedIn() 会误判正常。
+        String uid = AccountManager.activeUid(app);
+        if (!TextUtils.isEmpty(uid)) reloginAccount(app, uid, null);
     }
 
     private static boolean shouldTry() {
@@ -159,6 +161,36 @@ public final class SessionGuard {
         }
         AccountManager.setActiveUid(app, uid);
         return null;
+    }
+
+    /** 浏览器验证完成后先同步防护 Cookie，再真实请求一次确认账号 Cookie 是否仍有效。 */
+    public static void recoverAfterBrowser(Context context, Callback callback) {
+        if (context == null) return;
+        Context app = context.getApplicationContext();
+        new Thread(() -> {
+            try {
+                HttpClient client = HttpClient.getInstance();
+                client.syncFromCookieManager();
+                client.clearPendingCache();
+                AccountManager.refreshActiveCookieSnapshot(app);
+                String html = client.get(HttpClient.BASE_URL + "home.php?mod=spacecp&ac=profile&mobile=2&_verify=" + System.currentTimeMillis());
+                if (SiteAccessManager.isChallengePage(html)) {
+                    post(callback, false, "站点验证尚未完成");
+                    return;
+                }
+                if (com.solosu.mtforum.network.ForumParser.isLoginPage(html)
+                        || (html != null && html.contains("您需要先登录"))) {
+                    String uid = AccountManager.activeUid(app);
+                    if (TextUtils.isEmpty(uid)) { post(callback, false, "请重新登录账号"); return; }
+                    reloginAccount(app, uid, callback);
+                } else {
+                    AccountManager.refreshActiveCookieSnapshot(app);
+                    post(callback, true, "验证 Cookie 已同步，登录态正常");
+                }
+            } catch (Exception e) {
+                post(callback, false, "验证后检查失败：" + e.getMessage());
+            }
+        }, "verify-cookie-recover").start();
     }
 
     private static void post(Callback callback, boolean success, String message) {

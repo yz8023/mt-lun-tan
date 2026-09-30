@@ -394,6 +394,31 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 站点人机验证 / WebView Cookie 双向同步 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:contentPadding="16dp">
+                <LinearLayout
+                    android:id="@+id/layout_site_verify"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="站点验证与 Cookie 同步" android:textColor="@color/text_primary" android:textSize="16sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="遇到阿里云人机验证或页面格式异常时使用" android:textColor="@color/text_secondary" android:textSize="13sp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="打开" android:textColor="@color/primary" android:textSize="14sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 文件下载方式 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"

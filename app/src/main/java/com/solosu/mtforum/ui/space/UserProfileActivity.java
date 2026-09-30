@@ -40,6 +40,8 @@ public class UserProfileActivity extends AppCompatActivity {
     private boolean serverFollowStateKnown;
     private boolean requestInFlight;
     private volatile boolean destroyed = false;
+    private boolean retryAfterSiteVerify;
+    private boolean sessionRecoveryAttempted;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -71,6 +73,14 @@ public class UserProfileActivity extends AppCompatActivity {
         loadUserProfile();
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        if (retryAfterSiteVerify && !requestInFlight) {
+            retryAfterSiteVerify = false;
+            binding.getRoot().postDelayed(this::loadUserProfile, 500L);
+        }
+    }
+
     private boolean canUpdateUi() {
         return !destroyed && !isFinishing()
                 && (android.os.Build.VERSION.SDK_INT < 17 || !isDestroyed());
@@ -97,8 +107,10 @@ public class UserProfileActivity extends AppCompatActivity {
             com.solosu.mtforum.util.PerfLog.record("用户主页",
                         tPerfFetched - tPerfStart, 0, html == null ? 0 : html.length());
 
-                if (ForumParser.isLoginPage(html)) {
-                    error = "登录已过期，请重新登录";
+                if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(html)) {
+                    error = "站点触发人机验证，正在打开内置验证页";
+                } else if (ForumParser.isLoginPage(html)) {
+                    error = "登录已过期";
                 } else {
                     profile = ForumParser.parseUserProfile(html);
                     if (profile == null || profile.getUsername() == null) {
@@ -106,7 +118,9 @@ public class UserProfileActivity extends AppCompatActivity {
                                 + "home.php?mod=space&uid=" + targetUid
                                 + "&do=profile&mobile=2" + cacheBust;
                         String altHtml = httpClient.get(altUrl);
-                        if (ForumParser.isLoginPage(altHtml)) {
+                        if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(altHtml)) {
+                            error = "站点触发人机验证，正在打开内置验证页";
+                        } else if (ForumParser.isLoginPage(altHtml)) {
                             error = "登录已过期";
                         } else {
                             profile = ForumParser.parseUserProfile(altHtml);
@@ -134,8 +148,24 @@ public class UserProfileActivity extends AppCompatActivity {
                 requestInFlight = false;
                 binding.progressBar.setVisibility(View.GONE);
                 if (resultError != null) {
-                    Toast.makeText(this, resultError, Toast.LENGTH_SHORT).show();
-                    if (resultError.contains("登录已过期")) finish();
+                    if (resultError.contains("人机验证")) {
+                        retryAfterSiteVerify = true;
+                        Toast.makeText(this, resultError, Toast.LENGTH_LONG).show();
+                    } else if (resultError.contains("登录已过期") && !sessionRecoveryAttempted) {
+                        sessionRecoveryAttempted = true;
+                        Toast.makeText(this, "登录态已过期，正在自动重新登录…", Toast.LENGTH_SHORT).show();
+                        String activeUid = com.solosu.mtforum.session.AccountManager.activeUid(this);
+                        com.solosu.mtforum.session.SessionGuard.reloginAccount(this, activeUid, (ok, message) -> {
+                            sessionRecoveryAttempted = false;
+                            if (ok) loadUserProfile();
+                            else {
+                                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                                com.solosu.mtforum.ui.login.LoginBottomSheet.show(this, null);
+                            }
+                        });
+                    } else {
+                        Toast.makeText(this, resultError, Toast.LENGTH_SHORT).show();
+                    }
                 } else if (resultProfile != null && resultProfile.getUsername() != null) {
                     serverFollowStateKnown = resultProfile.isFollowStateKnown();
                     if (serverFollowStateKnown) serverFollowed = resultProfile.isFollowed();

@@ -63,6 +63,10 @@ public class SettingsActivity extends AppCompatActivity {
         //        binding.layoutCheckUpdate.setOnClickListener(v -> checkForUpdate());
         //        checkForUpdate();
 
+        // 内置同域 WebView：执行 ESA/阿里云 JS 验证，并把 clearance Cookie 双向同步。
+        binding.layoutSiteVerify.setOnClickListener(v ->
+                com.solosu.mtforum.session.SiteAccessManager.openManually(this));
+
         // 附件/文件下载方式：系统 DownloadManager（保存到 Download）或浏览器。
         updateDownloadModeText();
         binding.layoutDownloadMode.setOnClickListener(v -> {

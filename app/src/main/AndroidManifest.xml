@@ -29,6 +29,7 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".ui.web.SiteVerifyActivity" android:exported="false" />
         <activity android:name=".offline.OfflinePostsActivity" android:exported="false" />
         <activity android:name=".offline.OfflinePostActivity" android:exported="false" />
 

@@ -144,10 +144,13 @@ public class HttpClient {
     }
 
     private static volatile AuthFailureListener authFailureListener;
+    public interface ChallengeListener { void onChallenge(String url); }
+    private static volatile ChallengeListener challengeListener;
 
     public static void setAuthFailureListener(AuthFailureListener listener) {
         authFailureListener = listener;
     }
+    public static void setChallengeListener(ChallengeListener listener) { challengeListener = listener; }
 
     /**
      * 判定一次响应是否意味着掉线，是则通知守卫去静默重登。
@@ -159,17 +162,23 @@ public class HttpClient {
      * </ul>
      * 只在"本地 cookie 还认为自己登录着"时才触发，避免游客状态下瞎重登。
      */
-    private void checkAuthFailure(int httpCode, String body) {
+    private void checkAuthFailure(int httpCode, String body, String url) {
+        // ESA/阿里云验证不是账号掉线：密码重登拿不到 JS 计算出的 clearance Cookie，
+        // 必须先交给同 UA 的 WebView 执行，再双向同步 Cookie。
+        if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(body)) {
+            ChallengeListener challenge = challengeListener;
+            if (challenge != null) try { challenge.onChallenge(url); } catch (Throwable ignored) {}
+            return;
+        }
         AuthFailureListener listener = authFailureListener;
         if (listener == null) return;
-        boolean suspicious = httpCode == 403
-                || (body != null
-                    && (body.contains("您需要先登录") || body.contains("请先登录后继续")));
+        boolean loginPage = body != null && (body.contains("您需要先登录")
+                || body.contains("请先登录后继续")
+                || (body.contains("loginform") && body.contains("action=login"))
+                || body.contains("member.php?mod=logging&action=login"));
+        boolean suspicious = httpCode == 401 || httpCode == 403 || (isLoggedIn() && loginPage);
         if (!suspicious) return;
-        try {
-            listener.onAuthFailure();
-        } catch (Throwable ignored) {
-        }
+        try { listener.onAuthFailure(); } catch (Throwable ignored) {}
     }
 
     public static HttpClient getInstance() {
@@ -212,7 +221,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
-                checkAuthFailure(response.code(), body);
+                checkAuthFailure(response.code(), body, url);
                 future.complete(body);
                 return body;
             }
@@ -288,7 +297,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
-                checkAuthFailure(response.code(), body);
+                checkAuthFailure(response.code(), body, url);
                 future.complete(body);
                 return body;
             }
@@ -337,7 +346,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
-                checkAuthFailure(response.code(), body);
+                checkAuthFailure(response.code(), body, url);
                 future.complete(body);
                 return body;
             }
@@ -387,7 +396,7 @@ public class HttpClient {
                 if (appContext != null) {
                     commitCookieStore(appContext);
                 }
-                checkAuthFailure(response.code(), body);
+                checkAuthFailure(response.code(), body, url);
                 future.complete(body);
                 return body;
             }

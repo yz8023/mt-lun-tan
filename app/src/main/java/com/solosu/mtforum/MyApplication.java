@@ -31,6 +31,7 @@ public class MyApplication extends Application {
                 new android.app.Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(android.app.Activity a) {
+                com.solosu.mtforum.session.SiteAccessManager.onActivityResumed(a);
                 if (!com.solosu.mtforum.ui.theme.ThemeManager.isAccentCustomised(a)) return;
                 final android.view.View root = a.findViewById(android.R.id.content);
                 if (root == null) return;
@@ -40,7 +41,9 @@ public class MyApplication extends Application {
 
             @Override public void onActivityCreated(android.app.Activity a, android.os.Bundle b) {}
             @Override public void onActivityStarted(android.app.Activity a) {}
-            @Override public void onActivityPaused(android.app.Activity a) {}
+            @Override public void onActivityPaused(android.app.Activity a) {
+                com.solosu.mtforum.session.SiteAccessManager.onActivityPaused(a);
+            }
             @Override public void onActivityStopped(android.app.Activity a) {}
             @Override public void onActivitySaveInstanceState(android.app.Activity a, android.os.Bundle b) {}
             @Override public void onActivityDestroyed(android.app.Activity a) {}
@@ -52,6 +55,8 @@ public class MyApplication extends Application {
 
         // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登
         HttpClient.setAuthFailureListener(() -> SessionGuard.onAuthFailure(this));
+        HttpClient.setChallengeListener(url ->
+                com.solosu.mtforum.session.SiteAccessManager.onChallengeDetected(url));
 
         // 运行日志落盘，App 被杀后仍可回看
         AiLog.attach(this);

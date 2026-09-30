@@ -331,6 +331,18 @@ public class AccountManager {
         put(c, a);
     }
 
+    /** WebView 完成人机验证后，把新增的 clearance Cookie 合并保存到当前账号快照。 */
+    public static void refreshActiveCookieSnapshot(Context c) {
+        if (c == null) return;
+        String uid = activeUid(c);
+        Account a = get(c, uid);
+        if (a == null) return;
+        String snapshot = readCurrentCookiesJson(c);
+        if (TextUtils.isEmpty(snapshot)) return;
+        a.cookies = snapshot;
+        put(c, a);
+    }
+
     /** 自动重登后回存新的 cookie 快照 */
     public static void updateCookieHeader(Context c, String uid, String cookieHeader) {
         if (TextUtils.isEmpty(cookieHeader)) return;
