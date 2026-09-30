@@ -25,6 +25,7 @@ public final class CloudflareTunnelManager {
     private volatile String publicUrl = "";
     private volatile String message = "";
     private volatile String lastError = "";
+    private volatile String lastOutput = "";
     private Context app;
     private CloudflareTunnelManager() {}
 
@@ -40,6 +41,7 @@ public final class CloudflareTunnelManager {
         message = "正在创建免费公网地址";
         publicUrl = "";
         lastError = "";
+        lastOutput = "";
         new Thread(() -> startInternal(run), "mcp-cloudflare-start").start();
     }
 
@@ -59,8 +61,10 @@ public final class CloudflareTunnelManager {
             String target = "http://127.0.0.1:" + McpPreferences.port(app);
             // Let cloudflared provision its own Quick Tunnel. This is the documented, robust
             // account-free path and avoids temporary credential/config incompatibilities.
-            ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "tunnel",
-                    "--no-autoupdate", "--protocol", "http2", "--url", target);
+            // Keep the invocation identical to Cloudflare's documented Quick Tunnel command.
+            // In particular, --no-autoupdate is a global flag in recent builds; placing it
+            // after the tunnel subcommand makes cloudflared print usage and exit with code 1.
+            ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "tunnel", "--url", target);
             pb.directory(app.getCacheDir()).redirectErrorStream(true);
             pb.environment().put("NO_AUTOUPDATE", "true");
             Process p = pb.start();
@@ -75,7 +79,8 @@ public final class CloudflareTunnelManager {
             int exit = p.waitFor();
             if (generation.get() == run) {
                 state = State.FAILED;
-                message = lastError.isEmpty() ? "隧道进程退出（代码 " + exit + "）" : lastError + "（代码 " + exit + "）";
+                String detail=!lastError.isEmpty()?lastError:lastOutput;
+                message = detail.isEmpty() ? "隧道进程无输出退出（代码 " + exit + "）" : detail + "（代码 " + exit + "）";
                 if (McpPreferences.tunnel(app) && McpPreferences.enabled(app)) scheduleRestart(run);
             }
         } catch (Exception e) {
@@ -90,6 +95,7 @@ public final class CloudflareTunnelManager {
     }
 
     private void parseLine(String line) {
+        if(line!=null&&!line.trim().isEmpty())lastOutput=cleanError(line);
         Matcher matcher = QUICK_URL.matcher(line);
         if (matcher.find()) {
             publicUrl = matcher.group() + "/mcp";

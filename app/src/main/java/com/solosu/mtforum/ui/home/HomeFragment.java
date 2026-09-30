@@ -25,7 +25,6 @@ import com.solosu.mtforum.network.HttpClient;
 import com.solosu.mtforum.util.NavigationHelper;
 import com.solosu.mtforum.ui.space.UserProfileActivity;
 import com.solosu.mtforum.ui.search.SearchActivity;
-import com.solosu.mtforum.ai.AiChatActivity;
 import com.solosu.mtforum.ui.widget.FrostedGlassDrawable;
 
 import java.util.List;
@@ -44,8 +43,6 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     private boolean hasMore = true;
     private String guideView = "newthread";
     private int loadGeneration = 0;
-    private final android.os.Handler mcpHandler=new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable mcpRefresh=new Runnable(){@Override public void run(){updateMcpCard();mcpHandler.postDelayed(this,1000);}};
     private static final int PAGE_SIZE = 20;
 
     @Nullable
@@ -62,8 +59,13 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         httpClient = HttpClient.getInstance();
 
         // 搜索图标点击 -> 打开搜索页面
-        binding.ivAi.setOnClickListener(v ->
-                startActivity(new Intent(requireContext(), AiChatActivity.class)));
+        // 顶栏原 AI 助手位置改为 MCP：轻点启用/复制，长按进入详细设置。
+        binding.ivAi.setContentDescription("MCP 公网连接");
+        binding.ivAi.setOnClickListener(v -> handleMcpButton());
+        binding.ivAi.setOnLongClickListener(v -> {
+            startActivity(new Intent(requireContext(),com.solosu.mtforum.mcp.McpSettingsActivity.class));
+            return true;
+        });
 
         binding.ivSearch.setOnClickListener(v -> {
             Intent intent = new Intent(requireContext(), SearchActivity.class);
@@ -75,9 +77,7 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
             guideView=id==R.id.chip_new?"new":id==R.id.chip_hot?"hot":id==R.id.chip_digest?"digest":"newthread";
             refreshThreads();
         });
-        binding.cardHomeMcp.setOnClickListener(v->startActivity(new Intent(requireContext(),com.solosu.mtforum.mcp.McpSettingsActivity.class)));
-        binding.btnHomeMcp.setOnClickListener(v->handleMcpButton());
-        updateMcpCard();
+        // 顶栏操作保持与搜索按钮一致的主题、尺寸和毛玻璃符号样式。
         // 搜索图标毛玻璃背景
         binding.ivAi.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
         binding.ivSearch.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
@@ -374,37 +374,22 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         if(!android.text.TextUtils.isEmpty(tunnel.publicUrl())){
             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
             if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MTForum MCP 完整配置",com.solosu.mtforum.mcp.McpPreferences.clientConfig(requireContext())));
-            android.widget.Toast.makeText(requireContext(),"完整配置已复制，直接整体粘贴给 AI 即可",android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(requireContext(),"完整 MCP 配置已复制，可直接整体粘贴给 AI",android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        if(tunnel.state()==com.solosu.mtforum.mcp.CloudflareTunnelManager.State.STARTING){
+            android.widget.Toast.makeText(requireContext(),"公网 MCP 正在连接；长按图标可查看详细状态",android.widget.Toast.LENGTH_LONG).show();
             return;
         }
         com.solosu.mtforum.mcp.McpPreferences.setEnabled(requireContext(),true);
         com.solosu.mtforum.mcp.McpPreferences.setTunnel(requireContext(),true);
         com.solosu.mtforum.mcp.McpService.start(requireContext());
-        binding.btnHomeMcp.setEnabled(false);
-        binding.tvHomeMcpStatus.setText("正在建立免费公网连接…");
-    }
-
-    private void updateMcpCard(){
-        if(binding==null)return;
-        com.solosu.mtforum.mcp.CloudflareTunnelManager tunnel=com.solosu.mtforum.mcp.CloudflareTunnelManager.get();
-        String url=tunnel.publicUrl();
-        if(!android.text.TextUtils.isEmpty(url)){
-            binding.tvHomeMcpStatus.setText("已就绪 · "+url);
-            binding.btnHomeMcp.setText("复制配置");binding.btnHomeMcp.setEnabled(true);
-        }else if(com.solosu.mtforum.mcp.McpPreferences.tunnel(requireContext())){
-            binding.tvHomeMcpStatus.setText("公网连接："+tunnel.message());
-            binding.btnHomeMcp.setText(tunnel.state()==com.solosu.mtforum.mcp.CloudflareTunnelManager.State.FAILED?"重试":"连接中");
-            binding.btnHomeMcp.setEnabled(tunnel.state()==com.solosu.mtforum.mcp.CloudflareTunnelManager.State.FAILED);
-        }else{
-            binding.tvHomeMcpStatus.setText("点一下自动建立免费公网连接；完成后复制一份完整配置");
-            binding.btnHomeMcp.setText("立即启用");binding.btnHomeMcp.setEnabled(true);
-        }
+        android.widget.Toast.makeText(requireContext(),"正在建立免费公网 MCP，连接后再次点击即可复制",android.widget.Toast.LENGTH_LONG).show();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        mcpHandler.removeCallbacks(mcpRefresh);mcpHandler.post(mcpRefresh);
         // build65: 账号切换过就自动重载本页
         if (consumeAccountSwitched()) { onTabReselected(); }
         if (threadAdapter != null && threadAdapter.getItemCount() == 0) {
@@ -415,11 +400,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         }
     }
 
-    @Override public void onPause(){mcpHandler.removeCallbacks(mcpRefresh);super.onPause();}
-
     @Override
     public void onDestroyView() {
-        mcpHandler.removeCallbacks(mcpRefresh);
         super.onDestroyView();
         binding = null;
     }
