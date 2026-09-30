@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.5
+        default: v4.6
 
 permissions:
   contents: write
@@ -141,12 +141,11 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - MCP 功能移到首页顶部：点一下自动启用只读服务并建立免费公网连接。
-          - 修复隧道自动退出代码 1，改用 cloudflared 官方 `tunnel --url` Quick Tunnel 流程，移除易失效的临时凭据与 YAML 配置。
-          - 退出时显示 cloudflared 的具体错误并自动重连，不再只显示退出代码。
-          - 一键复制包含公网 URL 与 Authorization 的完整 MCP JSON，直接整体粘贴给 AI，无需分开复制 Token。
-          - 优化首页 MCP 卡片、状态、操作按钮及导读筛选的排版层级。
-          - 继续保持只读白名单、Bearer 鉴权、敏感字段脱敏与访问审计。
+          - MCP 放到首页右上角原 AI 助手符号位置，移除突兀的大卡片并跟随应用主题色。
+          - 修复 cloudflared 代码 1：严格使用官方 cloudflared tunnel --url 最小命令，避免全局参数位置错误触发 usage 退出。
+          - 轻点符号启用或重试，连接成功后再次轻点即可复制包含 URL 与 Authorization 的完整配置。
+          - 长按符号进入详细设置；异常退出会展示 cloudflared 最后一行具体输出并自动重连。
+          - 保持只读白名单、Bearer 鉴权、敏感字段脱敏与访问审计。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -161,14 +160,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 首页一键 MCP 与稳定隧道" \
+              --title "MTForum v${VERSION} — 顶栏 MCP 与 Quick Tunnel 修复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 首页一键 MCP 与稳定隧道" \
+              --title "MTForum v${VERSION} — 顶栏 MCP 与 Quick Tunnel 修复" \
               --notes-file release-notes.md \
               --latest
           fi

@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v4.5（versionCode 30）**
+当前版本：**v4.6（versionCode 31）**
 
 ---
+
+## v4.6：顶栏 MCP · 修复 cloudflared 参数
+
+- MCP 改到首页右上角原 AI 助手图标位置，移除不符合整体主题的大卡片；图标跟随主题色和现有毛玻璃按钮样式。
+- 修复 cloudflared 代码 1：严格使用官方 `cloudflared tunnel --url` 参数顺序，避免把全局参数放在子命令后触发 usage 退出。
+- 点击图标启用/重试，连接后再次点击一键复制完整配置；长按进入详细设置。
 
 ## v4.5：首页一键 MCP · 修复隧道退出
 
