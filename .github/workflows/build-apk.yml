@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.3
+        default: v4.4
 
 permissions:
   contents: write
@@ -143,8 +143,10 @@ jobs:
 
           - 外部链接按下载偏好进入带 Cookie 的应用内浏览器，支持浏览器打开、复制链接与电脑模式。
           - 修复评论区、隐藏内容和全屏预览中受保护图片不显示，并完整识别 Discuz/Comiis 原图属性。
-          - 新增 Token 鉴权的只读 MCP 服务，可读取论坛、帖子、回复与用户资料，并支持局域网/隧道转发。
-          - 修复登录输入框被输入法遮挡，重新整理设置与工具入口。
+          - 新增 Token 鉴权的只读 MCP 服务，可读取导读、版块、帖子、回复、通知与用户资料。
+          - APK 内置经 SHA256 校验的官方 arm64 cloudflared；App 内一键生成免费公网 HTTPS MCP 地址，自动保活和重连，无需用户部署隧道。
+          - 补齐新帖、最新回复、热门、精华四类导读，并按账号、外观、网络、AI 工具和关于重新整理设置。
+          - 修复登录输入框被输入法遮挡，保留回复编辑及全自动登录恢复。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -159,14 +161,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 内置浏览器、图片与 MCP" \
+              --title "MTForum v${VERSION} — 内置公网 MCP 与完整论坛体验" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 内置浏览器、图片与 MCP" \
+              --title "MTForum v${VERSION} — 内置公网 MCP 与完整论坛体验" \
               --notes-file release-notes.md \
               --latest
           fi

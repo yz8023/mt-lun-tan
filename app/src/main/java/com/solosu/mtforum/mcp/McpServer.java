@@ -44,7 +44,7 @@ public final class McpServer {
         try {
             InetAddress bind=InetAddress.getByName(McpPreferences.lan(app)?"0.0.0.0":"127.0.0.1");
             server=new ServerSocket(McpPreferences.port(app),16,bind);
-            pool=Executors.newCachedThreadPool();
+            pool=Executors.newFixedThreadPool(4);
             pool.execute(this::acceptLoop);
             error="";
             if (McpPreferences.tunnel(app)) CloudflareTunnelManager.get().start(app);

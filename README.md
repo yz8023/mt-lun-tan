@@ -2,9 +2,18 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v3.8（versionCode 23）**
+当前版本：**v4.4（versionCode 29）**
 
 ---
+
+## v4.4：真正内置公网 MCP · 完整功能审计 · 导读与设置重排
+
+- APK 内置经 SHA256 校验的官方 arm64 `cloudflared`，App 内一键生成免费公网 HTTPS MCP 地址，无需自行部署第三方隧道。
+- MCP 以前台服务保活，支持自动重连、启动恢复、Token 撤销、Host/Origin 防护、只读白名单、脱敏与审计。
+- 对照 `qcxs/mtbbs_app` 完成论坛功能审计；首页补齐新帖、最新回复、热门、精华四类导读。
+- 设置重新按账号、外观、网络浏览、AI 工具、关于五类排版；保留浏览器、认证图片、登录键盘与回复编辑等修复。
+
+详见 [CHANGELOG.md](CHANGELOG.md) 与 [功能审计](docs/MTBBS_FEATURE_AUDIT.md)。
 
 ## v3.8：自动解锁重复回复真因 · 日志可复制 · 侧边栏统一
 

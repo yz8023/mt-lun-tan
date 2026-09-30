@@ -93,7 +93,8 @@ public final class CloudflareTunnelManager {
         } catch (Exception e) {
             if (generation.get() == run) {
                 state = State.FAILED; message = safe(e); AiLog.i("mcp-tunnel", "启动失败：" + message);
-                if (McpPreferences.tunnel(app) && McpPreferences.enabled(app)) scheduleRestart(run);
+                if (McpPreferences.tunnel(app) && McpPreferences.enabled(app)
+                        && !message.contains("不含 cloudflared")) scheduleRestart(run);
             }
         }
     }
@@ -106,16 +107,22 @@ public final class CloudflareTunnelManager {
     }
 
     private Quick register() throws Exception {
-        Request request = new Request.Builder().url("https://api.trycloudflare.com/tunnel")
-                .header("User-Agent", "MTForum-Android")
-                .post(RequestBody.create(MediaType.parse("application/json"), new byte[0])).build();
-        try (Response response = client.newCall(request).execute()) {
-            String body = response.body() == null ? "" : response.body().string();
-            if (!response.isSuccessful()) throw new IllegalStateException("Cloudflare HTTP " + response.code());
-            JSONObject result = new JSONObject(body).getJSONObject("result");
-            return new Quick(result.getString("id"), result.getString("hostname"),
-                    result.getString("account_tag"), result.getString("secret"));
+        Exception last=null;
+        for(int attempt=0;attempt<2;attempt++){
+            try{
+                Request request = new Request.Builder().url("https://api.trycloudflare.com/tunnel")
+                        .header("User-Agent", "MTForum-Android")
+                        .post(RequestBody.create(MediaType.parse("application/json"), new byte[0])).build();
+                try (Response response = client.newCall(request).execute()) {
+                    String body = response.body() == null ? "" : response.body().string();
+                    if (!response.isSuccessful()) throw new IllegalStateException("Cloudflare HTTP " + response.code() + ": " + body.substring(0,Math.min(160,body.length())));
+                    JSONObject result = new JSONObject(body).getJSONObject("result");
+                    return new Quick(result.getString("id"), result.getString("hostname"),
+                            result.getString("account_tag"), result.getString("secret"));
+                }
+            }catch(Exception e){last=e;if(attempt==0)Thread.sleep(800);}
         }
+        throw last==null?new IllegalStateException("Cloudflare 注册失败"):last;
     }
 
     private synchronized void stopProcessOnly() {
