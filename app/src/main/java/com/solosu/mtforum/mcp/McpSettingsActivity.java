@@ -42,10 +42,9 @@ public class McpSettingsActivity extends AppCompatActivity {
 
         root.addView(text("连接",16,true));
         EditText port=new EditText(this);port.setHint("端口");port.setText(String.valueOf(McpPreferences.port(this)));port.setInputType(InputType.TYPE_CLASS_NUMBER);root.addView(port);
-        Button endpoint=new Button(this);endpoint.setText("复制本机/局域网 MCP 端点");root.addView(endpoint);
-        Button token=new Button(this);token.setText("复制访问 Token");root.addView(token);
-        Button rotateToken=new Button(this);rotateToken.setText("撤销旧 Token 并重新生成");root.addView(rotateToken);
-        TextView note=text("AI 客户端请求头：Authorization: Bearer <Token>。服务只开放读取工具，Cookie、密码和 formhash 会脱敏，不允许发帖、回复、点赞等写操作。",12,false);note.setPadding(0,dp(12),0,0);root.addView(note);
+        Button copyConfig=new Button(this);copyConfig.setText("一键复制完整 MCP 配置");root.addView(copyConfig);
+        Button rotateToken=new Button(this);rotateToken.setText("撤销旧授权并重新生成");root.addView(rotateToken);
+        TextView note=text("复制内容已经包含公网地址和授权信息，直接整体粘贴给支持 MCP 的 AI 或放入 MCP 配置即可，无需再分别填写 Token。服务只开放读取工具，敏感登录字段会脱敏。",12,false);note.setPadding(0,dp(12),0,0);root.addView(note);
         ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);
 
         enabled.setOnCheckedChangeListener((b,v)->{McpPreferences.setEnabled(this,v);apply(port);});
@@ -55,9 +54,8 @@ public class McpSettingsActivity extends AppCompatActivity {
             if(v&&!McpPreferences.enabled(this)){enabled.setChecked(true);return;}
             if(McpPreferences.enabled(this))apply(port);else CloudflareTunnelManager.get().stop();
         });
-        endpoint.setOnClickListener(v->copy("MCP 端点",McpPreferences.endpoint(this)));
-        publicEndpoint.setOnClickListener(v->copy("MCP 公网端点",CloudflareTunnelManager.get().publicUrl()));
-        token.setOnClickListener(v->copy("MCP Token",McpPreferences.token(this)));
+        copyConfig.setOnClickListener(v->copy("完整 MCP 配置",McpPreferences.clientConfig(this)));
+        publicEndpoint.setOnClickListener(v->copy("完整 MCP 配置",McpPreferences.clientConfig(this)));
         rotateToken.setOnClickListener(v->new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("重新生成 Token？").setMessage("所有使用旧 Token 的 AI 客户端会立即失效。")
                 .setNegativeButton("取消",null).setPositiveButton("重新生成",(d,w)->{
@@ -75,7 +73,7 @@ public class McpSettingsActivity extends AppCompatActivity {
         String base=McpServer.get().running()?"MCP 运行中 · "+McpPreferences.endpoint(this):"MCP 已停止";
         if(McpPreferences.tunnel(this)) base+="\n公网隧道："+tunnel.state()+" · "+tunnel.message();
         status.setText(base);
-        String url=tunnel.publicUrl();publicEndpoint.setVisibility(url==null||url.isEmpty()?View.GONE:View.VISIBLE);if(url!=null&&!url.isEmpty())publicEndpoint.setText("复制公网端点\n"+url);
+        String url=tunnel.publicUrl();publicEndpoint.setVisibility(url==null||url.isEmpty()?View.GONE:View.VISIBLE);if(url!=null&&!url.isEmpty())publicEndpoint.setText("一键复制完整公网 MCP 配置\n"+url);
     }
     private void copy(String label,String value){ClipboardManager c=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(c!=null)c.setPrimaryClip(ClipData.newPlainText(label,value));Toast.makeText(this,label+"已复制",Toast.LENGTH_SHORT).show();}
     @Override protected void onResume(){super.onResume();handler.post(refresh);}

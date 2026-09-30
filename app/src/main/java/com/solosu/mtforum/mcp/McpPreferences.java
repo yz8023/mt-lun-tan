@@ -26,6 +26,17 @@ public final class McpPreferences {
         c.getSharedPreferences(PREF,0).edit().remove("token").commit();
         return token(c);
     }
+    /** One paste contains everything an AI client needs; no separate URL/token setup. */
+    public static String clientConfig(Context c) {
+        String url=CloudflareTunnelManager.get().publicUrl();
+        if(TextUtils.isEmpty(url))url=endpoint(c);
+        try {
+            org.json.JSONObject server=new org.json.JSONObject().put("url",url)
+                    .put("headers",new org.json.JSONObject().put("Authorization","Bearer "+token(c)));
+            return new org.json.JSONObject().put("mcpServers",
+                    new org.json.JSONObject().put("MTForum",server)).toString(2);
+        } catch(Exception ignored) { return url+"\nAuthorization: Bearer "+token(c); }
+    }
     public static String endpoint(Context c) {
         String host="127.0.0.1";
         if(lan(c)) try {

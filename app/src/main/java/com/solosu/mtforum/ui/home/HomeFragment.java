@@ -44,6 +44,8 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
     private boolean hasMore = true;
     private String guideView = "newthread";
     private int loadGeneration = 0;
+    private final android.os.Handler mcpHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mcpRefresh=new Runnable(){@Override public void run(){updateMcpCard();mcpHandler.postDelayed(this,1000);}};
     private static final int PAGE_SIZE = 20;
 
     @Nullable
@@ -73,6 +75,9 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
             guideView=id==R.id.chip_new?"new":id==R.id.chip_hot?"hot":id==R.id.chip_digest?"digest":"newthread";
             refreshThreads();
         });
+        binding.cardHomeMcp.setOnClickListener(v->startActivity(new Intent(requireContext(),com.solosu.mtforum.mcp.McpSettingsActivity.class)));
+        binding.btnHomeMcp.setOnClickListener(v->handleMcpButton());
+        updateMcpCard();
         // 搜索图标毛玻璃背景
         binding.ivAi.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
         binding.ivSearch.setBackground(FrostedGlassDrawable.create(requireContext(), 10f));
@@ -364,9 +369,42 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         }).start();
     }
 
+    private void handleMcpButton(){
+        com.solosu.mtforum.mcp.CloudflareTunnelManager tunnel=com.solosu.mtforum.mcp.CloudflareTunnelManager.get();
+        if(!android.text.TextUtils.isEmpty(tunnel.publicUrl())){
+            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MTForum MCP 完整配置",com.solosu.mtforum.mcp.McpPreferences.clientConfig(requireContext())));
+            android.widget.Toast.makeText(requireContext(),"完整配置已复制，直接整体粘贴给 AI 即可",android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        com.solosu.mtforum.mcp.McpPreferences.setEnabled(requireContext(),true);
+        com.solosu.mtforum.mcp.McpPreferences.setTunnel(requireContext(),true);
+        com.solosu.mtforum.mcp.McpService.start(requireContext());
+        binding.btnHomeMcp.setEnabled(false);
+        binding.tvHomeMcpStatus.setText("正在建立免费公网连接…");
+    }
+
+    private void updateMcpCard(){
+        if(binding==null)return;
+        com.solosu.mtforum.mcp.CloudflareTunnelManager tunnel=com.solosu.mtforum.mcp.CloudflareTunnelManager.get();
+        String url=tunnel.publicUrl();
+        if(!android.text.TextUtils.isEmpty(url)){
+            binding.tvHomeMcpStatus.setText("已就绪 · "+url);
+            binding.btnHomeMcp.setText("复制配置");binding.btnHomeMcp.setEnabled(true);
+        }else if(com.solosu.mtforum.mcp.McpPreferences.tunnel(requireContext())){
+            binding.tvHomeMcpStatus.setText("公网连接："+tunnel.message());
+            binding.btnHomeMcp.setText(tunnel.state()==com.solosu.mtforum.mcp.CloudflareTunnelManager.State.FAILED?"重试":"连接中");
+            binding.btnHomeMcp.setEnabled(tunnel.state()==com.solosu.mtforum.mcp.CloudflareTunnelManager.State.FAILED);
+        }else{
+            binding.tvHomeMcpStatus.setText("点一下自动建立免费公网连接；完成后复制一份完整配置");
+            binding.btnHomeMcp.setText("立即启用");binding.btnHomeMcp.setEnabled(true);
+        }
+    }
+
     @Override
     public void onResume() {
         super.onResume();
+        mcpHandler.removeCallbacks(mcpRefresh);mcpHandler.post(mcpRefresh);
         // build65: 账号切换过就自动重载本页
         if (consumeAccountSwitched()) { onTabReselected(); }
         if (threadAdapter != null && threadAdapter.getItemCount() == 0) {
@@ -377,8 +415,11 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         }
     }
 
+    @Override public void onPause(){mcpHandler.removeCallbacks(mcpRefresh);super.onPause();}
+
     @Override
     public void onDestroyView() {
+        mcpHandler.removeCallbacks(mcpRefresh);
         super.onDestroyView();
         binding = null;
     }
