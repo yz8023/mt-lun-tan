@@ -1,5 +1,15 @@
 # 更新日志
 
+## v4.5 (versionCode 30) — 首页 MCP · 隧道稳定性 · 一键完整配置
+
+- MCP 入口移到首页顶部，集中显示公网隧道状态；首次点击会自动启用只读 MCP 和免费公网隧道，不再要求先进入多层设置。
+- 修复 cloudflared 自动退出代码 1：不再依赖临时注册接口及手写 credentials/YAML，改用 cloudflared 官方的账号免费 Quick Tunnel 启动方式 `tunnel --url`，减少版本间配置不兼容。
+- 隧道退出时保留并展示 cloudflared 最后一条具体错误，而不是只显示笼统的退出代码；仍支持异常后自动重连。
+- 首页连接成功后提供“一键复制完整配置”，一次复制公网 URL 和 Authorization 请求头；可直接整体粘贴给支持 MCP 的 AI，无需分别复制地址和 Token。
+- MCP 设置页同步合并复制入口，简化说明和按钮层级；首页卡片、状态文字、导读筛选间距与层级重新排版。
+
+---
+
 ## v4.4 (versionCode 29) — 内置公网 MCP · 功能审计与分类重排
 
 - 真正内置 Cloudflare Quick Tunnel：构建时下载并校验官方 `cloudflared 2026.9.3` arm64 静态程序，随 APK 解压到可执行目录；App 内自动注册临时隧道、生成凭据与 ingress 配置，将公网 HTTPS 地址转发到手机回环 MCP，不要求用户安装或配置任何第三方隧道工具。

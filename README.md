@@ -2,9 +2,15 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v4.4（versionCode 29）**
+当前版本：**v4.5（versionCode 30）**
 
 ---
+
+## v4.5：首页一键 MCP · 修复隧道退出
+
+- 首页顶部直接启用公网 MCP，并实时显示连接状态。
+- 使用 cloudflared 官方 Quick Tunnel 启动方式，修复临时配置导致的退出代码 1。
+- 一次复制包含公网地址与授权头的完整 JSON，直接整体交给支持 MCP 的 AI。
 
 ## v4.4：真正内置公网 MCP · 完整功能审计 · 导读与设置重排
 

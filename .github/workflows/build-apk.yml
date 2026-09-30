@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.4
+        default: v4.5
 
 permissions:
   contents: write
@@ -141,12 +141,12 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 外部链接按下载偏好进入带 Cookie 的应用内浏览器，支持浏览器打开、复制链接与电脑模式。
-          - 修复评论区、隐藏内容和全屏预览中受保护图片不显示，并完整识别 Discuz/Comiis 原图属性。
-          - 新增 Token 鉴权的只读 MCP 服务，可读取导读、版块、帖子、回复、通知与用户资料。
-          - APK 内置经 SHA256 校验的官方 arm64 cloudflared；App 内一键生成免费公网 HTTPS MCP 地址，自动保活和重连，无需用户部署隧道。
-          - 补齐新帖、最新回复、热门、精华四类导读，并按账号、外观、网络、AI 工具和关于重新整理设置。
-          - 修复登录输入框被输入法遮挡，保留回复编辑及全自动登录恢复。
+          - MCP 功能移到首页顶部：点一下自动启用只读服务并建立免费公网连接。
+          - 修复隧道自动退出代码 1，改用 cloudflared 官方 `tunnel --url` Quick Tunnel 流程，移除易失效的临时凭据与 YAML 配置。
+          - 退出时显示 cloudflared 的具体错误并自动重连，不再只显示退出代码。
+          - 一键复制包含公网 URL 与 Authorization 的完整 MCP JSON，直接整体粘贴给 AI，无需分开复制 Token。
+          - 优化首页 MCP 卡片、状态、操作按钮及导读筛选的排版层级。
+          - 继续保持只读白名单、Bearer 鉴权、敏感字段脱敏与访问审计。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -161,14 +161,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 内置公网 MCP 与完整论坛体验" \
+              --title "MTForum v${VERSION} — 首页一键 MCP 与稳定隧道" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 内置公网 MCP 与完整论坛体验" \
+              --title "MTForum v${VERSION} — 首页一键 MCP 与稳定隧道" \
               --notes-file release-notes.md \
               --latest
           fi
