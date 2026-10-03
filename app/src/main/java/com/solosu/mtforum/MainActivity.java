@@ -391,8 +391,22 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // 正文图片现在固定以原图在原位展示，旧版“底部图廊”开关不再适用。
-        View imagesInlineRow = findViewById(R.id.drawer_images_inline_row);
-        if (imagesInlineRow != null) imagesInlineRow.setVisibility(View.GONE);
+        // build89: 正文图片原位显示开关。
+        //
+        // v5.5 把这个行整行 setVisibility(GONE) 藏了、开关也设了 clickable=false，
+        // 但 CHANGELOG 里写着「设置里想用原位仍然可以手动打开」—— 文档承诺的
+        // 功能实际不存在，用户在抽屉里根本找不到这一项。
+        // 现在按 swHiddenInline 的同一套模式接上，死 UI 变成真功能。
+        SwitchMaterial swImagesInline = findViewById(R.id.drawer_switch_images_inline);
+        if (swImagesInline != null) {
+            swImagesInline.setChecked(com.solosu.mtforum.ui.UiSettings.isImagesInline(this));
+            swImagesInline.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setImagesInline(this, checked);
+                Toast.makeText(this, checked ? "正文图片将原位显示" : "图片将汇总到帖子底部图廊",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_images_inline_row, swImagesInline);
+        }
 
         // build67: 隐藏内容就地展开开关
         SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);

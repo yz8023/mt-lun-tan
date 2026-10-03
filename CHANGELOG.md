@@ -1,5 +1,73 @@
 # 更新日志
 
+## v5.7 (versionCode 42) — 修「原位显示」开关是死的 · 兜底图可翻页 · 清 5 个死文件
+
+### 一、「正文图片原位显示」开关根本不存在（文档承诺了却没实现）
+
+v5.5 把图廊开关改成真实读偏好，CHANGELOG 里写「设置里想用原位仍然可以手动打开」。
+但 `MainActivity` 里同时留着一句：
+
+```java
+View imagesInlineRow = findViewById(R.id.drawer_images_inline_row);
+if (imagesInlineRow != null) imagesInlineRow.setVisibility(View.GONE);
+```
+
+抽屉里那一行被整行藏了，开关还被设了 `clickable="false"`。**文档承诺的功能实际不存在**，
+用户在抽屉里根本找不到这一项；`UiSettings.setImagesInline()` 也就成了全仓唯一
+没有调用方的 setter——死 UI + 死 API 一对。
+
+**修法**：删掉隐藏那行，按 `swHiddenInline` 的同一套模式把开关接上
+（`setChecked` 读当前值 → `setOnCheckedChangeListener` 写偏好 → `bindSwitchRow`
+整行可点）。现在这一项真的能用了。
+
+顺带确认切到「原位显示」不会把图搞没：
+`galleryUrls` 只在 `!imagesInline` 时填充，而 build87 的兜底条件是
+`galleryUrls.isEmpty() && !listImageFallback.isEmpty()`。
+登录态正文有图时 `arrayList` 非空、兜底不触发，不会一图两显；
+游客态正文无图时兜底触发，图廊照旧出图。两条路都验过。
+
+### 二、兜底图点开不能翻页
+
+`currentImageList`（喂全屏翻页的图组）是在兜底合并**之前**赋值的：
+
+```java
+this.currentImageList = new ArrayList<>(arrayList);   // 只有正文解析出来的图
+```
+
+游客态 `arrayList` 是空的，于是点图廊里第 2 张时 `openImagePreview` 走的是
+`!list.contains(url)` 分支，只把单张 url 传进去——左右翻页翻不动。
+
+**修法**：`currentImageList` 为空时把兜底图补进去。
+
+### 三、清理（5 个死文件 + 1 个死重载）
+
+系统性扫了一遍「布局里有 id 但代码从不引用」：508 个 id 里 41 个真没引用，
+逐个核完大部分是 `<include>` 外层或 TextInputLayout 包装的 id，无害；
+真正成死链的是置顶帖那一套：
+
+| 文件 | 判定 |
+|---|---|
+| `adapter/StickyThreadAdapter.java` | 无任何使用方 |
+| `res/layout/layout_sticky_threads.xml` | 没有任何布局 include 它 |
+| `res/layout/item_sticky_thread.xml` | 只被上面那个死Adapter inflate |
+| `network/CookieSync.java` | 只有自己的测试在引用，生产代码零调用 |
+| `app/src/test/.../CookieSyncTest.java` | 随上一条一起删 |
+
+保留：`Thread.isSticky()/setSticky()` 和 `ForumParser.isStickyThread()`——
+`ThreadAdapter` 第 273 行用它们显示置顶徽章，是活代码。
+（`HttpClient` 里的 `android.webkit.CookieSyncManager` 是框架类，与删掉的
+`network.CookieSync` 同名不同物，不受影响。）
+
+另外删掉 `NavigationHelper` 里那个 4 参私有重载——build87 加了第 5 个参数后
+它就只剩转发，没有任何调用方。
+
+### 四、其它
+
+- `versionCode` 41 → **42**，`versionName` 5.6 → **5.7**。
+- 单测 **91 / 0 / 0**（删 `CookieSyncTest` 少 9 条，其余全绿）。
+
+---
+
 ## v5.6 (versionCode 41) — 进帖图片兜底做到全链路 · 切号后详情页全同步
 
 ### 一、进帖不显示图：v5.5 的兜底只覆盖了「列表页直达」这一条路

@@ -804,7 +804,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 this.binding.frameContent.setLayoutParams(layoutParams2);
             }
             // 收集当前帖全部图片供全屏翻页
+            // build87: 兜底图也要进这个列表，否则点图廊里第 2 张时
+            // openImagePreview 只把单张 url 传过去，左右翻页翻不动。
             this.currentImageList = new ArrayList<>(arrayList);
+            if (this.currentImageList.isEmpty() && !this.listImageFallback.isEmpty()) {
+                this.currentImageList.addAll(this.listImageFallback);
+            }
             // build67: 隐藏内容位置可配。就地展开时不再把内容挪到帖子底部，
             // 正文里也就不会留那个碍眼的占位胶囊。
             boolean hiddenInline = com.solosu.mtforum.ui.UiSettings.isHiddenContentInline(this);

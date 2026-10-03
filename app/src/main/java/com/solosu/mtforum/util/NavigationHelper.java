@@ -36,11 +36,6 @@ public class NavigationHelper {
         openThread(context, tid, null, null, null);
     }
 
-    private static void openThread(Context context, @Nullable String tid,
-                                   @Nullable String title, @Nullable String author) {
-        openThread(context, tid, title, author, null);
-    }
-
     /**
      * build87: 把列表页已经拿到的真实 CDN 图一起带进详情页。
      *
