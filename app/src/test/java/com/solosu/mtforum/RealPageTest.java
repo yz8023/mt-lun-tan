@@ -112,29 +112,6 @@ public class RealPageTest {
      * <p>用的是从列表页里原样抓到的 URL，并且要确认 {@code key} 不被顺手改坏 ——
      * key 坏了就是 403。
      */
-    @Test
-    public void realThumbnailSizeUpgraded() throws IOException {
-        String page = fixture("guide_newthread_page.html");
-        Document doc = Jsoup.parse(page);
-        List<String> thumbs = new ArrayList<>();
-        for (Element img : doc.select("img")) {
-            String src = img.attr("src");
-            if (src.contains("mod=image") && src.contains("size=")) thumbs.add(src);
-        }
-        assertTrue("真实列表页应有带 size 参数的缩略图（实测 71 张全带）", thumbs.size() >= 10);
-
-        for (String thumb : thumbs) {
-            String key = extractParam(thumb, "key");
-            assertNotNull("真实 URL 应带 key", key);
-
-            String full = ImageUrl.toFullSize(thumb);
-            assertTrue("size 应被换成 99999x99999: " + full, full.contains("size=99999x99999"));
-            assertTrue("aid 不能丢: " + full, full.contains("aid="));
-            assertEquals("key 必须原样保留: " + full, key, extractParam(full, "key"));
-            assertFalse("换完不该还有旧的 500x480: " + full, full.contains("500x480"));
-        }
-    }
-
     /** 真实列表页里的头像不能被当成帖子配图。 */
     @Test
     public void realAvatarsAreNotPostImages() throws IOException {

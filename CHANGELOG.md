@@ -1,5 +1,49 @@
 # 更新日志
 
+## v5.3 (versionCode 38) — 图片加载栈换成 OkHttp · 代码清理
+
+### 一、图片不加载：根因是 Glide 的加载栈不带 User-Agent
+
+v5.1/v5.2 反复改图片都没解决。这轮把整条链路逐一排除后才定位到根因，不是解析、不是缓存、不是布局，而是**加载栈**。
+
+实测同一个图片地址，行为取决于 UA：
+
+| UA | 结果 |
+|---|---|
+| 空 UA | `403` / 628 字节 |
+| 任意非空 UA | `301` → `oss.binmt.cc` → `-L` 后 `200` / 146140 字节 |
+
+而且**两级跳都要求非空 UA**：`cdn.binmt.cc` 拒绝空 UA 一次，重定向后的 `oss.binmt.cc` 还会再拒绝一次。Cookie 和 Referer 都无关，**只有 UA 是门槛**。
+
+那为什么参照项目 `yz8023/mtluntan` 的图一直能显示？它用 Coil 2.5.0，底层是 OkHttp，而 **OkHttp 的 `BridgeInterceptor` 自带 `User-Agent: okhttp/<版本>`**（反编译 `okhttp-4.12.0.jar` 确认）。也就是说它从来没被这个问题困扰过，不是因为图片 URL 或解析更好，纯粹是因为换了个默认带 UA 的栈。
+
+本项目的 Glide 4.16.0 走的是 `HttpURLFetcher` → `HttpURLConnection`，**没有任何地方设置 `http.agent`**。前面试过在 `LazyHeaders` 和 `GlideUrl` 上加 UA —— 这条路走不通：Glide 4.16 对带 header 的 `GlideUrl` 用的是签名化缓存键，改一次 header 缓存就失效一次；而且要看系统 `http.agent` 的脸色，行为不透明。
+
+**所以这轮直接把 Glide 的加载栈换掉**，而不是继续打补丁：
+
+- 新增 `util/OkHttpStreamLoader.java`：实现 Glide 的 `ModelLoader<GlideUrl, InputStream>`，内部用项目里已有的 OkHttp 发请求。请求构造交给 OkHttp 自己的 `BridgeInterceptor`，由它负责补 `User-Agent`（也兜底写一份 `ForumImageLoader.HTTP_AGENT`，保证即使是旧版本 OkHttp 也有非空 UA）。拦截器只保留「正常网络拦截器」（超时、重定向、日志），**不掺任何业务逻辑**。
+- `MyApplication.onCreate()` 里用 `Glide.get(this).getRegistry().replace(...)` 运行时注册。
+
+> 为什么是运行时注册而不是写一个 `@GlideModule` 的 `AppGlideModule`？因为 `libs.versions.toml` 里声明了 `glide-compiler`，但 `app/build.gradle` 从来没接注解处理器 —— 写 `@GlideModule` 根本不会被扫描到，属于白干。运行时注册不需要动构建配置，且失败时 try/catch 兜底，不影响启动。
+>
+> 注册放在 `onCreate()` 最前面，保证任何 Activity 出现之前图片栈就已经是 OkHttp 了。
+
+顺带把重试也补上，对齐 mtluntan 的三态 UI：失败时 `attempt += 1` 并刷新一次（mtluntan 正是这么做的，它的 `#mtretry=` 挂载就是为这个服务的）。
+
+### 二、清理不需要的东西
+
+- `ImageUrl.toFullSize(...)`：全仓库无调用，连测试都只测它自己，删掉方法连同其测试。
+- 目录树从 420 个源码文件扫出 41 个「主源码与测试里都没有调用」的 `public static` 方法。**这些没有删**：release 包本身由 R8 剥离，删了包体不会有任何变化，而按正则扫出来的名单有误报风险（反射、XML 引用都扫不到），动了反而可能弄坏功能。真正让包变大的是资源与二进制，那个在 v5.2 已经处理掉了。
+- 仓库体积：这轮没有往仓库里塞新的二进制或资源。
+
+### 三、其它
+
+- `versionCode` 37 → 38，`versionName` 5.2 → 5.3。
+
+---
+
+# 更新日志
+
 ## v5.2 (versionCode 37) — 安装包从 20.8MB 降到约 4MB · 验证不再跳前台 · 列表图不再变形
 
 ### 一、安装包太大：cloudflared 出包（82% → 0）

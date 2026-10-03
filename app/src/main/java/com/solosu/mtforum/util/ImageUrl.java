@@ -117,30 +117,6 @@ public final class ImageUrl {
         return root + u;
     }
 
-    /**
-     * 把 Discuz 附件缩略图地址换成原图地址。
-     *
-     * <p>实测本站正文配图是这种形式：
-     * <pre>
-     *   https://cdn.binmt.cc/forum.php?mod=image&amp;aid=377135&amp;size=500x99999&amp;key=…
-     * </pre>
-     * {@code size=宽x高} 就是服务端缩放参数。把它换成不限尺寸即可拿到原图
-     * （实测 {@code size=500x99999} 与 {@code size=99999x99999} 都返回 200，
-     * 且 {@code key} 不校验，改 size 不会 403）。
-     *
-     * <p>不是 {@code mod=image} 的地址原样返回 —— 不动头像、表情、外链图。
-     */
-    public static String toFullSize(String url) {
-        if (isBlank(url)) return "";
-        if (!url.contains("mod=image")) return url;
-        try {
-            // size=500x480 / size=500x99999 / size=9999x9999 …
-            return url.replaceAll("([?&])size=[^&]*", "$1size=99999x99999");
-        } catch (Throwable t) {
-            return url;
-        }
-    }
-
     /** 一步到位：挑真实地址 + 补全；挑不到返回 null */
     public static String resolve(Element img, String base) {
         String real = realUrl(img);

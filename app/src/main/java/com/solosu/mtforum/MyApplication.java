@@ -20,6 +20,20 @@ public class MyApplication extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // build84: 把 Glide 的图片加载栈从 HttpURLConnection 换成 OkHttp。
+        // 参照项目 yz8023/mtluntan 用 Coil（底层 OkHttp）加载同一个站的图片一直正常，
+        // 因为 OkHttp 默认就带 User-Agent；而本站图片 UA 为空一律 403（cdn 与重定向
+        // 后的 oss 两个域名都要求）。详见 util/OkHttpStreamLoader 的说明。
+        // 放在最早期，且任何失败都不能影响启动。
+        try {
+            com.bumptech.glide.Glide.get(this).getRegistry()
+                    .replace(com.bumptech.glide.load.model.GlideUrl.class,
+                            java.io.InputStream.class,
+                            new com.solosu.mtforum.util.OkHttpStreamLoader.Factory());
+        } catch (Throwable t) {
+            android.util.Log.w("MyApplication", "Glide OkHttp 栈注册失败，沿用默认: " + t);
+        }
+
         // 恢复持久化的 Cookie —— 在任何 Activity 启动前执行
         // 防止从最近任务直接恢复 SearchActivity 等非 MainActivity 时登录态丢失
         // build66: 先应用用户选择的深色模式，避免首屏闪一下

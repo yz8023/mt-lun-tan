@@ -133,28 +133,6 @@ public class ImageUrlTest {
                 ImageUrl.toAbsolute("/x.png", "https://bbs.binmt.cc"));
     }
 
-    // ==================== 缩略图 → 原图 ====================
-
-    @Test
-    public void thumbnailSizeIsUpgraded() {
-        assertEquals(
-                "https://cdn.binmt.cc/forum.php?mod=image&aid=377135&size=99999x99999&key=09eb",
-                ImageUrl.toFullSize(
-                        "https://cdn.binmt.cc/forum.php?mod=image&aid=377135&size=500x480&key=09eb"));
-        assertEquals(
-                "https://cdn.binmt.cc/forum.php?mod=image&aid=1&size=99999x99999&key=k",
-                ImageUrl.toFullSize(
-                        "https://cdn.binmt.cc/forum.php?mod=image&aid=1&size=500x99999&key=k"));
-    }
-
-    @Test
-    public void nonAttachmentUrlsAreNotTouched() {
-        // 头像 / 表情 / 外链图一律不动
-        String avatar = "https://avatar.mt2.cn/uc_server/avatar.php?uid=1&size=middle";
-        assertEquals(avatar, ImageUrl.toFullSize(avatar));
-        assertEquals("", ImageUrl.toFullSize(""));
-    }
-
     // ==================== 是否帖子配图 ====================
 
     @Test
