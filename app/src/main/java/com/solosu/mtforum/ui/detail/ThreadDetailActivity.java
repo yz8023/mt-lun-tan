@@ -2649,8 +2649,23 @@ private void viewHiddenContent() {
         }
     }
 
+    /**
+     * build81: 帖子页本身就能判定收藏态，就别再拉整个收藏列表页了。
+     *
+     * <p>原实现无条件请求 {@code home.php?mod=space&do=favorite&mobile=2&_refresh=<ts>}，
+     * 只为回答「当前这个 tid 收不收藏」这一个布尔值 —— 整页拉下来再逐条比对。
+     * 而 Discuz 的帖子页操作栏里 {@code #comiis_favorite_a i.comiis_favorite_a_color}
+     * 就带着这个状态，{@code ForumParser} 早已解析并置了
+     * {@code favoritedStateKnown}。所以页面能确认时，这个请求纯属浪费，
+     * 而且带的 {@code _refresh=<ts>} 还会让服务端缓存也失效。
+     *
+     * <p>仅在页面读不到状态（模板改版/元素缺失）时才回退到拉收藏页。
+     */
     private void syncFavoriteStateFromServer(PostDetail detail) {
         if (detail == null || TextUtils.isEmpty(this.tid) || !this.httpClient.isLoggedIn()) {
+            return;
+        }
+        if (detail.isFavoritedStateKnown()) {
             return;
         }
         try {

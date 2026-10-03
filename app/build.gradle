@@ -70,8 +70,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 33
-        versionName "4.8"
+        versionCode 34
+        versionName "4.9"
         // 应用界面只有中/英文资源，去掉依赖库中不会使用的几十套翻译。
         resourceConfigurations += ['zh', 'en']
 

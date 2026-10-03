@@ -1,5 +1,19 @@
 # 更新日志
 
+## v4.9 (versionCode 34) — 修 cookie 获取登录失效 · 评论区滚动卡顿
+
+**一、修「cookie 获取登录失效」（build80 引入的致命回归）**
+- 根因：build80 的拦截器为了判定「是不是挑战页」用 `body.bytes()` 读正文，而 `ResponseBody.bytes()` 会把源**读完并关闭**。读完发现「不是挑战页」后又直接 `return response` —— 调用方拿到的是一个已关闭的 body，再调 `body.string()` 直接抛 `IllegalStateException("closed")` 或返回空串。
+- 后果：所有走这条拦截器的 HTML 响应对上层都是空的。登录链路（`member.php?mod=logging&action=login` 返回 HTML）因此拿不到任何内容，表现为「cookie 获取登录失效」；列表页/帖子页表现为「服务器返回空页面」。这也让整机观感明显变慢——空页面触发解析失败与重试。
+- 修法：改用 okio 的 `peek()` **预读但不消费**。数据被读进底层 buffer，源的位置没动，调用方照常读到完整响应。已用真实 OkHttp + 本地 HTTP 服务器验证（不 mock）：错误写法调用方拿到 `IllegalStateException: closed`，`peek()` 写法拿到字节级完整的响应。
+
+**二、评论区滚动/首屏卡顿**
+- `ReplyAdapter.onBindViewHolder` 里对每条回帖跑 `upgradeImageSources()`，即一次 Jsoup 解析 + 重新序列化，而且是在**主线程、每次 bind 都跑**——列表每滚一屏就重解析几十段 HTML。改为把升级后的 HTML 缓存进 `ReplyItem.upgradedHtml`，只算一次。
+- 顺带修掉一处 v4.8 漏掉的图片 bug：这里的占位图黑名单只有 none/blank/grey，**漏了 `imageloading.gif`**（Comiis 真正在用的懒加载占位名）。v4.8 只改了 `ThreadDetailActivity` 那一处。现在统一走 `ImageUrl`。
+- `syncFavoriteStateFromServer` 原来无条件拉**整个收藏列表页**，只为回答「当前 tid 收不收藏」这一个布尔值。而 Discuz 帖子页操作栏的 `#comiis_favorite_a i.comiis_favorite_a_color` 就带着这个状态，`ForumParser` 早已解析并置了 `favoritedStateKnown`。页面能确认时不再发这个请求（它带的 `_refresh=<ts>` 还会让服务端缓存失效）。
+
+---
+
 ## v4.8 (versionCode 33) — 过人机验证 · 图片链路 · 进帖速度 · 签到读数
 
 对照 `qcxs/mtbbs_app` 解决的四个问题：

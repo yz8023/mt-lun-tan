@@ -247,17 +247,41 @@ public class HttpClient {
         long declared = body.contentLength();
         if (declared > InterstitialDetector.MAX_BODY_LENGTH) return response;
 
+        // ===== 判定要读正文，但<b>绝不能把调用方的响应体读干</b> =====
+        //
+        // build81 修一个致命 bug：这里原来用 body.bytes() 读正文，
+        // 而 ResponseBody.bytes() 会把源读完<b>并关闭</b>。读完发现「不是挑战页」
+        // 之后又直接 return response —— 调用方拿到的是一个已关闭的 body，
+        // 再调 body.string() 直接抛 IllegalStateException("closed") 或返回空串。
+        //
+        // 后果：所有走这条拦截器的 HTML 响应对上层都是空的，
+        // 登录链路（member.php?mod=logging&action=login 返回 HTML）
+        // 表现为「cookie 获取登录失效」，列表页/帖子页表现为「服务器返回空页面」。
+        //
+        // 正确做法是用 okio 的 peek()：<b>预读但不消费</b>。
+        // 数据被读进底层 buffer，但源的位置没动，调用方照样能读到完整响应。
         byte[] bytes;
         try {
-            // application 拦截器跑在 BridgeInterceptor 之后，gzip 已透明解掉
-            bytes = body.bytes();
+            long toRead = declared >= 0
+                    ? Math.min(declared, InterstitialDetector.MAX_BODY_LENGTH)
+                    : InterstitialDetector.MAX_BODY_LENGTH;
+            okio.BufferedSource peeked = body.source().peek();
+            okio.Buffer sniff = new okio.Buffer();
+            while (toRead > 0) {
+                long n = peeked.read(sniff, toRead);
+                if (n < 0) break; // 实际比 Content-Length 短
+                toRead -= n;
+            }
+            bytes = sniff.readByteArray();
         } catch (Exception e) {
+            // 预读失败也不要影响正常响应，直接放行
             return response;
         }
         if (bytes.length == 0) return response;
 
-        // 没带 Content-Length 时才用实际长度兜一次（gzip / chunked 场景）
-        if (declared < 0 && bytes.length > InterstitialDetector.MAX_BODY_LENGTH) return response;
+        // 没带 Content-Length 时，如果预读已经把判定上限读满，说明页面很可能很大，
+        // 不再继续判定，直接放行（避免把大页硬读进内存）
+        if (declared < 0 && bytes.length >= InterstitialDetector.MAX_BODY_LENGTH) return response;
 
         String text = InterstitialDetector.decode(bytes, contentType);
         if (!SiteAccessManager.isChallengePage(text)) {

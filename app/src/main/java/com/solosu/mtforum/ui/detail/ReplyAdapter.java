@@ -283,7 +283,19 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
 
             // 图片始终在正文原位渲染。优先使用 HTML，以免把图片抽到回帖底部，
             // ImageGetter 会加载原图并按 TextView 实际可用宽度等比缩放。
-            String rendered = !TextUtils.isEmpty(htmlContent) ? upgradeImageSources(htmlContent) : contentText;
+            // build81: 缓存升级后的 HTML。Jsoup 解析只跑一次，
+            // 之后每次 bind（滚动/复用）直接复用，主线程不再重复解析。
+            String rendered;
+            if (!TextUtils.isEmpty(htmlContent)) {
+                String cached = item.getUpgradedHtml();
+                if (cached == null) {
+                    cached = upgradeImageSources(htmlContent);
+                    item.setUpgradedHtml(cached);
+                }
+                rendered = cached;
+            } else {
+                rendered = contentText;
+            }
             if (!TextUtils.isEmpty(rendered)) {
                 tvContent.setVisibility(View.VISIBLE);
                 tvContent.setText(Html.fromHtml(rendered, Html.FROM_HTML_MODE_COMPACT,
@@ -546,24 +558,29 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     }
 
     /** Resolve all known Discuz/Comiis lazy-load attributes, including tags without src. */
+    /**
+     * 把懒加载的占位 {@code src} 换成真实附件地址。
+     *
+     * <p>build81 两处改动：
+     * <ol>
+     *   <li><b>占位图黑名单补 {@code imageloading.gif}</b>。原来只有
+     *       none/blank/grey，而本论坛实际下发的 src 恰好是 {@code imageloading.gif}
+     *       —— 于是它被当成正常 URL 原样返回，图片停在占位图上。
+     *       v4.8 只改了 {@code ThreadDetailActivity} 那一处，漏了这里。</li>
+     *   <li>判定改走 {@link ImageUrl}，与列表页/主楼/评论区三条路径保持一致。</li>
+     * </ol>
+     *
+     * <p>注意：本方法本身仍在主线程被调用（见调用方的缓存逻辑），
+     * 所以务必配合 {@link ReplyItem#getUpgradedHtml()} 缓存，别每次 bind 都算。
+     */
     private static String upgradeImageSources(String html) {
         if (TextUtils.isEmpty(html)) return html;
         try {
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html, HttpClient.BASE_URL);
-            String[] attrs = {"file", "comiis_loadimages", "zoomfile", "data-original",
-                    "data-src", "data-file", "src"};
             for (org.jsoup.nodes.Element img : doc.select("img")) {
-                String selected = "";
-                for (String attr : attrs) {
-                    String value = img.attr(attr).trim();
-                    String lower = value.toLowerCase(java.util.Locale.ROOT);
-                    if (isUsableImageValue(value) && !lower.endsWith("none.gif")
-                            && !lower.endsWith("blank.gif") && !lower.endsWith("grey.gif")) {
-                        selected = value;
-                        break;
-                    }
-                }
-                String full = normalizeImageUrl(selected);
+                String real = ImageUrl.realUrl(img);
+                if (real == null) continue;
+                String full = ImageUrl.toAbsolute(real, HttpClient.BASE_URL);
                 if (!TextUtils.isEmpty(full)) img.attr("src", full);
             }
             return doc.body().html();

@@ -17,6 +17,18 @@ public class ReplyItem {
     private boolean isOP;           // 是否为楼主（帖主本人回复）
     private String contentHtml;     // 回复内容HTML（不含引用块）
     private String contentText;     // 纯文本内容（不含引用块）
+
+    /**
+     * build81: 「懒加载 src 已升级为真实附件地址」之后的 HTML 缓存。
+     *
+     * <p>原来这段 Jsoup 解析写在 {@code ReplyAdapter.onBindViewHolder} 里，
+     * 也就是<b>主线程 + 每次 bind 都跑一遍</b>——列表每滚一屏就重解析几十段 HTML，
+     * 这是评论区滚动掉帧/首屏楼层逐个才出来的直接原因。
+     *
+     * <p>解析结果只取决于 {@link #contentHtml}，与目标 TextView 无关，
+     * 所以可以安全缓存。transient：不参与序列化，进程重建后重新算即可。
+     */
+    private transient String upgradedHtml;
     private String quotedContentHtml; // 被回复内容HTML
     private String quotedContentText; // 被回复内容纯文本
 
@@ -55,6 +67,12 @@ public class ReplyItem {
     public void setOP(boolean OP) { isOP = OP; }
 
     public String getContentHtml() { return contentHtml; }
+
+    /** build81: 升级后的 HTML 缓存。null 表示还没算过。 */
+    public String getUpgradedHtml() { return upgradedHtml; }
+
+    /** build81: 写入升级后的 HTML 缓存（只在首次计算时调用）。 */
+    public void setUpgradedHtml(String v) { this.upgradedHtml = v; }
     public void setContentHtml(String contentHtml) { this.contentHtml = contentHtml; }
 
     public String getContentText() { return contentText; }
