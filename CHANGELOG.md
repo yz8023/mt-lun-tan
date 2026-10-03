@@ -1,5 +1,113 @@
 # 更新日志
 
+## v5.4 (versionCode 39) — 验证彻底不弹窗 · 去掉热帖排行 · 预览限两张图 · 帖子配图真相
+
+### 一、验证「无感」：根因是解算出的 cookie 根本没发出去
+
+上一版我说「验证不再跳前台」，用户实测**还在跳**。这轮找到真因，不是算法失效
+（算法我用真实站点复验过，仍然有效：4321B 挑战页 → 173792B 真实页），
+而是**解算结果压根没送到服务器**。
+
+`recoverInterstitialIfNeeded` 原来是这么传 cookie 的：
+
+```java
+String merged = mergeCookie(request.header("Cookie"), solved);
+Request replay = request.newBuilder().header("Cookie", merged).build();
+```
+
+问题出在 OkHttp 4.12 的 `BridgeInterceptor`（源码核实）：
+
+```kotlin
+val cookies = cookieJar.loadForRequest(userRequest.url)
+if (cookies.isNotEmpty()) {
+  requestBuilder.header("Cookie", cookieHeader(cookies))   // ← 无条件覆盖
+}
+```
+
+cookie 罐非空时，它会**用罐子里的值覆盖调用方自设的 Cookie 头**。而本项目的 cookie
+统一由罐子管理，请求对象上的 `Cookie` 头恒为 `null`，于是 `mergeCookie(null, solved)`
+只剩 `acw_sc__v2` 一项；重放时它又被罐子里的会话 cookie 整个覆盖掉
+→ 挑战照旧 → `isStillChallenge` 为 true → 落到 `onChallengeDetected` → **弹 WebView**。
+
+**修法**：不再塞 header，改为把解算出的 `acw_sc__v2` **写进自己的 cookie 罐**
+（`injectChallengeCookie`）。罐子自然带上它、不会被覆盖，而且后续所有请求都带着它，
+不用每个请求重新解算一遍。
+
+配套三项：
+
+- **`checkAuthFailure` 永不再弹验证界面**。挑战页的处置权整体收敛到那一个拦截器
+  （它挂在所有请求上、能读完整响应体、能解算、能重放、能写罐子）。以前这里也
+  `onChallenge(url)`，造成「拦截器弹一次、调用方再判一次又弹一次」，而且是同步调用链，
+  用户看到的就是「还是跳到验证页」。现在这里只记日志。
+- **重试两轮**再放弃：挑战页有偶发服务端抖动，别一失败就退兜底。
+- **`onChallengeDetected` 只在 `solve()` 返回 null 时才走**（即站点改了挑战算法、
+  连解算值都算不出来）。解算值拿到了但重放仍未通过时，**不弹界面**，只记日志按原样返回。
+
+### 二、首页去掉「热帖排行」
+
+用户要求「帖子预览界面不要显示热帖排行」。`HomeFragment.loadHotBoards()` 会额外请求
+`forum.php?mod=guide&view=hot`，解析带 `<em>排名</em>` 的链接，在列表头部渲染一个
+带 1/2/3 排名徽章的「热帖排行」卡片。已整块删除（方法 + 调用点），顺带少发一个请求。
+
+### 三、帖子预览最多两张图
+
+`ThreadAdapter` 首页卡片原来是 `Math.min(4, …)`（2×2 满格），改为 `Math.min(2, …)`。
+布局仍是 2 列 GridLayout，两张图正好一行；`adjustViewBounds + FIT_CENTER` 不变，不会变形。
+
+### 四、进帖不显示图：不是识别错误，是站点对游客隐藏附件
+
+用户问「进入帖子为什么不显示图片了，识别错误？」并让我参考
+[`qcxs/mtbbs_app`](https://github.com/qcxs/mtbbs_app) 的帖子内解析。我读了它的
+`viewthread/detail/parse.dart` 与 `core/parser/post_parser.dart`，然后拿真实页面逐一核对。
+
+**结论：不是解析识别不到，是站点没把图发给游客。**
+
+实测 tid=173937：
+
+| 位置 | `mod=image&aid=` |
+|---|---|
+| 列表页卡片 | **2 张**（aid=377307 / 377306，带 key） |
+| 帖子页（游客） | **0 张** |
+
+帖子页里本应是附件的位置只有这段：
+
+```html
+<div class="comiis_quote bg_h f_c">游客，如果您要查看本帖隐藏内容请<a>回复</a></div>
+<div class="comiis_noatt_ico bg_0 f_f"><i class="comiis_font">&#xe650;</i></div>
+<h3 class="f_c">本帖子中包含更多精彩资源</h3>
+<p>您需要 <a>登录</a> 才可以查看, 没帐号? <a>注册</a></p>
+```
+
+也就是说：**列表页对游客展示缩略图（服务端另外生成），进帖后附件区被换成登录墙**。
+我方原来的解析器已经把懒加载属性处理得很全了
+（`file → comiis_loadimages → data-original → data-src → data-file → src`，
+站点 JS 也正是读 `attr('comiis_loadimages')` 优先），所以确实不是识别问题。
+
+**这版的修法**：把这道墙**识别出来并明确告诉用户**，而不是静默显示一张图都没有。
+
+- `PostDetail` 新增 `attachmentLoginWall`。
+- `ForumParser` 识别 `div.comiis_noatt_ico`，或正文含「本帖子中包含更多精彩资源」/「登录才可以查看」。
+- `ThreadDetailActivity`：正文确实没有图且命中登录墙时，在隐藏内容区给出说明
+  ——「本帖配图/附件需要登录后查看。站点对游客隐藏附件（列表页那张缩略图是服务端另外生成的），登录后进来即可正常显示。」
+- 只在真的没有正文图时提示，已登录能看到图时不弹这句。
+
+参考 mtbbs_app 还确认了两件值得保留的做法（本次已按其思路核对，未改动）：
+附件区 `div.pattl → ignore_js_op` 的解析我方走的是移动模板的 `div.comiis_messages`，
+等登录态下附件真的出现在 HTML 里时再由同一套 `firstUsableImageAttr` 接管。
+
+### 五、仓库分支清理
+
+删除 `arena/01a0ef90-mt-lun-tan`，远端现在**只剩 `main`** 一个分支，默认分支即 `main`。
+
+> 关于「限制不能创建分支」：GitHub 的 rulesets 与经典分支保护在**私有仓库的免费版**
+> 都不可用（API 返回 403 `Upgrade to GitHub Pro or make this repository public`）。
+> 需要彻底禁止建分支，要么升级 GitHub Pro，要么把仓库改为公开。本次已把分支清干净，
+> 这一点需要你决定走哪条路。
+
+---
+
+# 更新日志
+
 ## v5.3 (versionCode 38) — 图片加载栈换成 OkHttp · 代码清理
 
 ### 一、图片不加载：根因是 Glide 的加载栈不带 User-Agent

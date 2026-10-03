@@ -876,6 +876,23 @@ public class ThreadDetailActivity extends AppCompatActivity {
         } else {
             this.binding.layoutHiddenContent.setVisibility(8);
         }
+        // ===== build86: 附件被登录墙挡住时给出明确解释 =====
+        // 站点对游客把本帖附件换成「本帖子中包含更多精彩资源 / 您需要登录才可以查看」，
+        // 而列表页对游客是正常展示缩略图的。不解释的话，用户从列表点进来只看到
+        // 「进帖一张图都没有」，还以为是解析识别错了 —— 其实是站点没把图发给游客。
+        // 只在真的没有正文图时提示，避免已登录能看到图时还弹这句。
+        if (postDetail.isAttachmentLoginWall()) {
+            java.util.List<String> bodyImgs = postDetail.getImageUrls();
+            if (bodyImgs == null || bodyImgs.isEmpty()) {
+                this.binding.layoutHiddenContent.setVisibility(0);
+                this.binding.tvHiddenContentHint.setVisibility(0);
+                this.binding.btnViewHidden.setVisibility(0);
+                this.binding.tvHiddenContent.setVisibility(8);
+                this.binding.tvHiddenContentHint.setText(
+                        "本帖配图/附件需要登录后查看。站点对游客隐藏附件（列表页那张缩略图"
+                                + "是服务端另外生成的），登录后进来即可正常显示。");
+            }
+        }
         if (postDetail.isLikedStateKnown()) {
             this.isLiked = postDetail.isLiked();
             saveLikedState(this.isLiked);

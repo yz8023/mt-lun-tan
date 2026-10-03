@@ -26,6 +26,11 @@ public class PostDetail {
     private String contentHtml;      // 原始正文HTML（含格式化标签）
     private boolean hasHiddenContent; // 是否包含隐藏内容
     private String hiddenContentHtml; // 隐藏内容的HTML（已登录可见时）
+    // build86: 附件/配图被「登录墙」挡住。站点对游客把本帖附件替换成一段
+    // 「本帖子中包含更多精彩资源 / 您需要登录才可以查看」的提示（div.comiis_noatt_ico），
+    // 而列表页对游客是正常展示缩略图的 —— 于是用户从列表点进来发现一张图都没有，
+    // 界面上还没有任何解释。这不是解析识别不到，是站点没把图发给游客。
+    private boolean attachmentLoginWall; // 附件是否需要登录才能查看
 
     // ===== 统计信息 =====
     private int replyCount;          // 回复总数
@@ -105,6 +110,10 @@ public class PostDetail {
 
     public boolean isHasHiddenContent() { return hasHiddenContent; }
     public void setHasHiddenContent(boolean hasHiddenContent) { this.hasHiddenContent = hasHiddenContent; }
+
+    /** 附件/配图是否被登录墙挡住（站点对游客隐藏本帖附件）。 */
+    public boolean isAttachmentLoginWall() { return attachmentLoginWall; }
+    public void setAttachmentLoginWall(boolean v) { this.attachmentLoginWall = v; }
 
     public String getHiddenContentHtml() { return hiddenContentHtml; }
     public void setHiddenContentHtml(String hiddenContentHtml) { this.hiddenContentHtml = hiddenContentHtml; }

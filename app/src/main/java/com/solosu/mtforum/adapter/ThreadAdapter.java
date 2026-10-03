@@ -288,7 +288,8 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         } else {
             holder.ivAvatar.setImageResource(R.drawable.ic_account);
         }
-        // 帖子封面图：所有页面统一使用最多四张图片的2列网格样式；没有图片列表时回退到单图封面
+        // 帖子封面图：2 列网格，最多两张（用户明确要求「最多显示两张图」）。
+        // 没有图片列表时回退到单图封面。
         holder.ivThumbnail.setVisibility(View.GONE);
         holder.llThreadImages.setVisibility(View.GONE);
         holder.llThreadImages.removeAllViews();
@@ -296,7 +297,8 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
 
         List<String> imageUrls = thread.getImageUrls();
         if (imageUrls != null && !imageUrls.isEmpty()) {
-            int count = Math.min(4, imageUrls.size());
+            // build86: 4 → 2。原来是最多四张（2x2 满格），用户要求预览最多两张。
+            int count = Math.min(2, imageUrls.size());
             holder.llThreadImages.setVisibility(View.VISIBLE);
             for (int i = 0; i < count; i++) {
                 ImageView imageView = new ImageView(context);

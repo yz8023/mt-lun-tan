@@ -298,31 +298,57 @@ public class HttpClient {
         if ("GET".equalsIgnoreCase(request.method())) {
             String solved = com.solosu.mtforum.util.WafChallengeSolver.solve(text);
             if (solved != null) {
-                try {
-                    String merged = com.solosu.mtforum.util.WafChallengeSolver
-                            .mergeCookie(request.header("Cookie"), solved);
-                    okhttp3.Request replay = request.newBuilder()
-                            .header(HEADER_INTERSTITIAL_HANDLED, "1")
-                            .header("Cookie", merged)
-                            .build();
-                    okhttp3.Response replayed = chain.proceed(replay);
+                // ===== 关键修正（build86）：写进 cookie 罐，不要塞 Cookie 头 =====
+                // OkHttp 4.x 的 BridgeInterceptor 是这么干的：
+                //     val cookies = cookieJar.loadForRequest(userRequest.url)
+                //     if (cookies.isNotEmpty()) requestBuilder.header("Cookie", cookieHeader(cookies))
+                // —— cookie 罐<b>非空时无条件覆盖</b>调用方自设的 Cookie 头。
+                // 而本类的请求都不带 Cookie 头（cookie 统一由罐子管），
+                // 所以旧的 mergeCookie(request.header("Cookie"), solved) 拿到的是 null，
+                // 合并结果只剩 acw_sc__v2 一项；重放时它又被罐子里的会话 cookie 覆盖掉
+                // → 挑战照旧 → isStillChallenge 为 true → 落到下面 onChallengeDetected
+                // → 弹 WebView。这正是「说了全自动无感、实测还在跳验证页」的根因。
+                //
+                // 写进罐子有两个好处：① 重放请求由罐子自然带上，不会被覆盖；
+                // ② 后续所有请求都带着它，不用每个请求重新解算一遍。
+                injectChallengeCookie(solved);
+
+                // 重试两轮：挑战页有偶发的服务端抖动，别一失败就放弃。
+                for (int attempt = 1; attempt <= 2; attempt++) {
                     try {
-                        response.close();
-                    } catch (Throwable ignored) {
+                        okhttp3.Request replay = request.newBuilder()
+                                .header(HEADER_INTERSTITIAL_HANDLED, "1")
+                                .build();
+                        okhttp3.Response replayed = chain.proceed(replay);
+                        try {
+                            response.close();
+                        } catch (Throwable ignored) {
+                        }
+                        if (!isStillChallenge(replayed)) {
+                            android.util.Log.i("HttpClient", request.url()
+                                    + " 本地解算通过验证，已自动重放（无界面，第 " + attempt + " 次）");
+                            return replayed;
+                        }
+                        try {
+                            replayed.close();
+                        } catch (Throwable ignored) {
+                        }
+                        // 仍是挑战页：解算值可能过期，重新算一个再试
+                        solved = com.solosu.mtforum.util.WafChallengeSolver.solve(text);
+                        if (solved != null) injectChallengeCookie(solved);
+                    } catch (Throwable t) {
+                        android.util.Log.w("HttpClient", "本地解算重放失败: " + t);
                     }
-                    if (!isStillChallenge(replayed)) {
-                        android.util.Log.i("HttpClient",
-                                request.url() + " 本地解算通过验证，已自动重放（无界面）");
-                        return replayed;
-                    }
-                    try {
-                        replayed.close();
-                    } catch (Throwable ignored) {
-                    }
-                } catch (Throwable t) {
-                    android.util.Log.w("HttpClient", "本地解算重放失败: " + t);
                 }
+                // 解算值拿到了、也重试过了还是过不去 —— 不弹界面。
+                // 弹了就是用户最反感的那种「打断」；这里只记日志，按原样返回。
+                android.util.Log.w("HttpClient", request.url()
+                        + " 本地解算已产出 cookie 但重放仍未通过，不弹验证界面");
+                return response;
             }
+            // 连解算值都算不出来（站点改了挑战算法/页面结构）—— 这才需要人工介入，
+            // 属于真正的兜底，正常情况走不到。
+            android.util.Log.w("HttpClient", request.url() + " 本地解算失败，退回验证界面");
         }
 
         // 打开验证 WebView；未恢复时按原样返回（调用方仍会解析出空内容，至少有日志）
@@ -381,12 +407,69 @@ public class HttpClient {
         }
     }
 
+    /**
+     * 把本地解算出的站点防护 cookie（{@code acw_sc__v2}）写进自己的 cookie 罐。
+     *
+     * <p><b>为什么不能用 {@code request.header("Cookie", …)} 传</b>：OkHttp 4.x 的
+     * {@code BridgeInterceptor} 在 cookie 罐非空时，会用罐子里的值<b>无条件覆盖</b>
+     * 调用方自设的 Cookie 头。塞进去也会被抹掉。写进罐子才是唯一可靠的路，
+     * 而且顺带让后续所有请求都带着它，不用每个请求重新解算一遍。
+     *
+     * <p>只写站点防护类 cookie，不碰登录态 cookie。
+     */
+    private synchronized void injectChallengeCookie(String solved) {
+        if (solved == null || solved.isEmpty()) return;
+        try {
+            String host = okhttp3.HttpUrl.parse(BASE_URL).host();
+            if (host == null) return;
+            List<okhttp3.Cookie> existing = cookieStore.get(host);
+            if (existing == null) {
+                existing = new ArrayList<>();
+                cookieStore.put(host, existing);
+            }
+            for (String pair : solved.split(";")) {
+                int eq = pair.indexOf('=');
+                if (eq <= 0) continue;
+                String name = pair.substring(0, eq).trim();
+                String value = pair.substring(eq + 1).trim();
+                if (name.isEmpty() || value.isEmpty()) continue;
+                // 只接受站点防护 cookie，避免误伤登录态
+                String lower = name.toLowerCase(java.util.Locale.ROOT);
+                boolean protective = lower.startsWith("acw_") || lower.contains("clearance")
+                        || lower.startsWith("aliyungf_") || lower.startsWith("__jsl");
+                if (!protective) continue;
+                okhttp3.Cookie.Builder b = new okhttp3.Cookie.Builder()
+                        .name(name).value(value).domain(host).path("/")
+                        .expiresAt(Long.MAX_VALUE);
+                boolean replaced = false;
+                for (int i = 0; i < existing.size(); i++) {
+                    if (existing.get(i).name().equals(name)) {
+                        existing.set(i, b.build());
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) existing.add(b.build());
+            }
+            // 落盘，下次启动不用再解算
+            if (appContext != null) commitCookieStore(appContext);
+        } catch (Throwable ignored) {
+            // 写罐失败不影响主流程
+        }
+    }
+
     private void checkAuthFailure(int httpCode, String body, String url) {
-        // ESA/阿里云验证不是账号掉线：密码重登拿不到 JS 计算出的 clearance Cookie，
-        // 必须先交给同 UA 的 WebView 执行，再双向同步 Cookie。
+        // build86: 这里<b>绝不</b>再触发验证 WebView。
+        //
+        // 挑战页的处置权已经整体收敛到 recoverInterstitialIfNeeded 那一个拦截器：
+        // 它挂在所有请求上、能读到完整响应体、能本地解算、能重放、能把 cookie 写进罐子。
+        // 以前这里也 onChallenge(url)，造成两个后果：
+        //   ① 拦截器解算失败时弹一次，调用方拿到没解算掉的挑战页时这里再判一次又弹一次；
+        //   ② 这里是同步调用链，用户看到的就是「还是跳到验证页」。
+        // 用户明确要求全自动无感，所以这里只记日志，界面一概不弹。
         if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(body)) {
-            ChallengeListener challenge = challengeListener;
-            if (challenge != null) try { challenge.onChallenge(url); } catch (Throwable ignored) {}
+            android.util.Log.w("HttpClient",
+                    url + " 命中挑战页，但拦截器已尝试自动解算；不再弹验证界面");
             return;
         }
         AuthFailureListener listener = authFailureListener;

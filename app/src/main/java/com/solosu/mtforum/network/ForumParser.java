@@ -1848,6 +1848,24 @@ public class ForumParser {
                 detail.setHasHiddenContent(true);
                 detail.setHiddenContentHtml(normalizeCodeBlocks(quoteDiv.html().trim()));
             }
+            // ===== build86: 识别「附件被登录墙挡住」 =====
+            // 站点对游客把本帖附件替换成一段提示：
+            //   <div class="comiis_noatt_ico bg_0 f_f"><i class="comiis_font">&#xe650;</i></div>
+            //   <h3 class="f_c">本帖子中包含更多精彩资源</h3>
+            //   <p><span class="f_c">您需要</span> <a ...>登录</a>
+            //       <span class="f_c">才可以查看, 没帐号?</span> <a ...>注册</a></p>
+            // 而列表页对游客是正常展示缩略图的（实测 tid=173937：列表 2 张
+            // mod=image&aid=377307/377306，进帖后 mod=image 0 次）。
+            // 不识别它，用户看到的就是「进入帖子一张图都没有且没有任何解释」。
+            if (opMsg.select("div.comiis_noatt_ico").first() != null) {
+                detail.setAttachmentLoginWall(true);
+            } else {
+                String opText = opMsg.text();
+                if (opText != null && (opText.contains("本帖子中包含更多精彩资源")
+                        || opText.contains("登录才可以查看"))) {
+                    detail.setAttachmentLoginWall(true);
+                }
+            }
             // 点赞数(优先从推荐数标签解析,fallback到列表项数)
             Element recommendNum = opMsg.selectFirst("em.comiis_recommend_num");
             if (recommendNum != null) {
