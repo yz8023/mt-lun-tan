@@ -421,6 +421,10 @@ public class AccountManager {
             com.solosu.mtforum.util.ImageCacheJanitor
                     .clearPreviousAccountImages(c.getApplicationContext());
 
+            // build87: 列表页配图登记表也按账号失效。换账号后首页会重拉并重新登记，
+            // 这里先清掉，避免新账号短暂读到旧账号列表页的图。
+            com.solosu.mtforum.util.ListImageRegistry.clear();
+
             SWITCH_EPOCH.incrementAndGet();
             return true;
         } catch (Exception e) {

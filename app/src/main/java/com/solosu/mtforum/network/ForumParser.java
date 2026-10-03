@@ -2672,6 +2672,9 @@ detail.setTotalPages(maxPage);
             if (TextUtils.isEmpty(thread.getThumbnailUrl())) {
                 thread.setThumbnailUrl(imageUrls.get(0));
             }
+            // build87: 站点对游客在详情页不下发附件 <img>，列表页是唯一能拿到
+            // 真实 CDN 附件地址的地方。按 tid 登记，详情页进任何入口都能兜底。
+            com.solosu.mtforum.util.ListImageRegistry.put(thread.getTid(), imageUrls);
         }
     }
 

@@ -1,5 +1,78 @@
 # 更新日志
 
+## v5.6 (versionCode 41) — 进帖图片兜底做到全链路 · 切号后详情页全同步
+
+### 一、进帖不显示图：v5.5 的兜底只覆盖了「列表页直达」这一条路
+
+v5.5 加了列表页图片兜底，用户实测**仍然不显示**。这次不再猜，直接抓包实证：
+
+对 tid=173937（列表页明明有 2 张缩略图）拉取游客态详情页，67943 字符里：
+
+| 探针 | 结果 |
+|---|---|
+| `comiis_loadimages="` | **0 次** |
+| `aid=` | 1 次（且是 JS 里的懒加载选择器字符串，不是 `<img>`） |
+| 正文容器 `div.comiis_a.comiis_message_table` | 只有文字和头像，**一条配图标记都没有** |
+| 全部 `<img>` | 51 个头像，0 张附件图 |
+
+**结论**：站点对**游客**在详情页根本不下发附件 `<img>`。v5.3/v5.4/v5.5 三版
+改选择器、改懒加载属性、改图廊开关全是空转 —— 详情页压根没有图可解析。
+**列表页是唯一能拿到真实 CDN 附件地址的地方**，兜底必须做成全链路。
+
+同时复核了 `populateThreadImages` 的容器选择器
+`.comiis_pyqlist_imgs img, .comiis_pyqlist_img img`：列表卡片真实 class 是
+`comiis_pyqlist_imgs comiis_pyqlist_img2p` / `comiis_pyqlist_img`，**选择器命中正常**，
+列表解析没问题。此前用 Python 正则端口得出的「大面积不匹配」是正则的局限，作废。
+
+v5.5 兜底没生效的两个真实原因：
+
+1. **只有「列表页直达」才带图**。`HomeFragment` / `ForumDetailActivity` 传的是
+   `openThread(context, thread)`，但 `MainActivity`、`ReplyAdapter`、
+   `ThreadDetailActivity`、`LogCenterActivity` 四处走的是 `openThread(tid)`，
+   图片一个字节都没带过去。
+2. **兜底写在 `if (!TextUtils.isEmpty(contentHtml))` 里面**。游客态正文解析
+   结果为空时走的是 else 分支，那里**无条件** `cardImageGallery.setVisibility(GONE)`，
+   兜底代码根本执行不到。
+
+**修法**：
+
+- 新增 `util/ListImageRegistry.java`：按 tid 登记列表页真实 CDN 配图地址的
+  有界 LRU 表（上限 200，只存字符串不存 Bitmap）。
+  `ForumParser.populateThreadImages` 解析到图就登记，
+  **任意入口**（首页流、版块页、搜索、日志中心、引用回复、相关帖子）都能取回，
+  不再依赖 Intent 有没有传 extra。
+- `ThreadDetailActivity.onCreate`：Intent extra 为空时回落到登记表按 tid 查。
+- 把图廊渲染从 `bindData` 抽成 `renderImageGallery(List<String>)`，
+  **正文为空的 else 分支也调用它** —— 这是最后一环，以前这里直接隐藏图廊。
+  正文为空时提示「本帖子资源需登录后查看，以下为列表页图片」。
+- 切号时 `AccountManager.switchTo` 顺带清登记表，避免跨账号读到旧列表的图。
+
+### 二、切号后详情页还是原账号信息
+
+排查确认 `FollowStateManager` 早就按 uid 隔离（`accountKey` = 当前 uid），不是问题。
+真正没隔离的是**点赞 / 收藏状态**：
+
+`ThreadDetailActivity` 的 `PREF_LIKE_FAV` + `KEY_LIKED_PREFIX`/`KEY_FAVORITED_PREFIX`
+**key 只拼 tid、不带账号**，切号后新账号一进帖子就看到旧账号点过的赞、收藏过的帖。
+
+另外详情页**没有 `onResume`**：用户在账号管理里换了账号再退回已打开的帖子页，
+界面一直挂着旧账号的点赞/收藏/关注态。
+
+**修法**：
+
+- 点赞/收藏 key 加上账号作用域 `likeFavScope()`（当前 uid，游客态落 `guest`）。
+  不走 `loginUid()`——那个字段是懒初始化的，这里要的是「此刻」的账号。
+- 新增 `onResume()`：发现账号变了就 `refreshPostDetail()` 整页重拉，
+  配合 `bindData` 里记录的 `lastRenderUid`。
+
+### 三、其它
+
+- `versionCode` 40 → **41**，`versionName` 5.5 → **5.6**。
+- 单测 **100 / 0 / 0**；release APK **3920650 B**，807 files。
+- 签名钥匙不变（SHA-256 `9ce3aefa…15da`），可直接覆盖升级。
+
+---
+
 ## v5.5 (versionCode 40) — 图片恢复 v2.2 的图廊显示 · 验证彻底不弹界面
 
 ### 一、进帖不显示图：build68 的「原位显示」把图廊一起关掉了

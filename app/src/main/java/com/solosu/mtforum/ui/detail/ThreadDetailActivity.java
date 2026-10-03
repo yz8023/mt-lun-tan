@@ -116,6 +116,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private String tid;
     /** build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时兜底用 */
     private java.util.List<String> listImageFallback = new java.util.ArrayList<>();
+    /**
+     * build87: 上一次渲染时所在的账号。{@link #onResume()} 发现切号就重拉一次，
+     * 否则已经打开的帖子页会一直停留在旧账号的点赞/收藏/关注态 ——
+     * 这就是「切换账号后进入帖子还是原账号信息，不会全同步」。
+     */
+    private String lastRenderUid = null;
     private boolean onlyOpReplies = false;
     private boolean repliesDescending = true;
     private List<ReplyItem> displayedReplies = new ArrayList();
@@ -163,9 +169,14 @@ public class ThreadDetailActivity extends AppCompatActivity {
             finish();
             return;
         }
-        // build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时用它兜底
-        java.util.ArrayList<String> listImgs =
+        // build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时用它兜底。
+        // 先看 Intent extra（列表页直达），没有再查 tid 登记表（搜索、日志中心、
+        // 引用回复、相关帖子等其它入口），两条路都断了才真的没有。
+        java.util.List<String> listImgs =
                 getIntent().getStringArrayListExtra("list_images");
+        if (listImgs == null || listImgs.isEmpty()) {
+            listImgs = com.solosu.mtforum.util.ListImageRegistry.get(this.tid);
+        }
         if (listImgs != null && !listImgs.isEmpty()) {
             this.listImageFallback = new java.util.ArrayList<>(listImgs);
         }
@@ -283,6 +294,25 @@ public class ThreadDetailActivity extends AppCompatActivity {
             }
         });
         loadPostDetail();
+    }
+
+    /**
+     * build87: 切号同步。
+     *
+     * <p>详情页以前没有 onResume，用户在账号管理里换了账号再退回已打开的帖子页，
+     * 界面还挂着旧账号的点赞/收藏/关注态 —— 用户报的就是「切换账号后进入帖子
+     * 还是原账号信息，不会全同步」。这里发现账号变了就整页重拉一次。
+     */
+    @Override // androidx.fragment.app.FragmentActivity, android.app.Activity
+    protected void onResume() {
+        super.onResume();
+        if (this.lastRenderUid == null || isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (!this.lastRenderUid.equals(likeFavScope())) {
+            this.lastRenderUid = likeFavScope();
+            refreshPostDetail();
+        }
     }
 
     private void lambda$onCreate$0(View v) {
@@ -653,6 +683,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             Toast.makeText(this, "帖子内容为空，请下拉刷新重试", 0).show();
             return;
         }
+        // build87: 记住这次渲染用的是哪个账号，供 onResume 检测切号
+        this.lastRenderUid = likeFavScope();
         this.postDetail = postDetail;
         this.binding.progressBar.setVisibility(8);
         this.binding.swipeRefresh.setEnabled(true);
@@ -806,47 +838,22 @@ public class ThreadDetailActivity extends AppCompatActivity {
             if (galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
                 galleryUrls.addAll(this.listImageFallback);
             }
-            if (!galleryUrls.isEmpty()) {
-                this.binding.cardImageGallery.setVisibility(0);
-                this.binding.hsvImageGallery.setVisibility(0);
-                this.binding.llImageGallery.removeAllViews();
-                FrostedGlassHelper.applyToCardViews(this.binding.cardImageGallery, this);
-                int iDpToPx = dpToPx(ItemTouchHelper.Callback.DEFAULT_DRAG_ANIMATION_DURATION);
-                int iDpToPx2 = dpToPx(4);
-                for (final String str2 : galleryUrls) {
-                    ImageView imageView = new ImageView(this);
-                    imageView.setLayoutParams(new LinearLayout.LayoutParams(-2, iDpToPx));
-                    imageView.setAdjustViewBounds(z2);
-                    imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                    ((LinearLayout.LayoutParams) imageView.getLayoutParams()).setMargins(iDpToPx2, 0, iDpToPx2, 0);
-                    imageView.setOnClickListener(new View.OnClickListener() {
-                        @Override // android.view.View.OnClickListener
-                        public final void onClick(View view) {
-                            ThreadDetailActivity.this.lambda$bindData$26(str2, view);
-                        }
-                    });
-                    Glide.with((FragmentActivity) this).load(com.solosu.mtforum.util.ForumImageLoader.model(str2)).placeholder(new ColorDrawable(getColor(R.color.background_secondary))).error((Drawable) new ColorDrawable(getColor(R.color.divider))).into(imageView);
-                    this.binding.llImageGallery.addView(imageView);
-                    iDpToPx = iDpToPx;
-                    z2 = true;
-                }
-                this.binding.btnCollapseImages.setOnClickListener(new View.OnClickListener() {
-                    @Override // android.view.View.OnClickListener
-                    public final void onClick(View view) {
-                        ThreadDetailActivity.this.lambda$bindData$28(view);
-                    }
-                });
+            renderImageGallery(galleryUrls);
+        } else {
+            this.binding.tvContent.setVisibility(0);
+            this.binding.tvContent.setTextSize(14.0f);
+            this.binding.tvContent.setTextColor(getColor(R.color.text_hint));
+            this.binding.tvContent.setGravity(17);
+            // build87: 正文为空（站点对游客下登录墙 / 解析失败）时，列表页带过来的
+            // 真实 CDN 图照样上图廊。之前这里无条件隐藏 cardImageGallery，
+            // 兜底图根本走不到 —— 这就是「进帖还是不显示」的最后一环。
+            if (!this.listImageFallback.isEmpty()) {
+                this.binding.tvContent.setText("本帖子资源需登录后查看，以下为列表页图片");
+                renderImageGallery(this.listImageFallback);
             } else {
                 this.binding.cardImageGallery.setVisibility(8);
+                this.binding.tvContent.setText("[内容加载中，请刷新重试]");
             }
-        } else {
-            this.binding.tvContent.setVisibility(8);
-            this.binding.cardImageGallery.setVisibility(8);
-            this.binding.tvContent.setVisibility(0);
-            this.binding.tvContent.setText("[内容加载中，请刷新重试]");
-            this.binding.tvContent.setTextColor(getColor(R.color.text_hint));
-            this.binding.tvContent.setTextSize(14.0f);
-            this.binding.tvContent.setGravity(17);
         }
         boolean z3 = true;
         final long tRenderStart = System.currentTimeMillis();
@@ -2275,19 +2282,35 @@ private void viewHiddenContent() {
         }
     }
 
+    /**
+     * build87: 点赞/收藏状态的账号作用域。
+     *
+     * <p>以前 key 只拼 tid，切号后新账号一进帖子就看到旧账号点过的赞、收藏过的帖 ——
+     * 「切换账号后进入帖子还是原账号信息」就是这么来的。现在 key 里带上当前 uid，
+     * 游客态统一落到 {@code guest}。
+     *
+     * <p>不走 {@link #loginUid()}：那个字段是懒初始化的，这里要的是「此刻」的账号。
+     */
+    private String likeFavScope() {
+        String uid = com.solosu.mtforum.session.UserSessionManager.getInstance()
+                .getUid(getApplicationContext());
+        return TextUtils.isEmpty(uid) ? "guest" : uid;
+    }
+
     private boolean restoreLikedState() {
         if (TextUtils.isEmpty(this.tid)) {
             return false;
         }
         SharedPreferences prefs = getSharedPreferences(PREF_LIKE_FAV, 0);
-        return prefs.getBoolean(KEY_LIKED_PREFIX + this.tid, false);
+        return prefs.getBoolean(KEY_LIKED_PREFIX + likeFavScope() + "_" + this.tid, false);
     }
 
     private void saveLikedState(boolean liked) {
         if (TextUtils.isEmpty(this.tid)) {
             return;
         }
-        getSharedPreferences(PREF_LIKE_FAV, 0).edit().putBoolean(KEY_LIKED_PREFIX + this.tid, liked).apply();
+        getSharedPreferences(PREF_LIKE_FAV, 0).edit()
+                .putBoolean(KEY_LIKED_PREFIX + likeFavScope() + "_" + this.tid, liked).apply();
     }
 
     private boolean restoreFavoritedState() {
@@ -2295,14 +2318,15 @@ private void viewHiddenContent() {
             return false;
         }
         SharedPreferences prefs = getSharedPreferences(PREF_LIKE_FAV, 0);
-        return prefs.getBoolean(KEY_FAVORITED_PREFIX + this.tid, false);
+        return prefs.getBoolean(KEY_FAVORITED_PREFIX + likeFavScope() + "_" + this.tid, false);
     }
 
     private void saveFavoritedState(boolean favorited) {
         if (TextUtils.isEmpty(this.tid)) {
             return;
         }
-        getSharedPreferences(PREF_LIKE_FAV, 0).edit().putBoolean(KEY_FAVORITED_PREFIX + this.tid, favorited).apply();
+        getSharedPreferences(PREF_LIKE_FAV, 0).edit()
+                .putBoolean(KEY_FAVORITED_PREFIX + likeFavScope() + "_" + this.tid, favorited).apply();
     }
 
     private boolean isReplyResponseSuccessful(String response) {
@@ -5003,6 +5027,54 @@ private void viewHiddenContent() {
      *
      * <p>顺序和 {@code extractAndSeparateImages} 保持一致，免得两条路径行为不同。
      */
+    /**
+     * build87: 渲染帖子底部的横滑图廊。
+     *
+     * <p>从 {@code bindData} 里抽出来，是为了让「正文为空」的分支也能上图廊 ——
+     * 站点对游客不下发附件 {@code <img>} 时正文解析结果是空的，以前走的是
+     * {@code cardImageGallery.setVisibility(GONE)}，列表页兜底图永远出不来。
+     *
+     * @param urls 要显示的图片地址；为空则隐藏图廊
+     */
+    private void renderImageGallery(List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            this.binding.cardImageGallery.setVisibility(View.GONE);
+            return;
+        }
+        this.binding.cardImageGallery.setVisibility(View.VISIBLE);
+        this.binding.hsvImageGallery.setVisibility(View.VISIBLE);
+        this.binding.llImageGallery.removeAllViews();
+        FrostedGlassHelper.applyToCardViews(this.binding.cardImageGallery, this);
+        int height = dpToPx(200);
+        int margin = dpToPx(4);
+        for (final String url : urls) {
+            ImageView imageView = new ImageView(this);
+            imageView.setLayoutParams(new LinearLayout.LayoutParams(-2, height));
+            imageView.setAdjustViewBounds(true);
+            imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            ((LinearLayout.LayoutParams) imageView.getLayoutParams())
+                    .setMargins(margin, 0, margin, 0);
+            imageView.setOnClickListener(new View.OnClickListener() {
+                @Override // android.view.View.OnClickListener
+                public final void onClick(View view) {
+                    ThreadDetailActivity.this.lambda$bindData$26(url, view);
+                }
+            });
+            Glide.with((FragmentActivity) this)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(url))
+                    .placeholder(new ColorDrawable(getColor(R.color.background_secondary)))
+                    .error(new ColorDrawable(getColor(R.color.divider)))
+                    .into(imageView);
+            this.binding.llImageGallery.addView(imageView);
+        }
+        this.binding.btnCollapseImages.setOnClickListener(new View.OnClickListener() {
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ThreadDetailActivity.this.lambda$bindData$28(view);
+            }
+        });
+    }
+
     private static String pickRealImageUrl(org.jsoup.nodes.Element img) {
         String[] attrs = {"file", "comiis_loadimages", "zoomfile",
                 "data-original", "data-src", "data-file", "src"};
