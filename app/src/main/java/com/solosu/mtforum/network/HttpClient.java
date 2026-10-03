@@ -6,6 +6,7 @@ import android.os.Build;
 import android.webkit.CookieManager;
 import android.webkit.CookieSyncManager;
 
+import com.solosu.mtforum.session.SiteAccessManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -41,6 +42,18 @@ public class HttpClient {
     public static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
     public static final String DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+    /** 请求级标记：本请求已由验证守门器处理过，避免递归触发 */
+    public static final String HEADER_INTERSTITIAL_HANDLED = "X-MTBBS-Interstitial-Handled";
+
+    /**
+     * Discuz「浏览方式」Cookie 的名字后缀 —— {@code {cookiepre}_mobile}。
+     * 前缀由站点配置决定（MT 论坛是 {@code cQWy_2132_}），所以按<b>后缀</b>匹配，不写死全名。
+     */
+    public static final String BROWSE_MODE_SUFFIX = "_mobile";
+
+    /** 等人通过站点验证的最长等待（毫秒）——避免 OkHttp 线程被永久挂住 */
+    private static final long VERIFY_WAIT_MILLIS = 150_000L;
+
     private static volatile HttpClient instance;
     private OkHttpClient client;
     private Map<String, List<Cookie>> cookieStore;
@@ -60,7 +73,23 @@ public class HttpClient {
                 // build65: 全局请求节流 —— 所有请求先过 RequestThrottle。
                 // 之前主界面角标 5 秒一轮、每轮 6 个并发，光挂首页就 72 次/分钟，
                 // 稳稳撞上论坛的阿里云 ESA 风控（403 禁止访问）。
+                                // ==================== 站点验证守门器 ====================
+                // 放在节流器<b>之后</b>（OkHttp 应用拦截器后添加的先执行 → 写在后面的先跑）。
+                // 这样验证判定发生在节流 backoff 之后，两个机制互不打架。
+                //
+                // 覆盖到<b>每一个</b> HTML 响应，而不是只靠 checkAuthFailure 那几个调用点：
+                // 原来只有走 checkAuthFailure 的路径才会发现挑战页，
+                // 列表页 / 帖子页的其它请求命中挑战时，就只是「解析不出东西」，没有任何提示。
                 .addInterceptor(chain -> {
+                    okhttp3.Request request = chain.request();
+                    okhttp3.Response response = chain.proceed(request);
+                    try {
+                        return recoverInterstitialIfNeeded(chain, request, response);
+                    } catch (Throwable t) {
+                        return response;
+                    }
+                })
+.addInterceptor(chain -> {
                     // build69: 前台车道不排队，后台车道走令牌桶
                     RequestThrottle.acquire();
                     REQ_COUNT.incrementAndGet();
@@ -107,7 +136,31 @@ public class HttpClient {
                     public List<Cookie> loadForRequest(HttpUrl url) {
                         String host = url.host();
                         List<Cookie> cookies = cookieStore.get(host);
-                        return cookies != null ? cookies : Collections.emptyList();
+                        if (cookies == null || cookies.isEmpty()) {
+                            return Collections.emptyList();
+                        }
+                        // build79: 剔除「浏览方式」Cookie（{cookiepre}_mobile）。
+                        // 站点在「该页面无手机版 → 继续访问电脑版」时会下发它，
+                        // 而它的优先级<b>高于</b> UA 和 URL 里的 mobile=2 ——
+                        // 一旦罐里躺着这条，所有请求都会被强制返回 PC 模板，
+                        // 而本项目的解析器是按 Comiis 移动模板写的，
+                        // 于是正文 / 图片整套解析失效（实测：同 UA 同 URL，
+                        // 有它 89KB PC 表格 vs 没它 173KB 移动卡片）。
+                        // 只改「发什么」，不动罐里的数据。
+                        boolean hasMobile = false;
+                        for (Cookie c : cookies) {
+                            if (c.name() != null && c.name().toLowerCase().endsWith(BROWSE_MODE_SUFFIX)) {
+                                hasMobile = true;
+                                break;
+                            }
+                        }
+                        if (!hasMobile) return cookies;
+                        List<Cookie> kept = new ArrayList<>(cookies.size());
+                        for (Cookie c : cookies) {
+                            if (c.name() != null && c.name().toLowerCase().endsWith(BROWSE_MODE_SUFFIX)) continue;
+                            kept.add(c);
+                        }
+                        return kept;
                     }
                 })
                 .build();
@@ -162,6 +215,91 @@ public class HttpClient {
      * </ul>
      * 只在"本地 cookie 还认为自己登录着"时才触发，避免游客状态下瞎重登。
      */
+    // ==================== 站点验证守门器 ====================
+
+    /**
+     * 命中「非论坛页」（人机验证 / 防火墙拦截页）时尝试自动恢复。
+     *
+     * <p>与 {@link com.solosu.mtforum.session.SiteAccessManager} 的分工：
+     * 后者是「检测 + 打开验证 WebView」的既有链路（本类已复用），
+     * 这里负责把它接到<b>全部</b> HTML 响应上，并在验证通过后重放请求。
+     *
+     * <p>仅 GET 自动重放：写操作（发帖/评论）重放有重复提交风险，
+     * 验证通过后交给用户手动重试。
+     */
+    private okhttp3.Response recoverInterstitialIfNeeded(
+            okhttp3.Interceptor.Chain chain,
+            okhttp3.Request request,
+            okhttp3.Response response) throws java.io.IOException {
+        // 已处理过 / 探测请求自己 → 直接放行，避免递归
+        if ("1".equals(request.header(HEADER_INTERSTITIAL_HANDLED))) return response;
+        if (response.code() != 200) return response;
+
+        okhttp3.ResponseBody body = response.body();
+        if (body == null) return response;
+        String contentType = body.contentType() == null ? "" : String.valueOf(body.contentType());
+        if (!InterstitialDetector.mimeOf(contentType).contains("text/html")) return response;
+
+        // 先用 Content-Length 提前放行。真实 Discuz 页面远大于判定上限
+        // （实测列表页 174KB、帖子页 ~50KB），而验证/挑战页只有几 KB。
+        // 少了这一步，每个 HTML 响应都要整个读进内存再判断——
+        // 大帖（几百楼）会明显拖慢首屏，这是「加载速度」不能忽略的一段。
+        long declared = body.contentLength();
+        if (declared > InterstitialDetector.MAX_BODY_LENGTH) return response;
+
+        byte[] bytes;
+        try {
+            // application 拦截器跑在 BridgeInterceptor 之后，gzip 已透明解掉
+            bytes = body.bytes();
+        } catch (Exception e) {
+            return response;
+        }
+        if (bytes.length == 0) return response;
+
+        // 没带 Content-Length 时才用实际长度兜一次（gzip / chunked 场景）
+        if (declared < 0 && bytes.length > InterstitialDetector.MAX_BODY_LENGTH) return response;
+
+        String text = InterstitialDetector.decode(bytes, contentType);
+        if (!SiteAccessManager.isChallengePage(text)) {
+            return response;
+        }
+
+        android.util.Log.w("HttpClient", request.url() + " 命中非论坛页（" + bytes.length + "B），尝试自动恢复");
+
+        // 打开验证 WebView；未恢复时按原样返回（调用方仍会解析出空内容，至少有日志）
+        try {
+            SiteAccessManager.onChallengeDetected(request.url().toString());
+        } catch (Throwable ignored) {
+        }
+        if (!"GET".equalsIgnoreCase(request.method())) {
+            android.util.Log.i("HttpClient", request.url() + " 已发起验证，但非 GET 请求不自动重放");
+            return response;
+        }
+
+        // 给验证留出时间；最多重放一次，避免无限递归
+        boolean ok = false;
+        try {
+            ok = SiteAccessManager.awaitClearance(VERIFY_WAIT_MILLIS);
+        } catch (Throwable ignored) {
+        }
+        if (!ok) {
+            android.util.Log.w("HttpClient", request.url() + " 未通过验证，按原样返回");
+            return response;
+        }
+
+        android.util.Log.i("HttpClient", request.url() + " 已通过验证，重放请求");
+        okhttp3.Request replay = request.newBuilder()
+                .header(HEADER_INTERSTITIAL_HANDLED, "1")
+                .build();
+        okhttp3.Response replayed = chain.proceed(replay);
+        // 第一次那次的 body 已读干净，但 Response 对象本身要关掉，否则连接没释放
+        try {
+            response.close();
+        } catch (Throwable ignored) {
+        }
+        return replayed;
+    }
+
     private void checkAuthFailure(int httpCode, String body, String url) {
         // ESA/阿里云验证不是账号掉线：密码重登拿不到 JS 计算出的 clearance Cookie，
         // 必须先交给同 UA 的 WebView 执行，再双向同步 Cookie。
@@ -176,7 +314,13 @@ public class HttpClient {
                 || body.contains("请先登录后继续")
                 || (body.contains("loginform") && body.contains("action=login"))
                 || body.contains("member.php?mod=logging&action=login"));
-        boolean suspicious = httpCode == 401 || httpCode == 403 || (isLoggedIn() && loginPage);
+        // build80: 原来把 HTTP 401/403 也当掉线信号。但 403 现在绝大多数是
+        // 阿里云 ESA 的 WAF 拦截（含图片 CDN 对空 UA 的 403），跟登录态无关。
+        // 拿它去触发静默重登会形成「疯狂重登还是 403」的死循环，
+        // 而且重登拿到的新 Cookie 根本解不开 JS 挑战，只会更糟。
+        // 掉线只认一件事：本以为已登录，结果返回的是登录页。
+        // 挑战页由上面的 SiteAccessManager 链路单独处理。
+        boolean suspicious = isLoggedIn() && loginPage;
         if (!suspicious) return;
         try { listener.onAuthFailure(); } catch (Throwable ignored) {}
     }

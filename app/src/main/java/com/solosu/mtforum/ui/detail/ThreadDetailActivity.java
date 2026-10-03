@@ -16,6 +16,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.provider.OpenableColumns;
+import android.os.Looper;
 import android.os.Bundle;
 import android.text.Html;
 import android.text.Spannable;
@@ -77,6 +78,7 @@ import com.solosu.mtforum.ui.detail.ReplyAdapter;
 import com.solosu.mtforum.ui.message.ChatActivity;
 import com.solosu.mtforum.ui.space.UserProfileActivity;
 import com.solosu.mtforum.ui.login.LoginBottomSheet;
+import com.solosu.mtforum.util.ImageUrl;
 import com.solosu.mtforum.util.BBCodeUtil;
 import com.solosu.mtforum.util.NavigationHelper;
 import com.solosu.mtforum.ui.widget.DialogHelper;
@@ -464,8 +466,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             if (detail == null) {
                 throw new IllegalStateException("帖子内容解析失败");
             }
-            enrichGoodReviewAvatars(detail);
-            refreshServerActionState(detail);
+            // build80: 移出首屏，改到渲染后异步补（见 enrichAfterRender）
+            // 原位置在<b>解析之后、runOnUiThread 渲染之前</b>同步执行，
+            // 等于让「另一个帖子的桌面版整页」和「收藏列表整页」阻塞首屏。
             // build61: 进帖触发解锁——只记录页面,渲染后在后台线程执行(不阻塞首屏)
             this.pendingUnlockHtml = html;
             if (!TextUtils.isEmpty(detail.getAuthorUid())) {
@@ -492,6 +495,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             return;
         }
         bindData(detail, true);
+        // build80: 首屏渲染完再补这两个非首屏数据（见 enrichAfterRender）
+        enrichAfterRender(detail);
         // build61: 渲染完成后,后台线程执行解锁检测→回帖→成功再刷新
         runUnlockInBackground(detail);
     }
@@ -577,8 +582,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
             if (detail == null) {
                 throw new IllegalStateException("帖子内容解析失败");
             }
-            enrichGoodReviewAvatars(detail);
-            refreshServerActionState(detail);
+            // build80: 同进帖链，移出首屏
             // build61: 下拉刷新链同样只记录页面,渲染后异步解锁(同加载链)
             this.pendingUnlockHtml = html;
             if (!TextUtils.isEmpty(detail.getAuthorUid())) {
@@ -605,6 +609,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
             return;
         }
         this.binding.swipeRefresh.setRefreshing(false);
+        // build80: 同进帖链，非首屏数据渲染后异步补
+        enrichAfterRender(postDetail);
         applyServerActionState(postDetail);
         // build61: 渲染完成后,后台线程执行解锁检测(同加载链)
         runUnlockInBackground(postDetail);
@@ -1028,6 +1034,43 @@ public class ThreadDetailActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * build80: 把非首屏的数据请求挪到「首屏渲染完成之后」。
+     *
+     * <p>原链路是 {@code 解析 → enrichGoodReviewAvatars → refreshServerActionState
+     * → runOnUiThread(渲染)}，两个 enrich 都是同步的整页请求，
+     * 于是进帖时要串行发 3 个页面请求才看到第一屏内容。
+     *
+     * <p>参照项目（qcxs/mtbbs_app）的 {@code _loadInitial} 只发 1 个请求就出首屏，
+     * 差额就在这里。挪到渲染后异步补，用户看到内容的时间缩短约 2/3。
+     *
+     * <p>注意用 {@link java.lang.Thread} 全限定名：本文件 import 了
+     * {@code model.Thread}，裸 {@code Thread} 会解析到 model 类（build79 真机构建踩过）。
+     */
+    private void enrichAfterRender(final PostDetail detail) {
+        if (detail == null) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            new java.lang.Thread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                enrichGoodReviewAvatars(detail);
+                refreshServerActionState(detail);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    bindRewardReviewStats(detail);
+                    applyServerActionState(detail);
+                });
+            }, "thread-enrich").start();
+        } else {
+            enrichGoodReviewAvatars(detail);
+            refreshServerActionState(detail);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                bindRewardReviewStats(detail);
+                applyServerActionState(detail);
+            });
+        }
+    }
+
     private void enrichGoodReviewAvatars(PostDetail detail) {
         if (detail == null) {
             return;
@@ -1046,6 +1089,36 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 detail.setRewardCoins(ForumParser.parseRewardCoins(rewardHtml));
             }
         } catch (Exception e) {
+        }
+    }
+
+    /**
+     * build80: 只重刷「打赏/好评」那一小块，不重跑整个 {@link #bindData}。
+     *
+     * <p>{@link #enrichAfterRender} 异步补数据回来后，需要把新拿到的
+     * 头像和金币数显示出来。直接调 {@code bindData(detail, false)} 会把
+     * 整个帖子列表重新绑定一遍，包括 {@code nestedScroll} 回顶，
+     * 用户正看着的楼会被弹走。
+     */
+    private void bindRewardReviewStats(PostDetail postDetail) {
+        if (postDetail == null) return;
+        int rewardCount = postDetail.getRewardCount();
+        int goodReviewCount = postDetail.getGoodReviewCount();
+        int rewardCoins = postDetail.getRewardCoins();
+        List<String> rewardUserAvatars = postDetail.getRewardUserAvatars();
+        List<String> goodReviewUserAvatars = postDetail.getGoodReviewUserAvatars();
+        boolean hasStats = rewardCount > 0 || goodReviewCount > 0
+                || (rewardUserAvatars != null && !rewardUserAvatars.isEmpty())
+                || (goodReviewUserAvatars != null && !goodReviewUserAvatars.isEmpty());
+        if (this.httpClient.isLoggedIn() && hasStats) {
+            this.binding.layoutRewardReviewStats.setVisibility(0);
+            this.binding.tvRewardCount.setText(String.valueOf(rewardCount));
+            this.binding.tvRewardCoins.setText("共计 " + rewardCoins + " 金币");
+            this.binding.tvGoodReviewCount.setText(String.valueOf(goodReviewCount));
+            bindAvatarStrip(this.binding.llRewardAvatars, rewardUserAvatars);
+            bindAvatarStrip(this.binding.llGoodReviewAvatars, goodReviewUserAvatars);
+        } else {
+            this.binding.layoutRewardReviewStats.setVisibility(8);
         }
     }
 
@@ -4915,22 +4988,24 @@ private void viewHiddenContent() {
                 || low.contains("/emoticon/") || low.contains("static/image/common/smiley");
     }
 
+    /**
+     * 懒加载占位图判定。
+     *
+     * <p>build80 补 {@code imageloading.gif}：这是 Comiis 模板<b>真正在用</b>的
+     * 占位文件名。原列表里只有 none/blank/grey，而本论坛实际下发的 src
+     * 恰好是 {@code imageloading.gif} —— 于是「解析真实 URL」这一步
+     * 把它当成正常 URL 原样返回，图片自然停在占位图上。
+     *
+     * <p>统一委托 {@link ImageUrl}，保证 {@code pickRealImageUrl} 和
+     * {@code extractAndSeparateImages} 两条路径对「什么是占位图」判断一致。
+     */
     private static boolean isPlaceholderImage(String url) {
-        String low = url.toLowerCase();
-        return low.startsWith("data:")
-                || low.endsWith("none.gif")
-                || low.endsWith("blank.gif")
-                || low.endsWith("grey.gif")
-                || low.contains("/image/common/none")
-                || low.contains("static/image/common/blank");
+        return ImageUrl.isPlaceholder(url);
     }
 
+    /** build80: 委托 {@link ImageUrl}，保证与其它图片路径的补全规则一致。 */
     private static String toAbsolute(String url) {
-        if (TextUtils.isEmpty(url)) return "";
-        String u = url.trim();
-        if (u.startsWith("http://") || u.startsWith("https://")) return u;
-        if (u.startsWith("//")) return "https:" + u;
-        return HttpClient.BASE_URL + u.replaceFirst("^/", "");
+        return ImageUrl.toAbsolute(url);
     }
 
     /**
@@ -4943,28 +5018,28 @@ private void viewHiddenContent() {
      *       还不如不显示</li>
      * </ol>
      */
+    /**
+     * 把懒加载的占位 {@code src} 换成真实附件地址。
+     *
+     * <p>build80: 原来「取不到真实地址」的 img 会被<b>整张删掉</b>
+     * （{@code dead.add(img)} → {@code e.remove()}）。但取不到地址
+     * 不等于这张图不该显示——真机日志里这种图点开后照样能加载，
+     * 说明只是 src 换了层壳，删掉就成了「能看的图被吃掉」。
+     *
+     * <p>改为：能升级就升级，不能升级就<b>原样留着</b>，由 Glide 自己决定成败。
+     * 宁可显示失败的空位，也不要让内容凭空消失。
+     */
     private static String upgradeThumbnailsToFull(String html) {
         if (TextUtils.isEmpty(html)) return html;
         try {
             org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
-            java.util.List<org.jsoup.nodes.Element> dead = new java.util.ArrayList<>();
             for (org.jsoup.nodes.Element img : doc.select("img")) {
                 String real = pickRealImageUrl(img);
-                if (real == null) {
-                    // 表情之类本来就用小图，别误删
-                    String src = img.attr("src");
-                    if (!TextUtils.isEmpty(src) && src.contains("smiley")) continue;
-                    dead.add(img);
-                    continue;
-                }
+                if (real == null) continue;
                 String abs = toAbsolute(real);
-                if (TextUtils.isEmpty(abs)) {
-                    dead.add(img);
-                    continue;
-                }
+                if (TextUtils.isEmpty(abs)) continue;
                 if (!abs.equals(img.attr("src"))) img.attr("src", abs);
             }
-            for (org.jsoup.nodes.Element e : dead) e.remove();
             return doc.body().html();
         } catch (Throwable t) {
             return html;

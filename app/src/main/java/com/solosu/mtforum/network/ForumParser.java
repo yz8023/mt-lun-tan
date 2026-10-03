@@ -10,6 +10,7 @@ import com.solosu.mtforum.model.Thread;
 import com.solosu.mtforum.model.Message;
 import com.solosu.mtforum.model.UserProfile;
 import com.solosu.mtforum.model.Friend;
+import com.solosu.mtforum.util.ImageUrl;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -2577,20 +2578,21 @@ detail.setTotalPages(maxPage);
         return BASE_DOMAIN + url;
     }
 
+    /**
+     * 是否是「帖子正文里的图片」。
+     *
+     * <p>build80: 原来按 {@code icon}/{@code face}/{@code stamp}/{@code magic}
+     * 这些<b>裸子串</b>过滤。问题是它们同时是合法附件的文件名——
+     * Discuz 附件命名固定为 {@code common_{aid}_{hash}_icon.png}，
+     * 所以<b>每一个附件缩略图都带 {@code _icon}</b>，全被这条规则误杀。
+     * 这就是「选择显示图片到原处时部分帖子图片消失」的直接原因。
+     *
+     * <p>改为委托 {@link ImageUrl#isPostImage}：只认<b>真实的 Discuz 路径</b>
+     * （{@code /static/image/smiley/} 一类）才算内联表情，
+     * 文件名里出现 face/icon 字样一律不再丢图。
+     */
     private static boolean isPostImageUrl(String url) {
-        if (TextUtils.isEmpty(url)) return false;
-        String lower = url.toLowerCase();
-        return !lower.contains("none.gif")
-                && !lower.contains("none.png")
-                && !lower.contains("loading")
-                && !lower.contains("smiley")
-                && !lower.contains("face")
-                && !lower.contains("icon")
-                && !lower.contains("stamp")
-                && !lower.contains("magic")
-                && !lower.contains("emoticon")
-                && !lower.contains("/static/image/")
-                && !lower.contains("avatar.php");
+        return ImageUrl.isPostImage(url);
     }
 
     /**

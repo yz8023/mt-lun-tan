@@ -1,5 +1,6 @@
 package com.solosu.mtforum.ui.detail;
 
+import com.solosu.mtforum.util.ImageUrl;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
@@ -462,32 +463,81 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     /**
      * 从 HTML 内容中提取所有 img 标签的 src URL，并返回去掉 img 标签后的纯 HTML
      */
+    /**
+     * 从评论正文 HTML 里抽出图片，并把 img 标签从文本中抹掉。
+     *
+     * <p>build80: 原来只用一条正则读 {@code src}。问题是本论坛用的是
+     * Comiis 懒加载，真实地址在 {@code file}/{@code comiis_loadimages}
+     * 属性里，{@code src} 只是 {@code imageloading.gif} 占位图——
+     * 所以「评论区图片不显示」就是这么来的：抓到的全是占位图 URL。
+     *
+     * <p>改为先用 Jsoup 走真实属性链，正则只作兜底（Jsoup 解析失败时）。
+     */
     private static String extractImagesFromHtml(String html, List<String> outImageUrls) {
         if (TextUtils.isEmpty(html)) {
             return "";
         }
+        String stripped = stripImagesWithJsoup(html, outImageUrls);
+        if (stripped != null) {
+            return stripped;
+        }
+        return stripImagesWithRegex(html, outImageUrls);
+    }
+
+    /** 用 Jsoup 走真实属性链抽图；解析失败返回 null，由调用方走正则兜底。 */
+    private static String stripImagesWithJsoup(String html, List<String> outImageUrls) {
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
+            for (org.jsoup.nodes.Element img : doc.select("img")) {
+                String real = ImageUrl.resolve(img);
+                if (real == null) {
+                    // 取不到真实地址 → 保留标签，交给 Glide 自己渲染 src
+                    continue;
+                }
+                String abs = ImageUrl.toAbsolute(real);
+                if (abs == null || abs.isEmpty()) {
+                    continue;
+                }
+                if (isInlineForumImage(abs)) {
+                    // 内联表情：保留在文本里，src 换成补全后的地址
+                    img.attr("src", abs);
+                    continue;
+                }
+                if (abs.startsWith("http://") || abs.startsWith("https://")) {
+                    if (!outImageUrls.contains(abs)) {
+                        outImageUrls.add(abs);
+                    }
+                }
+                img.remove();
+            }
+            return doc.body().html();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 正则兜底：只认 http/https 的 src。 */
+    private static String stripImagesWithRegex(String html, List<String> outImageUrls) {
         Pattern pattern = Pattern.compile("<img[^>]+src\\s*=\\s*['\"]([^'\"]+)['\"][^>]*>",
                 Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(html);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String url = matcher.group(1);
-            // ★ 修复3：补全所有相对路径，否则图片全部丢失
             String fullUrl = normalizeImageUrl(url);
             if (fullUrl == null) fullUrl = url;
 
-            // 过滤内联小图/表情，保留在文本中
             if (isInlineForumImage(fullUrl)) {
-                // 将原img标签中的src替换为补全后的完整URL
                 String origTag = matcher.group(0);
                 String newTag = origTag.replaceFirst("src\\s*=\\s*['\"][^'\"]*['\"]",
                         "src=\"" + fullUrl + "\"");
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(newTag));
                 continue;
             }
-            // 大图：只接受 http/https
             if (fullUrl.startsWith("http://") || fullUrl.startsWith("https://")) {
-                outImageUrls.add(fullUrl);
+                if (!outImageUrls.contains(fullUrl)) {
+                    outImageUrls.add(fullUrl);
+                }
             }
             matcher.appendReplacement(sb, "");
         }

@@ -152,10 +152,84 @@ public final class SignParser {
         return orEmpty(extract(html, "loginhash=([a-zA-Z0-9]+)"));
     }
 
+    /**
+     * 签到排名，归一成<b>纯数字字符串</b>。
+     *
+     * <p>build80 修一个真 bug：原来的第一条正则把
+     * {@code 您的签到排名：(.*?)</div>} 整段抓下来，只做了 stripTags，
+     * 于是返回「您的签到排名：123」而不是「123」。上层
+     * {@code SignResult.display()} 直接拼成「· 排名 您的签到排名：123」，
+     * 用户看到的就是一句重复的废话。
+     *
+     * <p>k_misign 的排名真实来源是隐藏域 {@code qiandaobtnnum}，
+     * 先取它，再退文案。
+     */
     public static String extractRanking(String html) {
-        String v = extract(html, "您的签到排名：(.*?)</div>");
-        if (isBlank(v)) v = extract(html, "您的签到排名[：:]\\s*([0-9]+)");
-        return isBlank(v) ? "" : stripTags(v);
+        if (isBlank(html)) return "";
+        String v = extract(html, "id=\"qiandaobtnnum\"[^>]*value=\"([0-9]+)\"");
+        if (isBlank(v)) v = extract(html, "name=\"qiandaobtnnum\"[^>]*value=\"([0-9]+)\"");
+        if (isBlank(v)) v = extract(html, "value=\"([0-9]+)\"[^>]*(?:id|name)=\"qiandaobtnnum\"");
+        if (isBlank(v)) v = extract(html, "您的签到排名[：:]?\\s*([0-9]+)");
+        if (isBlank(v)) v = extract(html, "签到排名[：:]?\\s*([0-9]+)");
+        if (isBlank(v)) {
+            // 最后兜底：从带前缀的文案里抠出数字
+            String raw = extract(html, "您的签到排名：(.*?)</div>");
+            if (!isBlank(raw)) {
+                Matcher m = Pattern.compile("([0-9]+)").matcher(stripTags(raw));
+                if (m.find()) v = m.group(1);
+            }
+        }
+        return isBlank(v) ? "" : v.trim();
+    }
+
+    /** 连续签到天数 —— 来源是隐藏域 {@code lxdays} */
+    public static String extractContinuousDays(String html) {
+        return firstHiddenNumber(html, "lxdays");
+    }
+
+    /** 累计签到天数 —— 来源是隐藏域 {@code lxtdays} */
+    public static String extractTotalDays(String html) {
+        return firstHiddenNumber(html, "lxtdays");
+    }
+
+    /** 签到等级 —— 隐藏域 {@code lxlevel} */
+    public static String extractLevel(String html) {
+        if (isBlank(html)) return "";
+        String v = extract(html, "id=\"lxlevel\"[^>]*value=\"([^\"]+)\"");
+        if (isBlank(v)) v = extract(html, "name=\"lxlevel\"[^>]*value=\"([^\"]+)\"");
+        if (isBlank(v)) v = extract(html, "value=\"([^\"]+)\"[^>]*(?:id|name)=\"lxlevel\"");
+        return isBlank(v) ? "" : v.trim();
+    }
+
+    /**
+     * 签到时间。
+     *
+     * <p>注意：k_misign <b>没有</b>公认的 {@code lxtime} 隐藏域，
+     * 网上能查到的只有 lxdays/lxtdays/lxlevel/lxreward/qiandaobtnnum。
+     * 所以这里只做文案兜底，拿不到就返回空串 —— 不编造。
+     */
+    public static String extractSignTime(String html) {
+        if (isBlank(html)) return "";
+        String v = extract(html, "签到时间[：:]?\\s*([0-9]{1,4}[-/.][0-9]{1,2}[-/.][0-9]{1,2}"
+                + "(?:\\s+[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?)");
+        if (isBlank(v)) v = extract(html, "([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)\\s*签到");
+        if (isBlank(v)) v = extract(html, "lastsign[^0-9]{0,40}?([0-9]{1,4}-[0-9]{1,2}-[0-9]{1,2})");
+        return isBlank(v) ? "" : v.trim();
+    }
+
+    /** 取 {@code <input type="hidden" id="xxx" value="N">} 这类隐藏域的数字值 */
+    private static String firstHiddenNumber(String html, String id) {
+        if (isBlank(html)) return "";
+        String[] patterns = {
+                "id=\"" + id + "\"[^>]*value=\"([0-9]+)\"",
+                "name=\"" + id + "\"[^>]*value=\"([0-9]+)\"",
+                "value=\"([0-9]+)\"[^>]*(?:id|name)=\"" + id + "\""
+        };
+        for (String p : patterns) {
+            String v = extract(html, p);
+            if (!isBlank(v)) return v.trim();
+        }
+        return "";
     }
 
     public static String extractNickname(String loginResponse) {
@@ -181,10 +255,25 @@ public final class SignParser {
         return isBlank(fromResult) ? "0" : fromResult;
     }
 
-    /** 从签到接口当次返回里抓奖励数量（页面兜底常常拿不到） */
+    /**
+     * 从签到接口当次返回里抓奖励数量（页面兜底常常拿不到）。
+     *
+     * <p>build80 修一个真 bug：原来的模式全是「<b>数字 币种</b>」顺序
+     * （{@code 奖励 8 金币}），而 k_misign 的真实文案是
+     * 「<b>币种 数字</b>」顺序（{@code 金币 8} / {@code 奖励金币 8}）。
+     * 于是 {@link #extractReward} 的页面兜底<b>永远返回 0</b>，
+     * 用户在签到结果里从来看不到奖励数量。
+     *
+     * <p>两种顺序都收，币种在前的优先。
+     */
     public static String extractRewardFromText(String text) {
         if (isBlank(text)) return "0";
         String[] patterns = {
+                // 币种在前：金币 8 / 奖励金币 8 / 获得 MT币 12
+                "(?:金币|威望|贡献|积分|金钱|MT币)\\s*([0-9]+)",
+                "奖励\\s*(?:金币|威望|贡献|积分|金钱|MT币)\\s*([0-9]+)",
+                "获得(?:随机)?(?:奖励)?\\s*(?:金币|威望|贡献|积分|金钱|MT币)\\s*([0-9]+)",
+                // 数字在前：奖励 8 金币 / +8 金币
                 "奖励\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",
                 "奖励\\s*([0-9]+)",
                 "获得(?:随机)?(?:奖励)?\\s*([0-9]+)\\s*(?:金币|威望|贡献|积分|金钱|MT币)",

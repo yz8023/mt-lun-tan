@@ -64,10 +64,18 @@ public final class MtSignApi {
         public boolean blocked;
         /** 展示用状态文案，如 "签到成功" / "今日已签" */
         public String status = "";
-        /** 签到排名 */
+        /** 签到排名（纯数字） */
         public String ranking = "";
         /** 本次奖励 */
         public String reward = "";
+        /** build80: 连续签到天数（lxdays） */
+        public String continuousDays = "";
+        /** build80: 累计签到天数（lxtdays） */
+        public String totalDays = "";
+        /** build80: 签到等级（lxlevel） */
+        public String level = "";
+        /** build80: 签到时间（无公认隐藏域，仅文案兜底，拿不到为空串） */
+        public String signTime = "";
         /** 失败原因 / 附加信息 */
         public String message = "";
         /** 若本次链路刷新了 Cookie，这里带回完整 Cookie 头，上层要回存 */
@@ -81,6 +89,18 @@ public final class MtSignApi {
             }
             if (!TextUtils.isEmpty(reward) && !"0".equals(reward)) {
                 sb.append(" · +").append(reward);
+            }
+            if (!TextUtils.isEmpty(continuousDays)) {
+                sb.append(" · 连签 ").append(continuousDays).append(" 天");
+            }
+            if (!TextUtils.isEmpty(totalDays)) {
+                sb.append(" · 累计 ").append(totalDays).append(" 天");
+            }
+            if (!TextUtils.isEmpty(level)) {
+                sb.append(" · Lv.").append(level);
+            }
+            if (!TextUtils.isEmpty(signTime)) {
+                sb.append(" · ").append(signTime);
             }
             return sb.toString();
         }
@@ -234,6 +254,32 @@ public final class MtSignApi {
 
     // ==================== 签到主流程 ====================
 
+    /**
+     * build80: 把 k_misign 的四个读数一次性灌进 result。
+     *
+     * <p>连签天数 / 累计天数 / 签到等级 / 签到时间 —— 原来链路只取了排名和奖励，
+     * 这四个字段在签到页里一直有，只是没读。
+     */
+    private static void applySignStats(SignResult result, String signPage) {
+        if (result == null || isBlankHtml(signPage)) return;
+        if (TextUtils.isEmpty(result.continuousDays)) {
+            result.continuousDays = SignParser.extractContinuousDays(signPage);
+        }
+        if (TextUtils.isEmpty(result.totalDays)) {
+            result.totalDays = SignParser.extractTotalDays(signPage);
+        }
+        if (TextUtils.isEmpty(result.level)) {
+            result.level = SignParser.extractLevel(signPage);
+        }
+        if (TextUtils.isEmpty(result.signTime)) {
+            result.signTime = SignParser.extractSignTime(signPage);
+        }
+    }
+
+    private static boolean isBlankHtml(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
     private static SignResult doSign(Session session, SignResult result) {
         try {
             // ① 先取签到页：一次请求同时拿到 formhash、是否已签、排名，也顺带验证 Cookie
@@ -250,6 +296,7 @@ public final class MtSignApi {
             }
 
             result.ranking = SignParser.extractRanking(signPage);
+            applySignStats(result, signPage);
 
             // ② 已经签过就别再提交了，省一次请求也避免风控
             if (SignParser.isAlreadySigned(signPage)) {
@@ -286,6 +333,7 @@ public final class MtSignApi {
             if (SignParser.isBlocked(after)) return blocked(result, session);
             boolean signedNow = SignParser.isAlreadySigned(after);
             result.ranking = SignParser.extractRanking(after);
+            applySignStats(result, after);
 
             String rewardFromApi = SignParser.extractRewardFromText(raw);
             result.reward = !"0".equals(rewardFromApi) ? rewardFromApi : SignParser.extractReward(after);

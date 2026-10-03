@@ -61,14 +61,27 @@ public class SiteVerifyActivity extends AppCompatActivity {
                     boolean loginPage = lower.contains("type=\\\"password\\\"")
                             || lower.contains("name=\\\"password\\\"")
                             || lower.contains("loginform");
+                    // evaluateJavascript 返回的是 JSON 字符串字面量（带引号且内部转义），
+                    // 还原成原始 HTML 再交给结构判定用，否则 " 会把 <html / <script 之类的
+                    // 判据打乱。
+                    String html = value;
+                    if (html != null && html.length() >= 2 && html.startsWith("\"") && html.endsWith("\"")) {
+                        try { html = new org.json.JSONTokener(value).nextValue().toString(); }
+                        catch (Throwable ignored) {}
+                    }
                     if (loginPage && url != null && url.contains("bbs.binmt.cc")) {
                         autoFillSavedAccount();
                         return;
                     }
-                    boolean forum = lower.contains("comiis_") || lower.contains("discuz_uid")
-                            || lower.contains("discuz_tips") || lower.contains("formhash");
-                    // 登录表单也含 formhash，必须先排除；否则会在自动填充前误判恢复完成。
-                    if (forum && url != null && url.contains("bbs.binmt.cc") && !resolved) completeRecovery();
+                    // build80: 判定改成「<b>不是</b>防护页」而不是「像论坛页」。
+                    // 原来的 DOM 特征串（comiis_/discuz_uid/formhash）有两个问题：
+                    // ① 登录表单里也有 formhash，代码自己都承认要先排除；
+                    // ② 站点改版、或者挑战页里残留一点论坛痕迹时，串就失效。
+                    // 「不是挑战页」是同一个判据的正反面，且与网络层
+                    // SiteAccessManager.isChallengePage 用的是同一套逻辑，两边不会再打架。
+                    boolean challenge = com.solosu.mtforum.network.InterstitialDetector
+                            .looksLikeInterstitialPage(html, "text/html");
+                    if (!challenge && url != null && url.contains("bbs.binmt.cc") && !resolved) completeRecovery();
                 });
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return false; }
@@ -113,6 +126,8 @@ public class SiteVerifyActivity extends AppCompatActivity {
 
     private void completeRecovery() {
         resolved = true;
+        // build80: 通知网络层「验证已通过」，让拦截器可以重放被拦住的请求
+        SiteAccessManager.markCleared();
         SessionGuard.recoverAfterBrowser(this, (success, message) -> {
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
             if (success) { setResult(RESULT_OK); finish(); }
@@ -121,7 +136,7 @@ public class SiteVerifyActivity extends AppCompatActivity {
     }
 
     @Override protected void onPause() { CookieManager.getInstance().flush(); HttpClient.getInstance().syncFromCookieManager(); super.onPause(); }
-    @Override protected void onDestroy() { HttpClient.getInstance().syncFromCookieManager(); SiteAccessManager.markClosed(); if(web!=null) web.destroy(); super.onDestroy(); }
+    @Override protected void onDestroy() { HttpClient.getInstance().syncFromCookieManager(); SiteAccessManager.markClosed(); SiteAccessManager.resetClearance(); if(web!=null) web.destroy(); super.onDestroy(); }
     private TextView text(String s,float z){TextView v=new TextView(this);v.setText(s);v.setTextSize(z);v.setTextColor(getColor(R.color.text_primary));return v;}
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
 }

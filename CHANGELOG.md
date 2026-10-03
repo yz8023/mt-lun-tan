@@ -1,5 +1,38 @@
 # 更新日志
 
+## v4.8 (versionCode 33) — 过人机验证 · 图片链路 · 进帖速度 · 签到读数
+
+对照 `qcxs/mtbbs_app` 解决的四个问题：
+
+**一、过人机验证（移植 mtbbs_app 的四层机制）**
+- 拦截器守门器接到全部 HTML 响应上：原来只有走 `checkAuthFailure` 的少数路径会发现挑战页，列表页/帖子页的其它请求命中挑战时只是「解析不出东西」，没有任何提示。现在每个 200 的 text/html 响应都会判定，命中即打开验证 WebView，通过后重放原请求（仅 GET，写操作不自动重放以避免重复提交）。
+- 挑战页判定从「厂商特征串匹配」改为「结构判定」优先：原判据是 `acw_sc__v2`/`aliyungf_tc`/`__jsl_clearance`/`人机验证` 等字符串，换个 WAF 或站点改版就全军覆没，而页面还是那个页面。新判据是「看起来像一个完整 HTML 文档，却完全没有 Discuz 骨架」，与是哪家 WAF 无关，且自带保守性（残留 `discuz`/`formhash`/`comiis_` 就不判拦截），不会平白弹浏览器。厂商特征保留为兜底。验证 WebView 的恢复判定也改用同一套判据，两边不会再打架。
+- 修掉「疯狂重登死循环」：原来 `checkAuthFailure` 把 HTTP 401/403 当掉线信号。但 403 现在绝大多数是阿里云 ESA 的 WAF 拦截（含图片 CDN 对空 UA 的 403），跟登录态无关，拿它触发静默重登会形成「重登还是 403」的循环，而且重登拿的新 Cookie 根本解不开 JS 挑战。现在掉线只认一件事：本以为已登录，结果返回的是登录页。
+- 请求头发送前剔除「浏览方式」Cookie `{cookiepre}_mobile`：站点在「该页面无手机版」时会下发它，而它的优先级高于 UA 和 URL 里的 `mobile=2`，一旦罐里躺着这条，所有请求都被强制返回 PC 模板，而本项目解析器按 Comiis 移动模板写，于是正文/图片整套解析失效（实测同 UA 同 URL，有它 89KB PC 表格 vs 没它 173KB 移动卡片）。只改「发什么」，不动罐里数据。
+- 新增 `CookieSync`：核心/临时 Cookie 分类回流，判据 `{cookiepre}auth`（MT 前缀 `cQWy_2132_`），把防护 Cookie 补写到所有账号罐。
+
+**二、正文图片显示异常/不显示**
+- 评论区图片：`ReplyAdapter` 原来只用一条正则读 `src`，而本论坛用 Comiis 懒加载，真实地址在 `file`/`comiis_loadimages` 属性里，`src` 只是占位图。改用 Jsoup 走真实属性链，正则退为兜底。
+- `ForumParser.isPostImageUrl` 原来按 `icon`/`face`/`stamp`/`magic` 裸子串过滤，而 Discuz 附件命名固定 `common_{aid}_{hash}_icon.png`，即每个附件缩略图都带 `_icon`，全被误杀——这就是「选择显示图片到原处时部分帖子图片消失」的直接原因。改为只认真实 Discuz smiley 路径。
+- 占位图黑名单补 `imageloading.gif`（Comiis 真正在用的懒加载占位文件名），否则解析出的「真实 URL」就是占位图本身。
+- `upgradeThumbnailsToFull` 原来把取不到真实地址的 img 整张删掉，但取不到地址不等于不该显示，删掉就成了「能看的图被吃掉」。改为能升级就升级，不能升级就原样留着。
+- 统一 `ImageUrl`，让列表页、帖子页、评论区三条路径对「什么是真实 URL / 占位图 / 内联表情」判断一致。
+
+**三、加载速度**
+- 进帖链路的 `enrichGoodReviewAvatars` + `refreshServerActionState` 从「解析后、渲染前」的同步位置移到渲染后异步执行。两者都是整页请求（一个拉桌面版、一个拉收藏列表），原位置等于让它们阻塞首屏，进帖要串行发 3 个页面请求才看到第一屏内容。
+- 拦截器提前放行：真实 Discuz 页面远大于判定上限（列表页 174KB、帖子页 ~50KB），挑战页只有几 KB，用 Content-Length 提前放行可避免每个 HTML 响应都被整个读进内存再判断，大帖（几百楼）的首屏明显更快。
+
+**四、签到读数**
+- 新增连签天数（`lxdays`）、累计天数（`lxtdays`）、签到等级（`lxlevel`）、签到排名（`qiandaobtnnum`）的读取。
+- 修 `extractRanking`：原来把「您的签到排名：123」整段返回，上层拼成「· 排名 您的签到排名：123」，用户看到一句重复的废话。现在归一成纯数字。
+- 修 `extractRewardFromText`：原来只认「数字 币种」顺序（`奖励 8 金币`），而 k_misign 真实文案是「币种 数字」（`金币 8`），导致奖励永远显示 0。两种顺序都收，币种在前的优先。
+- 签到时间仅做文案兜底：k_misign 没有公认的 `lxtime` 隐藏域，拿不到返回空串，不编造。
+
+**工程**
+- `ImageUrl`/`InterstitialDetector`/`CookieSync` 改为不依赖任何 `android.*` 类（本项目 `SignParser` 从 build60 起就是同一条约定），单元测试不再需要 mock `TextUtils`；release 单测 95 项全绿。
+
+---
+
 ## v4.7 (versionCode 32) — Android DNS 隧道与帖子图片修复
 
 - 根据真机错误确认 cloudflared 的 Go DNS 在 Android 上读取到占位解析器 `[::1]:53`，请求 `api.trycloudflare.com/tunnel` 因而直接失败；这不是公网服务地址，旧版还误把错误日志中的 API 域名复制成了 MCP URL。
