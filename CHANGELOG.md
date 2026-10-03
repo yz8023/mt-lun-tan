@@ -1,5 +1,22 @@
 # 更新日志
 
+## v5.0 (versionCode 35) — 回帖渲染跳过重复 HTML 解析
+
+对照 `yz8023/mtluntan`（Kotlin + Jetpack Compose 重写版）逐项比对后的性能收尾。
+
+**渲染热点**
+- `ReplyAdapter.onBindViewHolder` 里对每条回帖调 `Html.fromHtml`，每次 bind 都完整解析 HTML 并重建整棵 span 树。列表每滚一屏，可见的十几段就全部重解析一遍。现在把解析结果缓存进 `ReplyItem.renderedText` / `renderedQuote`，纯文本回帖只在首次算一次。
+- **只缓存「没有任何内联图片」的回帖**。原因：`Html.ImageGetter` 在解析时会捕获当时那个 TextView，Glide 加载完成后把图回填到那个 View 上；回帖 View 是被 RecyclerView 复用的，缓存带图的 Spanned 会让图片回填到错误的一行。用 `ImageSpan` 数量判定，有图就保持每次重新解析——正确性优先。
+- **缓存存「未被污染的副本」，每次发副本**。`setupClickableLinks` 是就地改 span 的：`matcherLinkify` 往里加 ClickableSpan，又把 Html 产生的 URLSpan removeSpan 后换成自定义 ClickableSpan。如果缓存对象被直接复用，第二次 bind 时 `matcherLinkify` 会再叠一套 ClickableSpan——同一段文字挂两个点击处理器，点一下可能开两个页面。所以存原件、每次 `new SpannableString(...)` 发副本；`Html.fromHtml`（HTML 解析 + 建 span 树）才是真正贵的部分，副本只是字符和 span 的浅拷贝。
+
+**与参照项目的差异结论（本轮未改）**
+- 节流不是差异：`yz8023/mtluntan` 的 `RequestThrottle` 与本项目 build69 的双车道设计几乎一致（前台不等、后台令牌桶、约 85 请求/分钟）。
+- 帖子详情请求数：参照项目就是 1 个请求后立即解析，无 enrich / 收藏同步 / 桌面版整页；本项目 v4.8 已把这两个附加请求挪到渲染后异步。
+- 参照项目也有桌面模式开关（`desktopMode` + PC 版帖子 URL），说明 PC 模板分页更多这点同样被发现，但默认关闭。
+- 参照项目用 `AnnotatedString` 原生渲染正文，本项目在 `onBindViewHolder` 跑 `Html.fromHtml` + `ImageGetter`（全项目 26 处）。这是更深一层的架构差异，改动渲染模型风险和工作量都大得多，本轮未动。
+
+---
+
 ## v4.9 (versionCode 34) — 修 cookie 获取登录失效 · 评论区滚动卡顿
 
 **一、修「cookie 获取登录失效」（build80 引入的致命回归）**

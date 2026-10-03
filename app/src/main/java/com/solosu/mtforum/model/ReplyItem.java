@@ -19,6 +19,24 @@ public class ReplyItem {
     private String contentText;     // 纯文本内容（不含引用块）
 
     /**
+     * build82: 已解析好的正文 {@link CharSequence}（Spanned）缓存。
+     *
+     * <p>只在「<b>没有任何内联图片</b>」时才写入。原因：{@code Html.fromHtml}
+     * 的 {@code ImageGetter} 会在解析时捕获当时那个 TextView，Glide 加载完成后
+     * 回填到<b>那个</b> View 上。回帖 View 是被 RecyclerView 复用的，
+     * 缓存带图片的 Spanned 会导致图片回填到错误的行上 —— 所以带图的一律不缓存，
+     * 保持每次 bind 重新解析（正确性优先）。
+     *
+     * <p>纯文本回帖占绝大多数，这部分因此能完全跳过 Html.fromHtml。
+     */
+    private transient CharSequence renderedText;
+
+    /**
+     * build82: 引用块的已解析文本缓存（引用块同样只在无图片时缓存）。
+     */
+    private transient CharSequence renderedQuote;
+
+    /**
      * build81: 「懒加载 src 已升级为真实附件地址」之后的 HTML 缓存。
      *
      * <p>原来这段 Jsoup 解析写在 {@code ReplyAdapter.onBindViewHolder} 里，
@@ -73,6 +91,18 @@ public class ReplyItem {
 
     /** build81: 写入升级后的 HTML 缓存（只在首次计算时调用）。 */
     public void setUpgradedHtml(String v) { this.upgradedHtml = v; }
+
+    /** build82: 正文 Spanned 缓存；null 表示未缓存（含图片或还没算过）。 */
+    public CharSequence getRenderedText() { return renderedText; }
+
+    /** build82: 写入正文 Spanned 缓存（仅无图片时）。 */
+    public void setRenderedText(CharSequence v) { this.renderedText = v; }
+
+    /** build82: 引用块 Spanned 缓存。 */
+    public CharSequence getRenderedQuote() { return renderedQuote; }
+
+    /** build82: 写入引用块 Spanned 缓存（仅无图片时）。 */
+    public void setRenderedQuote(CharSequence v) { this.renderedQuote = v; }
     public void setContentHtml(String contentHtml) { this.contentHtml = contentHtml; }
 
     public String getContentText() { return contentText; }

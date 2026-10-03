@@ -251,8 +251,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             String quotedText = item.getQuotedContentText();
             if (!TextUtils.isEmpty(quotedText)) {
                 layoutReplyQuote.setVisibility(View.VISIBLE);
-                tvReplyQuote.setText(Html.fromHtml(quotedText, Html.FROM_HTML_MODE_COMPACT,
-                        createInlineImageGetter(tvReplyQuote), BBCodeUtil.createTagHandler(itemView.getContext())));
+                tvReplyQuote.setText(parseCached(
+                        item, true, quotedText, tvReplyQuote, itemView.getContext()));
                 attachCopyOnLongClick(tvReplyQuote);
                 // build63: 长引用默认折 4 行，可展开；旁边给一键复制
                 setupQuoteControls(tvReplyQuote, btnQuoteToggle, btnQuoteCopy);
@@ -298,8 +298,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             }
             if (!TextUtils.isEmpty(rendered)) {
                 tvContent.setVisibility(View.VISIBLE);
-                tvContent.setText(Html.fromHtml(rendered, Html.FROM_HTML_MODE_COMPACT,
-                        createInlineImageGetter(tvContent), BBCodeUtil.createTagHandler(itemView.getContext())));
+                tvContent.setText(parseCached(
+                        item, false, rendered, tvContent, itemView.getContext()));
                 setupClickableLinks(tvContent);
                 attachCopyOnLongClick(tvContent);
                 llReplyImages.removeAllViews();
@@ -672,6 +672,65 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     }
 
     // ==================== 内联图片渲染（表情等） ====================
+
+    /**
+     * build82: 解析 HTML，并在「没有内联图片」时把结果缓存回 {@link ReplyItem}。
+     *
+     * <p>{@code Html.fromHtml} 每次都要完整解析 HTML 并构建整棵 span 树，
+     * 原来写在 {@code onBindViewHolder} 里，滚动时每滚一屏就把可见的十几段
+     * 全部重解析一遍。纯文本回帖占绝大多数，这部分现在只在首次算一次。
+     *
+     * <p><b>为什么带图的不缓存</b>：{@code ImageGetter} 在解析时捕获了当时那个
+     * TextView，Glide 加载完成后把图回填到那个 View 上。回帖 View 会被
+     * RecyclerView 复用，缓存带图的 Spanned 会让图片回填到错误的一行。
+     * 所以这里用 {@code ImageSpan} 数量判定：有图就每次重新解析，保证正确。
+     */
+    private static CharSequence parseCached(ReplyItem item, boolean quote,
+                                            String html, TextView target, Context ctx) {
+        CharSequence cached = quote ? item.getRenderedQuote() : item.getRenderedText();
+        if (cached != null) {
+            return copyOf(cached);
+        }
+        CharSequence parsed = Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT,
+                createInlineImageGetter(target), BBCodeUtil.createTagHandler(ctx));
+        if (parsed instanceof android.text.Spanned) {
+            android.text.Spanned sp = (android.text.Spanned) parsed;
+            if (sp.getSpans(0, sp.length(), android.text.style.ImageSpan.class).length == 0) {
+                // 无内联图片 → 与目标 View 无关，可安全缓存。
+                // 注意存的是<b>未被污染的副本</b>：见 copyOf 的说明。
+                CharSequence pristine = copyOf(parsed);
+                if (quote) {
+                    item.setRenderedQuote(pristine);
+                } else {
+                    item.setRenderedText(pristine);
+                }
+            }
+        }
+        return parsed;
+    }
+
+    /**
+     * 复制一份可自由改写的文本。
+     *
+     * <p>为什么必须复制：{@code setupClickableLinks} 是<b>就地</b>改 span 的 ——
+     * {@code matcherLinkify} 往里加 ClickableSpan，又把 Html 产生的 URLSpan
+     * removeSpan 后换成自定义 ClickableSpan。如果缓存对象被直接复用，
+     * 第二次 bind 时 URLSpan 已经没了（不会重复替换，这段没事），
+     * 但 {@code matcherLinkify} 会<b>再叠一套</b> ClickableSpan 上去 ——
+     * 同一段文字挂两个点击处理器，点一下可能开两个页面。
+     *
+     * <p>{@code Html.fromHtml}（HTML 解析 + 建整棵 span 树）才是真正贵的部分，
+     * {@code new SpannableString(...)} 只是字符和 span 的浅拷贝，便宜得多。
+     * 所以「存原件、发副本」既拿到缓存的收益，又不破坏 linkify 的语义。
+     *
+     * <p>纯 {@code String} 不可变，直接返回即可。
+     */
+    private static CharSequence copyOf(CharSequence src) {
+        if (src instanceof android.text.Spanned) {
+            return new android.text.SpannableString(src);
+        }
+        return src;
+    }
 
     /**
      * 为 Html.fromHtml 提供 ImageGetter，用 Glide 异步加载内联图片（表情等小图）
