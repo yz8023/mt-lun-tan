@@ -1,5 +1,53 @@
 # 更新日志
 
+## v5.1 (versionCode 36) — 修「图片依旧不显示」：27 处图片加载补上 UA/Referer/Cookie
+
+**这是 v4.8 以来第 5 次尝试修图片，前 4 次都没修对地方。**
+
+### 根因
+
+v4.8 修的是"从 HTML 里挑出真实图片地址"这一层（Jsoup 属性链、`_icon.png` 被误杀、占位图黑名单、`upgradeThumbnailsToFull` 不再删图）。那一层确实有问题，但**不是用户看到"图片不显示"的主因**。
+
+真正的主因在**加载层**：
+
+- 本站配图是 `cdn.binmt.cc/forum.php?mod=image&aid=…&key=…`，实测 **UA 为空直接 403**；头像 `avatar.mt2.cn/uc_server/avatar.php` 同理会 403。
+- 项目里早就有一个能用的封装 `util/ForumImageLoader.model(url)`，它把地址包成带 `User-Agent` + `Referer` + `Cookie` 的 `GlideUrl`。
+- **但它只在 5 处被调用，全在 `ui/detail/` 里**。全项目 31 处 `.load()` 中另外 26 处是裸的 `Glide.with(ctx).load(url)`，一个 header 都不带。
+
+后果：帖子正文的行内图（走 `ThreadDetailActivity` 的 ImageGetter 路径，恰好用了封装）能显示，而**论坛列表页的头像、封面图网格、缩略图**，以及**全 App 各处的头像**——全部 403，只看到 placeholder / error 占位图。
+
+也就是说：v4.8 把"挑地址"修好了，但图片请求从来没带过 UA，列表页和头像从头到尾都是坏的。这解释了为什么用户反复反馈"图片依旧没修复"。
+
+### 改法
+
+把 27 处网络图片加载全部接上 `ForumImageLoader.model(...)`，覆盖 13 个文件：
+
+| 位置 | 影响 |
+|---|---|
+| `adapter/ThreadAdapter`（3 处） | **列表页头像 / 封面图网格 / 缩略图** —— 用户看得最多的界面 |
+| `adapter/ChatMessageAdapter`、`FriendAdapter`、`MessageAdapter`、`AccountAdapter`、`LikeUsersAdapter`、`ReplyAdapter`（各 1 处） | 私信 / 好友 / 账号管理 / 点赞用户 / 回帖的头像 |
+| `adapter/ForumGridAdapter`、`ui/forum/ForumDetailActivity` | 版块图标 |
+| `ui/detail/ThreadDetailActivity`（6 处） | 楼主头像、正文图廊、参与者头像、点赞者头像、打赏页头像 |
+| `ui/profile/ProfileFragment`、`ui/space/UserProfileActivity`、`MainActivity`（2 处）、`ui/BlacklistActivity` | 个人页 / 抽屉 / 黑名单头像 |
+
+顺带把 `ForumImageLoader.model()` 改成**只包 http(s) 地址**：本地路径（`/storage/…`、`file://`、`content://`）包成 `GlideUrl` 会让 Glide 走网络加载器、必然失败。改完之后调用方可以无脑全量使用，不会误伤本地图片（发帖页选图、拍照预览仍走原样路径，未改动）。
+
+### 验证
+
+- 逐处扫描全项目 `.load()`：31 处中 27 处已包裹，剩余 4 处经确认**应当**保持原样——2 处本地相机 `uri`、2 处本地文件路径 `af.path`、1 处是 `KeyStore.load(null)` 与 Glide 无关。
+- `load(Object)` 重载在真实 Glide 4.16.0 上编译通过（该写法在 v5.0 里已有 5 处先例，非新引入）。
+- 单测 **103 tests / 0 failures / 0 errors**。
+
+---
+
+## v5.1 附带：切号/登出清图片缓存
+
+build65 在 HTTP 层已处理过"切号后新账号复用上一个账号的页面结果"（`switchTo` 清 `clearPendingCache()` + `clearCookies()`），**图片层被漏掉了**：Glide 磁盘缓存 key 只有 URL、不带 Cookie/UA，而本站配图 UA 为空就 403 —— "能不能看到图"取决于会话，"命不命中缓存"只取决于 URL。于是账号 A 读过的图，切到 B 或登出后照样从磁盘命中显示。
+
+新增 `util/ImageCacheJanitor`（后台线程清 Glide 磁盘缓存，全程 try/catch，清理失败不影响登出主流程），接线两处：`UserSessionManager.clearLoginInfo()`（所有登出路径的共同收口）与 `AccountManager.switchTo()`。
+
+---
+
 ## v5.0 (versionCode 35) — 回帖渲染跳过重复 HTML 解析
 
 对照 `yz8023/mtluntan`（Kotlin + Jetpack Compose 重写版）逐项比对后的性能收尾。

@@ -415,6 +415,12 @@ public class AccountManager {
             client.restoreCookieStore(c.getApplicationContext());
             client.syncToCookieManager();
 
+            // build83: HTTP 层清了，图片层也得清。Glide 磁盘缓存 key 只有 URL、
+            // 不带 Cookie/UA，不清的话切号后新账号照样显示上一个账号读过的配图。
+            // 与上面 clearPendingCache() 是同一类问题的两个面。
+            com.solosu.mtforum.util.ImageCacheJanitor
+                    .clearPreviousAccountImages(c.getApplicationContext());
+
             SWITCH_EPOCH.incrementAndGet();
             return true;
         } catch (Exception e) {

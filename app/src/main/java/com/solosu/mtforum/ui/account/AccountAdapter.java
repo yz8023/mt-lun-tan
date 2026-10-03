@@ -92,7 +92,7 @@ public class AccountAdapter extends RecyclerView.Adapter<AccountAdapter.VH> {
         if (!TextUtils.isEmpty(account.avatar)) {
             try {
                 Glide.with(holder.ivAvatar.getContext())
-                        .load(account.avatar)
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(account.avatar))
                         .placeholder(R.drawable.ic_account)
                         .error(R.drawable.ic_account)
                         .circleCrop()

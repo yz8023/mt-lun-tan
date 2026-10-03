@@ -343,7 +343,7 @@ public class UserProfileActivity extends AppCompatActivity {
         String avatarUrl = profile.getAvatarUrl();
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(this)
-                    .load(avatarUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(avatarUrl))
                     .placeholder(R.drawable.ic_account)
                     .error(R.drawable.ic_account)
                     .circleCrop()

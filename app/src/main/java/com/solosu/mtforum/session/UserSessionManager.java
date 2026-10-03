@@ -76,6 +76,12 @@ public class UserSessionManager {
                 .remove(KEY_LEVEL)
                 .remove(KEY_LAST_LOGIN)
                 .apply();
+        // build83: 登出要连图片缓存一起清。Glide 磁盘缓存的 key 只有 URL、不带
+        // Cookie/UA，而本站配图 UA 为空就 403 —— 不清的话退出登录后上一个账号
+        // 读过的图照样从磁盘命中显示，就是"图片显示异常"的一种成因。
+        // 所有登出路径（ProfileFragment / LoginBottomSheet / 账号管理）都走这里，
+        // 在这一处收口即可全覆盖。
+        com.solosu.mtforum.util.ImageCacheJanitor.clearPreviousAccountImages(context);
     }
 
     /**

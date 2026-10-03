@@ -280,7 +280,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         String avatarUrl = thread.getAvatarUrl();
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(context)
-                    .load(avatarUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(avatarUrl))
                     .placeholder(R.drawable.ic_account)
                     .error(R.drawable.ic_account)
                     .circleCrop()
@@ -314,7 +314,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
                 imageView.setBackgroundResource(R.drawable.thread_image_bg);
                 imageView.setClipToOutline(true);
                 Glide.with(context)
-                        .load(imageUrls.get(i))
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(i)))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
                         .centerCrop()
@@ -326,7 +326,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) {
                 holder.ivThumbnail.setVisibility(View.VISIBLE);
                 Glide.with(context)
-                        .load(thumbnailUrl)
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(thumbnailUrl))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
                         .centerCrop()

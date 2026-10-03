@@ -36,7 +36,7 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<ChatMessageAdapter.
         date.setText(m.getDate() == null ? "" : m.getDate());
         date.setVisibility(m.getDate() == null || m.getDate().isEmpty() ? View.GONE : View.VISIBLE);
         time.setText(m.getTime() == null ? "" : m.getTime());
-        if (m.getAvatarUrl() != null && !m.getAvatarUrl().isEmpty()) Glide.with(context).load(m.getAvatarUrl()).circleCrop().into(avatar);
+        if (m.getAvatarUrl() != null && !m.getAvatarUrl().isEmpty()) Glide.with(context).load(com.solosu.mtforum.util.ForumImageLoader.model(m.getAvatarUrl())).circleCrop().into(avatar);
         else avatar.setImageResource(R.drawable.ic_account);
     }
     @Override public int getItemCount() { return items.size(); }

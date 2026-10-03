@@ -89,7 +89,7 @@ public class ForumDetailActivity extends AppCompatActivity {
         // 加载图标
         if (iconUrl != null && !iconUrl.isEmpty()) {
             Glide.with(this)
-                    .load(iconUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(iconUrl))
                     .placeholder(R.drawable.ic_circle)
                     .circleCrop()
                     .into(binding.ivForumIcon);

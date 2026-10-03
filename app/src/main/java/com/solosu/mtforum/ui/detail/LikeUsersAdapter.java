@@ -68,7 +68,7 @@ public class LikeUsersAdapter extends RecyclerView.Adapter<LikeUsersAdapter.VH> 
         String avatar = position < avatars.size() ? avatars.get(position) : null;
         if (avatar != null && !avatar.isEmpty()) {
             Glide.with(holder.itemView.getContext())
-                    .load(avatar)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(avatar))
                     .circleCrop()
                     .placeholder(new android.graphics.drawable.ColorDrawable(0xFFE0E0E0))
                     .error(new android.graphics.drawable.ColorDrawable(0xFFBDBDBD))

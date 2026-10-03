@@ -610,7 +610,7 @@ public class MainActivity extends AppCompatActivity {
         if (!android.text.TextUtils.isEmpty(account.avatar)) {
             try {
                 com.bumptech.glide.Glide.with(this)
-                        .load(account.avatar)
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(account.avatar))
                         .placeholder(R.drawable.ic_account)
                         .error(R.drawable.ic_account)
                         .circleCrop()
@@ -869,7 +869,7 @@ public class MainActivity extends AppCompatActivity {
             String avatar = session.getAvatarUrl(this);
             if (logged && !android.text.TextUtils.isEmpty(avatar)) {
                 com.bumptech.glide.Glide.with(this)
-                        .load(avatar)
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(avatar))
                         .placeholder(R.drawable.ic_account)
                         .error(R.drawable.ic_account)
                         .circleCrop()

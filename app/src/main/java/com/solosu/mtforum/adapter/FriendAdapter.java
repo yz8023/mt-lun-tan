@@ -74,7 +74,7 @@ public class FriendAdapter extends RecyclerView.Adapter<FriendAdapter.ViewHolder
         String avatarUrl = friend.getAvatarUrl();
         if (avatarUrl != null && !avatarUrl.isEmpty()) {
             Glide.with(context)
-                    .load(avatarUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(avatarUrl))
                     .placeholder(R.drawable.ic_account)
                     .error(R.drawable.ic_account)
                     .circleCrop()

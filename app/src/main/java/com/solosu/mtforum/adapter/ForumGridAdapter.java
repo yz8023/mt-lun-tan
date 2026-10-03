@@ -84,7 +84,7 @@ public class ForumGridAdapter extends RecyclerView.Adapter<ForumGridAdapter.View
         String iconUrl = forum.getIconUrl();
         if (iconUrl != null && !iconUrl.isEmpty()) {
             Glide.with(context)
-                    .load(iconUrl)
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model(iconUrl))
                     .placeholder(R.drawable.ic_circle)
                     .circleCrop()
                     .into(holder.ivIcon);

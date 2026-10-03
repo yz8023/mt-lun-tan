@@ -151,7 +151,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
             String avatarUrl = item.getAvatarUrl();
             if (!TextUtils.isEmpty(avatarUrl)) {
                 Glide.with(ivAvatar.getContext())
-                        .load(avatarUrl)
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(avatarUrl))
                         .transform(new CircleCrop())
                         .placeholder(R.drawable.ic_account)
                         .error(R.drawable.ic_account)

@@ -666,7 +666,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
         });
         String avatarUrl = postDetail.getAvatarUrl();
         if (!TextUtils.isEmpty(avatarUrl)) {
-            Glide.with((FragmentActivity) this).load(avatarUrl).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(this.binding.ivAuthorAvatar);
+            Glide.with((FragmentActivity) this).load(com.solosu.mtforum.util.ForumImageLoader.model(avatarUrl)).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(this.binding.ivAuthorAvatar);
         } else {
             this.binding.ivAuthorAvatar.setImageResource(R.drawable.ic_account);
         }
@@ -811,7 +811,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
                             ThreadDetailActivity.this.lambda$bindData$26(str2, view);
                         }
                     });
-                    Glide.with((FragmentActivity) this).load(str2).placeholder(new ColorDrawable(getColor(R.color.background_secondary))).error((Drawable) new ColorDrawable(getColor(R.color.divider))).into(imageView);
+                    Glide.with((FragmentActivity) this).load(com.solosu.mtforum.util.ForumImageLoader.model(str2)).placeholder(new ColorDrawable(getColor(R.color.background_secondary))).error((Drawable) new ColorDrawable(getColor(R.color.divider))).into(imageView);
                     this.binding.llImageGallery.addView(imageView);
                     iDpToPx = iDpToPx;
                     z2 = true;
@@ -1144,7 +1144,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
             avatar.setPadding(dpToPx(1), dpToPx(1), dpToPx(1), dpToPx(1));
             avatar.setBackgroundResource(R.drawable.circle_avatar_bg);
             String url = avatarUrls.get(i);
-            Glide.with((FragmentActivity) this).load(url).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(avatar);
+            Glide.with((FragmentActivity) this).load(com.solosu.mtforum.util.ForumImageLoader.model(url)).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(avatar);
             linearLayout.addView(avatar);
         }
         int i2 = avatarUrls.size();
@@ -2788,7 +2788,7 @@ private void viewHiddenContent() {
             iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
             iv.setImageResource(R.drawable.ic_account);
             if (!TextUtils.isEmpty(avatar)) {
-                com.bumptech.glide.Glide.with(this).load(avatar).circleCrop()
+                com.bumptech.glide.Glide.with(this).load(com.solosu.mtforum.util.ForumImageLoader.model(avatar)).circleCrop()
                         .placeholder(new android.graphics.drawable.ColorDrawable(0xFFE0E0E0))
                         .error(new android.graphics.drawable.ColorDrawable(0xFFBDBDBD))
                         .into(iv);
@@ -2837,7 +2837,7 @@ private void viewHiddenContent() {
                             nameViews.get(k).setText(it.name);
                             if (!TextUtils.isEmpty(it.avatar)) {
                                 com.bumptech.glide.Glide.with(ThreadDetailActivity.this)
-                                        .load(it.avatar).circleCrop()
+                                        .load(com.solosu.mtforum.util.ForumImageLoader.model(it.avatar)).circleCrop()
                                         .placeholder(new android.graphics.drawable.ColorDrawable(0xFFE0E0E0))
                                         .error(new android.graphics.drawable.ColorDrawable(0xFFBDBDBD))
                                         .into(imgViews.get(k));
@@ -3547,7 +3547,7 @@ private void viewHiddenContent() {
             tvAuthorName.setText(displayName);
             tvHint.setText("给 " + displayName + " 打赏鼓励吧");
             if (!TextUtils.isEmpty(displayAvatar)) {
-                Glide.with(this).load(displayAvatar).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(ivAvatar);
+                Glide.with(this).load(com.solosu.mtforum.util.ForumImageLoader.model(displayAvatar)).transform(new CircleCrop()).placeholder(R.drawable.ic_account).error(R.drawable.ic_account).into(ivAvatar);
             } else {
                 ivAvatar.setImageResource(R.drawable.ic_account);
             }

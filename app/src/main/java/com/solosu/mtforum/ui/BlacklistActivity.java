@@ -132,7 +132,7 @@ public class BlacklistActivity extends AppCompatActivity {
             });
             // 头像: 全站最可靠的 uc_server/avatar.php?uid=N 构造, 服务端条目也一样能拿
             Glide.with(BlacklistActivity.this)
-                    .load("https://bbs.binmt.cc/uc_server/avatar.php?uid=" + e.uid + "&size=middle")
+                    .load(com.solosu.mtforum.util.ForumImageLoader.model("https://bbs.binmt.cc/uc_server/avatar.php?uid=" + e.uid + "&size=middle"))
                     .placeholder(R.drawable.ic_account)
                     .error(R.drawable.ic_account)
                     .circleCrop()
