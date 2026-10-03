@@ -65,14 +65,23 @@ public final class UiSettings {
     }
 
     /**
-     * 正文图片位置（默认「原位」）。
+     * 正文图片位置。
      * true  = 图片留在正文里原来的位置，图文混排；
-     * false = 全部抽出来汇总到帖子底部的横滑图廊（旧行为）。
+     * false = 全部抽出来汇总到帖子底部的横滑图廊（v2.2 的行为）。
+     *
+     * <p><b>build87：默认值改回 false。</b>
+     * build68 起默认改成「原位」，理由是图文混排更贴近原站观感。但那条路实际不出图：
+     * 它依赖 {@code Html.fromHtml} + {@code createInlineImageGetter} + Glide 三者配合，
+     * 而同一批图片在 v2.2 的「抽离 + 底部图廊」下是正常的（用户实测 v2.2 可用、
+     * 之后版本不行）。改动的同时还把 {@code galleryUrls} 的填充条件设成了
+     * {@code !imagesInline}，于是底部图廊被一起关掉 —— 两条路都没图。
+     *
+     * <p>现在默认回到 v2.2 的抽离模式（图廊），「原位」仍可在设置里手动打开。
+     * 之前硬编码 {@code return true} 是为了兼容老安装的偏好迁移，改为真实读偏好，
+     * 老安装没有这条偏好时用下面的默认值 false，行为与 v2.2 一致。
      */
     public static boolean isImagesInline(Context c) {
-        // Full-size images are now always rendered at their original position. Keeping the
-        // method avoids a preference migration crash for existing installations.
-        return true;
+        return sp(c).getBoolean(KEY_IMAGES_INLINE, false);
     }
 
     public static void setImagesInline(Context c, boolean v) {

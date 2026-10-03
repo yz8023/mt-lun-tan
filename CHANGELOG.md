@@ -1,5 +1,65 @@
 # 更新日志
 
+## v5.5 (versionCode 40) — 图片恢复 v2.2 的图廊显示 · 验证彻底不弹界面
+
+### 一、进帖不显示图：build68 的「原位显示」把图廊一起关掉了
+
+用户提供了 v2.2 源码，逐行比对后定位。两版的渲染流程差异：
+
+| | v2.2（用户实测可用） | v5.4（坏了） |
+|---|---|---|
+| 抽离图片 | `extractAndSeparateImages(...)` **无条件调用** | 仅 `!imagesInline` 时才调 |
+| 底部图廊 | `if (!arrayList.isEmpty())` **无条件显示** | 仅 `!imagesInline` 时才喂 `galleryUrls` |
+| `isImagesInline` | 无此概念 | 硬编码 `return true` |
+
+build68 引入「图片原位显示」时，除了把 `<img>` 留在正文里交给
+`createInlineImageGetter` 图文混排，还把图廊的填充条件改成了 `!imagesInline`。
+而 `isImagesInline()` 又被硬编码成 `return true`，于是**两条路同时断了**：
+原位那条实际不出图，底部图廊又被一起禁用。
+
+用户说的「可能与那个图片在原处显示有关」指的正是这里。
+
+**修法**：
+
+- `UiSettings.isImagesInline()` 改为真实读偏好，**默认 `false`**，即恢复 v2.2 的
+  「抽离 + 底部横滑图廊」。设置里想用原位仍然可以手动打开。
+- 附带确认：`UrlDrawable`、图廊渲染代码、`extractAndSeparateImages`、
+  `pickRealImageUrl` 在 v2.2 与 v5.4 之间**完全一致**，没有其它损耗点。
+
+### 二、列表页的图带进详情页兜底
+
+实测 tid=173937：列表卡片有 2 张 `mod=image&aid=377307/377306`，帖子页（游客）
+`mod=image` **0 次** —— 站点把附件换成了「您需要登录才可以查看」。
+
+现在 `NavigationHelper.openThread(context, thread)` 会把列表已经拿到的真实 CDN 图
+通过 Intent 带进 `ThreadDetailActivity`；帖子页解析不到任何图时，用它们填充图廊。
+列表页能显示、进帖却什么都没有，是最扎眼的一种「图片不显示」。
+
+### 三、验证不再跳浏览器：按 mtluntan 的窄判据，并且不再阻塞线程
+
+v5.4 只把 `onChallengeDetected` 留作「解算值都算不出」时的兜底，但只要宽泛的
+**结构判定**命中而本地解算器不认这个形态，就还是会弹。结构判定
+（`InterstitialDetector.looksLikeInterstitialPage`：有 `<html>`、无论坛骨架、
+可见正文 <256 字符即算拦截页）命中面远大于解算器能处理的形状 —— WAF 拦截页、
+登录页、错误桩都会命中，`solve()` 返回 null 就弹 WebView。
+
+更糟的是兜底路径 `awaitClearance(150_000)` 会把 **OkHttp 线程挂住最多 150 秒**
+等用户手工验证，界面直接卡死。
+
+参照项目 `yz8023/mtluntan` 的 `WafInterceptor` 判据是**窄**的：只有 body 同时含
+`var arg1=` 和 `acw_sc__v2` 才当挑战，其余一律原样放行，**从不弹界面**。
+本次按这个思路整改：
+
+- **删掉自动弹 WebView 的整条兜底路径**（含 `onChallengeDetected` 调用与
+  `awaitClearance(150_000)` 的阻塞等待）。本地解算现在是唯一自动路径，
+  解算不了只记日志、原样放行。
+- 确需人工验证时，设置页保留「手动打开站点验证」入口。
+- `checkAuthFailure` 沿用 v5.4 的改动，仍然只记日志不弹界面。
+
+---
+
+# 更新日志
+
 ## v5.4 (versionCode 39) — 验证彻底不弹窗 · 去掉热帖排行 · 预览限两张图 · 帖子配图真相
 
 ### 一、验证「无感」：根因是解算出的 cookie 根本没发出去

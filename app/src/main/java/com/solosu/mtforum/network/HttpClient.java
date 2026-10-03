@@ -52,7 +52,6 @@ public class HttpClient {
     public static final String BROWSE_MODE_SUFFIX = "_mobile";
 
     /** 等人通过站点验证的最长等待（毫秒）——避免 OkHttp 线程被永久挂住 */
-    private static final long VERIFY_WAIT_MILLIS = 150_000L;
 
     private static volatile HttpClient instance;
     private OkHttpClient client;
@@ -348,41 +347,26 @@ public class HttpClient {
             }
             // 连解算值都算不出来（站点改了挑战算法/页面结构）—— 这才需要人工介入，
             // 属于真正的兜底，正常情况走不到。
-            android.util.Log.w("HttpClient", request.url() + " 本地解算失败，退回验证界面");
+            android.util.Log.w("HttpClient", request.url()
+                    + " 不是本地可解算的挑战形态（缺 var arg1=/acw_sc__v2），不弹验证界面");
         }
 
-        // 打开验证 WebView；未恢复时按原样返回（调用方仍会解析出空内容，至少有日志）
-        try {
-            SiteAccessManager.onChallengeDetected(request.url().toString());
-        } catch (Throwable ignored) {
-        }
-        if (!"GET".equalsIgnoreCase(request.method())) {
-            android.util.Log.i("HttpClient", request.url() + " 已发起验证，但非 GET 请求不自动重放");
-            return response;
-        }
-
-        // 给验证留出时间；最多重放一次，避免无限递归
-        boolean ok = false;
-        try {
-            ok = SiteAccessManager.awaitClearance(VERIFY_WAIT_MILLIS);
-        } catch (Throwable ignored) {
-        }
-        if (!ok) {
-            android.util.Log.w("HttpClient", request.url() + " 未通过验证，按原样返回");
-            return response;
-        }
-
-        android.util.Log.i("HttpClient", request.url() + " 已通过验证，重放请求");
-        okhttp3.Request replay = request.newBuilder()
-                .header(HEADER_INTERSTITIAL_HANDLED, "1")
-                .build();
-        okhttp3.Response replayed = chain.proceed(replay);
-        // 第一次那次的 body 已读干净，但 Response 对象本身要关掉，否则连接没释放
-        try {
-            response.close();
-        } catch (Throwable ignored) {
-        }
-        return replayed;
+        // ===== build87: 不再自动弹验证 WebView =====
+        // 用户明确要求「全自动无感，不能影响我的体验」。参照项目 yz8023/mtluntan 的
+        // WafInterceptor 判据是<b>窄</b>的：只有 body 同时含 var arg1= 与 acw_sc__v2
+        // 才当挑战处理，其余一律原样放行，<b>从不弹界面</b>。
+        //
+        // 本类原来用的是 mtbbs_app 那套宽泛的<b>结构</b>判定（有 <html>、无论坛骨架、
+        // 可见正文少于 256 字符即算拦截页）。它的命中面远大于本地解算器能处理的形态：
+        // WAF 拦截页、登录页、错误桩都会命中，于是 solve() 返回 null 就弹 WebView ——
+        // 这就是「说了无感、实测还在跳浏览器」的原因。
+        //
+        // 更糟的是兜底路径还会 awaitClearance(150_000)，把 OkHttp 线程挂住最多 150 秒
+        // 等用户手工验证，界面直接卡死。
+        //
+        // 现在：本地解算是唯一自动路径；解算不了只记日志、原样放行，界面一概不弹。
+        // 确需人工验证时，设置页保留「手动打开站点验证」入口（SiteAccessManager.openManually）。
+        return response;
     }
 
     /**

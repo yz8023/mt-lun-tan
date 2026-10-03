@@ -114,6 +114,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private PostDetail postDetail;
     private ReplyAdapter replyAdapter;
     private String tid;
+    /** build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时兜底用 */
+    private java.util.List<String> listImageFallback = new java.util.ArrayList<>();
     private boolean onlyOpReplies = false;
     private boolean repliesDescending = true;
     private List<ReplyItem> displayedReplies = new ArrayList();
@@ -160,6 +162,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
         if (this.tid == null) {
             finish();
             return;
+        }
+        // build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时用它兜底
+        java.util.ArrayList<String> listImgs =
+                getIntent().getStringArrayListExtra("list_images");
+        if (listImgs != null && !listImgs.isEmpty()) {
+            this.listImageFallback = new java.util.ArrayList<>(listImgs);
         }
         this.binding.toolbar.setNavigationOnClickListener(new View.OnClickListener() {
             @Override // android.view.View.OnClickListener
@@ -792,6 +800,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build70: 必须放在 setupClickableLinks 之后 —— 它会把 textIsSelectable 设为 true，
             // 选择模式会吞掉 ClickableSpan 的点击，所以这里改用触摸命中测试，不依赖 MovementMethod
             attachInlineImageClicks(this.binding.tvContent);
+            // build87: 帖子页一张图都没解析出来（典型：站点对游客把附件换成
+            // 「您需要登录才可以查看」）时，用列表页带过来的真实 CDN 缩略图兜底。
+            // 列表页能显示、进帖却什么都没有，是最扎眼的一种「图片不显示」。
+            if (galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
+                galleryUrls.addAll(this.listImageFallback);
+            }
             if (!galleryUrls.isEmpty()) {
                 this.binding.cardImageGallery.setVisibility(0);
                 this.binding.hsvImageGallery.setVisibility(0);
