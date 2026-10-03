@@ -74,10 +74,85 @@ public final class CloudflareTunnelManager {
         lastOutput = "";
     }
 
+    /**
+     * cloudflared 下载地址（arm64）。与 v4.7~v5.1 打进包里的那份二进制一致，
+     * md5 {@code bc395ed79f072e0237bc3fc89b260c59}。
+     */
+    private static final String CLOUDFLARED_URL =
+            "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-arm64";
+
+    /**
+     * 取一个可执行的 cloudflared：优先用下载好的，其次用安装包里自带的（旧版本兼容），
+     * 都没有就现下载一份到 filesDir 并加可执行权限。
+     *
+     * @return 可执行文件；拿不到返回 {@code null}
+     */
+    private File ensureBinary() {
+        try {
+            // 1) 已下载过的
+            File cached = new File(app.getFilesDir(), "cloudflared");
+            if (cached.isFile() && cached.length() > 1024 * 1024 && cached.canExecute()) {
+                return cached;
+            }
+            // 2) 安装包自带（老版本升级上来的情况）
+            File bundled = new File(app.getApplicationInfo().nativeLibraryDir, "libcloudflared.so");
+            if (bundled.isFile()) return bundled;
+
+            // 3) 现下载
+            AiLog.i("mcp-tunnel", "下载 cloudflared（首次启用隧道）…");
+            File tmp = new File(app.getFilesDir(), "cloudflared.tmp");
+            Request req = new Request.Builder().url(CLOUDFLARED_URL).build();
+            Response resp = new OkHttpClient.Builder()
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .build()
+                    .newCall(req).execute();
+            if (!resp.isSuccessful() || resp.body() == null) {
+                AiLog.e("mcp-tunnel", "cloudflared 下载失败 HTTP " + resp.code());
+                return null;
+            }
+            java.io.InputStream in = resp.body().byteStream();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            out.close();
+            in.close();
+            if (tmp.length() < 1024 * 1024) {
+                tmp.delete();
+                AiLog.e("mcp-tunnel", "cloudflared 下载内容异常（" + tmp.length() + "B）");
+                return null;
+            }
+            if (!tmp.renameTo(cached)) {
+                tmp.delete();
+                return null;
+            }
+            // chmod 755。setExecutable 在部分 ROM 上不可靠，两条路都走。
+            cached.setExecutable(true, false);
+            try {
+                Runtime.getRuntime().exec(new String[]{"chmod", "755", cached.getAbsolutePath()})
+                        .waitFor();
+            } catch (Throwable ignored) {
+            }
+            if (!cached.canExecute()) {
+                AiLog.e("mcp-tunnel", "cloudflared 无法加可执行权限");
+                return null;
+            }
+            AiLog.i("mcp-tunnel", "cloudflared 下载完成 " + cached.length() + "B");
+            return cached;
+        } catch (Throwable t) {
+            AiLog.e("mcp-tunnel", "ensureBinary 失败: " + t.getMessage());
+            return null;
+        }
+    }
+
     private void startInternal(int run) {
         try {
-            File binary = new File(app.getApplicationInfo().nativeLibraryDir, "libcloudflared.so");
-            if (!binary.isFile()) throw new IllegalStateException("当前安装包不含 cloudflared（公网隧道仅支持 arm64 设备）");
+            // build84: cloudflared 不再打进安装包（它一个文件就占 APK 的 82%，
+            // 实测压缩后 17MB / 总包 20.8MB）。改为首次启用隧道时按需下载。
+            // 下载失败才走 nativeLibraryDir 里可能存在的旧版本兜底。
+            File binary = ensureBinary();
+            if (binary == null) throw new IllegalStateException("cloudflared 下载失败（公网隧道仅支持 arm64 设备）");
 
             // Registration is deliberately done by OkHttp. cloudflared's Go resolver reads
             // Android's placeholder /etc/resolv.conf ([::1]:53) and cannot resolve the API.

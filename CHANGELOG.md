@@ -1,5 +1,47 @@
 # 更新日志
 
+## v5.2 (versionCode 37) — 安装包从 20.8MB 降到约 4MB · 验证不再跳前台 · 列表图不再变形
+
+### 一、安装包太大：cloudflared 出包（82% → 0）
+
+`libcloudflared.so` 一个文件压缩后 **17.0MB**，而整个 APK 只有 20.8MB —— 它占 **81.8%**。去掉它，APK 约 **3.8MB**。
+
+它只服务于「公网 MCP 隧道」这一个可选功能，却让所有用户为它付 17MB 下载。改为**首次启用隧道时按需下载**：
+
+- `CloudflareTunnelManager.ensureBinary()`：优先用已下载到 `filesDir` 的，其次用安装包自带的（老版本升级兼容），都没有才现下载、`chmod 755`、校验大小与 ELF 魔数后才使用。下载失败给出明确错误，不影响 App 其它功能。
+- `app/build.gradle`：**移除** `preBuild` 与 `JniLibFolders` 对 `fetchCloudflared` 的依赖。之前那么做导致任何构建都会自动把 37MB 二进制拉回 `jniLibs` 再打进包里 —— 这就是体积一直减不下来的直接原因。`fetchCloudflared` 任务保留，需要旧式「含 cloudflared」安装包时手动执行 `gradle fetchCloudflared :app:assembleRelease`。
+
+### 二、验证不再跳到前台：本地解算 ESA 挑战
+
+用户要求「验证不要跳到前台，自动验证」。参照 `yz8023/mtluntan` 的 `WafInterceptor` + `WafChallengeSolver` 做法，把整套机制移植过来。
+
+ESA 的 `acw_sc__v2` 挑战其实是**固定算法**，不需要 JS 引擎、不需要 WebView、也不需要 cloudflared 隧道：
+
+1. 从挑战页读 `arg1`（40 位十六进制种子）
+2. 按脚本里的置换表 `m` 重排这 40 个字符
+3. 每个字节与常量 `3000176000856006061501533003690027800375` 异或
+
+结果就是服务端要的 cookie。新增 `util/WafChallengeSolver`（纯计算，可在 OkHttp 拦截器线程直接跑），`arg1` 和置换表都从实时脚本解析，脚本形状变了仍能工作。
+
+接入点：`HttpClient.recoverInterstitialIfNeeded` 里检测到挑战页后，**先尝试本地解算并重放请求**，成功就直接返回真实响应，完全不弹界面；只有解算不出来才退回原来的 WebView 方案。合并 cookie 时只替换同名项，保留登录态（直接覆盖会把用户静默登出，这是 mtluntan 注释里特别踩过的坑）。
+
+**已对 bbs.binmt.cc 端到端实测**（Java 解算器，非 mock）：
+- 不带 cookie 请求 `forum.php?mod=guide&view=newthread&page=1&mobile=2` → 4321B 挑战页
+- 解算出 `acw_sc__v2` 后重试同一 URL → **173867B 真实列表页**（`comiis_` 出现 1058 次、`mod=image` 68 次）
+
+### 三、列表图片变形：去掉硬编码高度 + CENTER_CROP
+
+参照项目 mtluntan 的 `PostImage` 注释里明确写了「图片显示异常」的根因：旧的 `fillMaxWidth()` 把所有图撑到满宽 + 硬编码高度导致变形。Java 版列表页正是这个问题：
+
+```java
+params.height = dp(104);                              // 硬编码高度
+imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);  // 裁剪填充
+```
+
+每张图都被压成同一个 104dp 高的方块：竖图被裁掉大半、宽图被拉扁。改为 `WRAP_CONTENT` + `adjustViewBounds=true` + `FIT_CENTER`，宽度仍由列权重决定，高度按图片自身比例自适应，绝不变形。
+
+---
+
 ## v5.1 (versionCode 36) — 修「图片依旧不显示」：27 处图片加载补上 UA/Referer/Cookie
 
 **这是 v4.8 以来第 5 次尝试修图片，前 4 次都没修对地方。**

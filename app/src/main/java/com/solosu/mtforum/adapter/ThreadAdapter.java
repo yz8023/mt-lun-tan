@@ -301,23 +301,28 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             for (int i = 0; i < count; i++) {
                 ImageView imageView = new ImageView(context);
                 int gap = dp(3);
-                int itemHeight = dp(104);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams();
                 params.width = 0;
-                params.height = itemHeight;
+                // build84: 高度改成 WRAP_CONTENT + adjustViewBounds。
+                // 原来是硬编码 dp(104) 再配 CENTER_CROP —— 每张图都被压成同一个
+                // 104dp 高的方块，竖图被裁、宽图被拉，正是用户反馈「图片显示异常」的
+                // 根因（参照项目 mtluntan 的 PostImage 注释里明确写了这一点）。
+                // 现在宽度由列权重决定，高度按图片自身比例自适应，绝不变形。
+                params.height = GridLayout.LayoutParams.WRAP_CONTENT;
                 params.columnSpec = GridLayout.spec(i % 2, 1f);
                 params.rowSpec = GridLayout.spec(i / 2);
                 params.setMargins(i % 2 == 0 ? 0 : gap, i / 2 == 0 ? 0 : gap,
                         i % 2 == 1 ? 0 : gap, i / 2 == 1 ? 0 : gap);
                 imageView.setLayoutParams(params);
-                imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                imageView.setAdjustViewBounds(true);
+                imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
                 imageView.setBackgroundResource(R.drawable.thread_image_bg);
                 imageView.setClipToOutline(true);
                 Glide.with(context)
                         .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(i)))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
-                        .centerCrop()
+                        .fitCenter()
                         .into(imageView);
                 holder.llThreadImages.addView(imageView);
             }

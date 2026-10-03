@@ -51,16 +51,16 @@ tasks.register('fetchCloudflared') {
     }
 }
 
-// 让打包前的原生库合并等在这个任务之后，确保 libcloudflared.so 一定进包。
-// 注意任务真名是 merge{Variant}JniLibFolders（不是 ...NativeLibs），匹配错了
-// 会被 Gradle 9 的隐式依赖校验直接判失败。
-tasks.matching { it.name.contains('JniLibFolders') }.configureEach {
-    dependsOn 'fetchCloudflared'
-}
-// 兜底：preBuild 也挂上，保证任何构建路径都会先取到二进制
-tasks.matching { it.name == 'preBuild' }.configureEach {
-    dependsOn 'fetchCloudflared'
-}
+// build84: cloudflared 不再默认打进安装包。
+// 它一个文件压缩后 17MB，占整个 APK 的 82%（实测总包 20.8MB，去掉它只剩 3.8MB），
+// 而它只服务于「公网 MCP 隧道」这一个可选功能。改为 App 端首次启用隧道时按需下载
+// （见 mcp/CloudflareTunnelManager.ensureBinary()）。
+//
+// 因此这里<b>不再</b>把 fetchCloudflared 挂到 preBuild / JniLibFolders 上——
+// 之前那么做导致任何构建都会自动把 37MB 二进制拉回 jniLibs 再打进包里，
+// 这也是「安装包太大」的直接原因。
+// 若确实需要打出「含 cloudflared」的旧式安装包，手动执行：
+//     gradle fetchCloudflared :app:assembleRelease
 
 android {
     namespace 'com.solosu.mtforum'
@@ -70,8 +70,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 36
-        versionName "5.1"
+        versionCode 37
+        versionName "5.2"
         // 应用界面只有中/英文资源，去掉依赖库中不会使用的几十套翻译。
         resourceConfigurations += ['zh', 'en']
 
