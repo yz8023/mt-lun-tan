@@ -34,3 +34,6 @@ Thumbs.db
 *.war
 *.ear
 *.log
+
+# cloudflared 由构建时下载，不进仓库
+app/src/main/jniLibs/

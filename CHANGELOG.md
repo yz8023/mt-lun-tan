@@ -30,6 +30,7 @@
 
 **工程**
 - `ImageUrl`/`InterstitialDetector`/`CookieSync` 改为不依赖任何 `android.*` 类（本项目 `SignParser` 从 build60 起就是同一条约定），单元测试不再需要 mock `TextUtils`；release 单测 95 项全绿。
+- 修复「从仓库源码构建出的 APK 比发布版小 21MB」：CHANGELOG v4.4 起就写着构建时下载并校验官方 `cloudflared 2026.9.3` arm64 静态程序，但该任务在 build.gradle 被工具重新生成时被丢掉，导致 `lib/arm64-v8a/libcloudflared.so` 进不了包，公网 MCP / Quick Tunnel 直接不可用。现补回 `fetchCloudflared` 任务（缺文件才下载，校验 ELF 魔数，失败只警告不阻断构建），并把 `app/src/main/jniLibs/` 加入 .gitignore 以免 37MB 二进制入库。
 
 ---
 

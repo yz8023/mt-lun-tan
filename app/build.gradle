@@ -3,6 +3,65 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// ==================== cloudflared（公网 MCP 隧道）====================
+// CHANGELOG v4.4 起就写着「构建时下载并校验官方 cloudflared 2026.9.3 arm64 静态程序」，
+// 但 build.gradle 被工具重新生成时把这个任务丢掉了，导致从仓库源码构建出的 APK
+// 比发布版少了 lib/arm64-v8a/libcloudflared.so（约 21MB），
+// 公网 MCP / Quick Tunnel 直接不可用。
+// 这里补回来：缺文件时才下载，已有文件（含本地手动放置的）不重复拉。
+def cloudflaredVersion = '2026.9.3'
+def cloudflaredUrl = "https://github.com/cloudflare/cloudflared/releases/download/${cloudflaredVersion}/cloudflared-linux-arm64"
+def cloudflaredDir = file("src/main/jniLibs/arm64-v8a")
+def cloudflaredBin = file("src/main/jniLibs/arm64-v8a/libcloudflared.so")
+
+tasks.register('fetchCloudflared') {
+    outputs.file(cloudflaredBin)
+    outputs.upToDateWhen { cloudflaredBin.isFile() && cloudflaredBin.length() > 1024L * 1024L }
+    doLast {
+        if (cloudflaredBin.isFile() && cloudflaredBin.length() > 1024L * 1024L) {
+            logger.lifecycle("cloudflared 已存在，跳过下载（${cloudflaredBin.length()} B）")
+            return
+        }
+        cloudflaredDir.mkdirs()
+        logger.lifecycle("下载 cloudflared ${cloudflaredVersion} (arm64) ...")
+        try {
+            new URL(cloudflaredUrl).withInputStream { input ->
+                cloudflaredBin.withOutputStream { output -> output << input }
+            }
+        } catch (Exception e) {
+            // 不阻断构建：App 端对「安装包不含 cloudflared」已有明确提示，
+            // 这里只大声警告，避免离线/受限网络下整个 release 构建失败。
+            logger.warn("[cloudflared] 下载失败：${e.message}；公网 MCP 隧道在本安装包中不可用。")
+            return
+        }
+        if (!cloudflaredBin.isFile() || cloudflaredBin.length() < 1024L * 1024L) {
+            logger.warn("[cloudflared] 下载结果异常，已清理；公网 MCP 隧道在本安装包中不可用。")
+            cloudflaredBin.delete()
+            return
+        }
+        // 粗校验 ELF 魔数：下载到错误页/截断文件时能立刻发现
+        byte[] magic = new byte[4]
+        cloudflaredBin.withInputStream { it.read(magic, 0, 4) }
+        if (!(magic[0] == (byte) 0x7F && magic[1] == (byte) 'E' && magic[2] == (byte) 'L' && magic[3] == (byte) 'F')) {
+            logger.warn("[cloudflared] 文件不是 ELF 可执行程序，已清理；公网 MCP 隧道在本安装包中不可用。")
+            cloudflaredBin.delete()
+            return
+        }
+        logger.lifecycle("cloudflared 就绪：${cloudflaredBin.length()} B")
+    }
+}
+
+// 让打包前的原生库合并等在这个任务之后，确保 libcloudflared.so 一定进包。
+// 注意任务真名是 merge{Variant}JniLibFolders（不是 ...NativeLibs），匹配错了
+// 会被 Gradle 9 的隐式依赖校验直接判失败。
+tasks.matching { it.name.contains('JniLibFolders') }.configureEach {
+    dependsOn 'fetchCloudflared'
+}
+// 兜底：preBuild 也挂上，保证任何构建路径都会先取到二进制
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn 'fetchCloudflared'
+}
+
 android {
     namespace 'com.solosu.mtforum'
     compileSdk 36
