@@ -77,11 +77,21 @@ public final class UiSettings {
      * {@code !imagesInline}，于是底部图廊被一起关掉 —— 两条路都没图。
      *
      * <p>现在默认回到 v2.2 的抽离模式（图廊），「原位」仍可在设置里手动打开。
-     * 之前硬编码 {@code return true} 是为了兼容老安装的偏好迁移，改为真实读偏好，
-     * 老安装没有这条偏好时用下面的默认值 false，行为与 v2.2 一致。
+     * 之前硬编码 {@code return true} 是为了兼容老安装的偏好迁移，改为真实读偏好。
+     *
+     * <p><b>build90：默认值从 false 改回 true（原位显示）。</b>
+     * v5.5 把它默认成 false（全部抽到帖子底部图廊），用户实测后的反馈是
+     * 「图片不在正文排版处正常显示，而是全部解析到正文底部」—— 抽离+图廊
+     * 并不是他要的观感，图片应该跟在正文排版里。抽屉里「正文图片原位显示」
+     * 这一项现在也真的能用了（v5.7 接上的），想用底部图廊仍然可以手动关。
+     *
+     * <p>注意 build87 那段「原位那条路实际不出图」的判断只对了一半：
+     * 真正不出图的原因是站点对**游客**在详情页根本不下发附件 {@code <img>}，
+     * 跟原位/图廊选哪条路无关。build87 已经把列表页的真实 CDN 图接成了兜底，
+     * build90 又让原位模式下也能把这些图补写进正文，所以两条路现在都有图。
      */
     public static boolean isImagesInline(Context c) {
-        return sp(c).getBoolean(KEY_IMAGES_INLINE, false);
+        return sp(c).getBoolean(KEY_IMAGES_INLINE, true);
     }
 
     public static void setImagesInline(Context c, boolean v) {

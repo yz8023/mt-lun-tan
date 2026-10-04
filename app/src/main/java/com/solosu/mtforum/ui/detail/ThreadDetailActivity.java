@@ -774,6 +774,13 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build73: 原位显示时把缩略图 src 换成原图地址，否则放大了也是糊的
             if (imagesInline) {
                 strArrSplitEditFooter[0] = upgradeThumbnailsToFull(strArrSplitEditFooter[0]);
+                // build90: 站点对游客在详情页根本不下发附件 <img>（实测 tid=173937
+                // 详情页 67943 字符里 comiis_loadimages=" 0 次、aid= 1 次且是 JS 里的
+                // 懒加载选择器字符串），正文里一张图都没有。这时把列表页拿到的真实
+                // CDN 图补写进正文 HTML，让它们跟着正文排版走，而不是退化成帖子底部
+                // 那个横滑图廊 —— 用户原话「图片不在正文排版处正常显示，而是全部
+                // 解析到正文底部」。
+                strArrSplitEditFooter[0] = injectFallbackImagesInline(strArrSplitEditFooter[0]);
             }
             String strExtractAndSeparateImages = imagesInline
                     ? strArrSplitEditFooter[0]
@@ -840,7 +847,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build87: 帖子页一张图都没解析出来（典型：站点对游客把附件换成
             // 「您需要登录才可以查看」）时，用列表页带过来的真实 CDN 缩略图兜底。
             // 列表页能显示、进帖却什么都没有，是最扎眼的一种「图片不显示」。
-            if (galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
+            // build90: 但原位模式下兜底图已经补写进正文了，不能再进底部图廊，
+            // 否则同一张图在正文和帖子底部各出现一次。
+            if (!imagesInline && galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
                 galleryUrls.addAll(this.listImageFallback);
             }
             renderImageGallery(galleryUrls);
@@ -5152,6 +5161,35 @@ private void viewHiddenContent() {
      * <p>改为：能升级就升级，不能升级就<b>原样留着</b>，由 Glide 自己决定成败。
      * 宁可显示失败的空位，也不要让内容凭空消失。
      */
+    /**
+     * build90: 把列表页拿到的兜底图补写进正文 HTML，让它们跟着正文排版显示。
+     *
+     * <p>只在一张图都没有的时候补：站点对**游客**在详情页根本不下发附件
+     * {@code <img>}（正文里只有文字和头像），登录态则正常下发、不需要补。
+     *
+     * <p>位置只能追加在正文末尾 —— 列表页只给得到图的地址，给不到它在原帖里的
+     * 插入位置。但跟在同一个 TextView 里、同样满宽排版，比抽到帖子底部那个
+     * 独立的横滑图廊卡片贴近「正文排版处」得多。
+     *
+     * <p>实测这些地址虽然是 {@code size=500x480} 的缩略图参数，CDN 实际跳转到
+     * OSS 原图（aid=377307 拿到 1080x690 / 69303 字节），满宽显示不糊。
+     * 试过把 size 改大会退化成 {@code none.gif}，所以地址原样用。
+     */
+    private String injectFallbackImagesInline(String html) {
+        if (this.listImageFallback.isEmpty()) return html;
+        String body = TextUtils.isEmpty(html) ? "" : html;
+        // 正文里已经有图就不补，避免和登录态正常下发的配图重复
+        if (body.toLowerCase(java.util.Locale.ROOT).contains("<img")) return body;
+        StringBuilder sb = new StringBuilder(body);
+        for (String url : this.listImageFallback) {
+            if (TextUtils.isEmpty(url)) continue;
+            sb.append("<br><img src=\"")
+                    .append(url.replace("&", "&amp;"))
+                    .append("\"><br>");
+        }
+        return sb.toString();
+    }
+
     private static String upgradeThumbnailsToFull(String html) {
         if (TextUtils.isEmpty(html)) return html;
         try {
