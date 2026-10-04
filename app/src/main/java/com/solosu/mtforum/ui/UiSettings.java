@@ -25,6 +25,18 @@ public final class UiSettings {
      * 只有用户本人在抽屉里拨过开关才听他的。
      */
     private static final String KEY_IMAGES_INLINE_SET = "post_images_inline_user_set";
+    /**
+     * build92: 帖子正文是否用 WebView 原样渲染站点下发的 HTML。
+     *
+     * <p>默认开。以前把正文拆成 TextView 重新排版，站点模板里的图片位置信息
+     * 全丢了（克米 mobile 模板把「插进正文的图」放在 {@code .comiis_messages} 里，
+     * 位置就是作者插入的位置；解析器却只把图 URL 收集起来另放）。用户原话：
+     * 「应该直接套用网页原帖内容不要解析」。
+     *
+     * <p>关掉则退回旧的 TextView 解析渲染（保留 BBCode 复制、代码块卡片等
+     * 依赖文本的能力）。
+     */
+    private static final String KEY_WEB_RENDER = "post_web_render";
 
     private UiSettings() {
     }
@@ -117,5 +129,14 @@ public final class UiSettings {
                 .putBoolean(KEY_IMAGES_INLINE, v)
                 .putBoolean(KEY_IMAGES_INLINE_SET, true)
                 .apply();
+    }
+
+    /** build92: 正文是否用 WebView 原样渲染（默认开） */
+    public static boolean isWebRender(Context c) {
+        return sp(c).getBoolean(KEY_WEB_RENDER, true);
+    }
+
+    public static void setWebRender(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_WEB_RENDER, v).apply();
     }
 }

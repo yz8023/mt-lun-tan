@@ -412,6 +412,18 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_images_inline_row, swImagesInline);
         }
 
+        // build92: 原帖排版渲染开关
+        SwitchMaterial swWebRender = findViewById(R.id.drawer_switch_web_render);
+        if (swWebRender != null) {
+            swWebRender.setChecked(com.solosu.mtforum.ui.UiSettings.isWebRender(this));
+            swWebRender.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setWebRender(this, checked);
+                Toast.makeText(this, checked ? "帖子正文将按网页原帖排版渲染"
+                        : "帖子正文将用纯文本重新排版", Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_web_render_row, swWebRender);
+        }
+
         // build67: 隐藏内容就地展开开关
         SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);
         if (swHiddenInline != null) {

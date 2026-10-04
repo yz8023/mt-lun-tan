@@ -54,7 +54,11 @@ public class BlacklistManager {
             if (uid.equals(e.uid)) return true; // 已在
         }
         list.add(new Entry(uid, user, System.currentTimeMillis(), "local"));
-        return prefs(c).edit().putString(KEY_LOCAL, toJSON(list)).commit();
+        // build93: commit() 是同步落盘。这个方法是从「拉黑作者」对话框的确定按钮
+        // 上调的，跑在主线程 —— 一次 ANR 边缘的主线程磁盘写。apply() 异步写盘，
+        // 语义上这里只关心「加进去了」，返回值 true 足够。
+        prefs(c).edit().putString(KEY_LOCAL, toJSON(list)).apply();
+        return true;
     }
 
     public static boolean removeLocal(Context c, String uid) {
@@ -63,12 +67,13 @@ public class BlacklistManager {
         for (int i = list.size() - 1; i >= 0; i--) {
             if (uid != null && uid.equals(list.get(i).uid)) { list.remove(i); removed = true; }
         }
-        if (removed) prefs(c).edit().putString(KEY_LOCAL, toJSON(list)).commit();
+        if (removed) prefs(c).edit().putString(KEY_LOCAL, toJSON(list)).apply();
         return removed;
         }
 
     public static boolean clearLocal(Context c) {
-        return prefs(c).edit().putString(KEY_LOCAL, "[]").commit();
+        prefs(c).edit().putString(KEY_LOCAL, "[]").apply();
+        return true;
     }
 
     // ═══ 服务端黑名单(Discuz blacklist 页) ═══

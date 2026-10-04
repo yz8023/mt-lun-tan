@@ -123,7 +123,11 @@ public class ThreadDetailActivity extends AppCompatActivity {
      */
     private String lastRenderUid = null;
     /**
-     * build91: 上一次渲染时「正文图片原位显示」的取值。
+     * build92: 上一次渲染时「按原帖排版渲染」的取值。抽屉里拨开关回帖子页要重渲。
+     */
+    private Boolean lastWebRender;
+
+    /** build91: 上一次渲染时「正文图片原位显示」的取值。
      * {@link #onResume()} 发现用户在抽屉里拨过开关就立刻本地重渲，
      * 不用等下次进帖 —— 否则开关看起来「没有作用」。
      */
@@ -309,7 +313,6 @@ public class ThreadDetailActivity extends AppCompatActivity {
      * 界面还挂着旧账号的点赞/收藏/关注态 —— 用户报的就是「切换账号后进入帖子
      * 还是原账号信息，不会全同步」。这里发现账号变了就整页重拉一次。
      */
-    @Override // androidx.fragment.app.FragmentActivity, android.app.Activity
     protected void onResume() {
         super.onResume();
         if (isFinishing() || isDestroyed()) {
@@ -319,8 +322,11 @@ public class ThreadDetailActivity extends AppCompatActivity {
         // 以前只有下次进帖才生效 —— 在当时打开的页面上拨开关毫无反应，
         // 用户报的就是「开关也是没有作用」。用已拿到的 postDetail 本地重渲，
         // 不重新请求网络。
-        if (this.postDetail != null && this.lastImagesInline != null
-                && this.lastImagesInline != com.solosu.mtforum.ui.UiSettings.isImagesInline(this)) {
+        if (this.postDetail != null
+                && ((this.lastImagesInline != null
+                        && this.lastImagesInline != com.solosu.mtforum.ui.UiSettings.isImagesInline(this))
+                    || (this.lastWebRender != null
+                        && this.lastWebRender != com.solosu.mtforum.ui.UiSettings.isWebRender(this)))) {
             bindData(this.postDetail, false);
             return;
         }
@@ -331,6 +337,22 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.lastRenderUid = likeFavScope();
             refreshPostDetail();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        // build92: WebView 必须显式销毁。它内部持有 Activity Context 的引用，
+        // 帖子详情页来回进出几次不释放就是一条实打实的内存泄漏链。
+        if (this.binding.webContent != null) {
+            try {
+                this.binding.webContent.removeJavascriptInterface("PostBody");
+                this.binding.webContent.stopLoading();
+                this.binding.webContent.loadUrl("about:blank");
+                this.binding.webContent.destroy();
+            } catch (Exception ignored) {
+            }
+        }
+        super.onDestroy();
     }
 
     private void lambda$onCreate$0(View v) {
@@ -705,6 +727,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.lastRenderUid = likeFavScope();
         // build91: 记住这次渲染用的是哪种图片排布，供 onResume 检测开关变动
         this.lastImagesInline = com.solosu.mtforum.ui.UiSettings.isImagesInline(this);
+        this.lastWebRender = com.solosu.mtforum.ui.UiSettings.isWebRender(this);
         this.postDetail = postDetail;
         this.binding.progressBar.setVisibility(8);
         this.binding.swipeRefresh.setEnabled(true);
@@ -802,6 +825,18 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 // 解析到正文底部」。
                 strArrSplitEditFooter[0] = injectFallbackImagesInline(strArrSplitEditFooter[0]);
             }
+            // build92: 是否走 WebView 原帖渲染。必须在下面抽代码块之前就算出来 ——
+            // 原帖渲染时代码块本来就在原始 HTML 里，再抽出来单独渲染一份就是重复。
+            boolean webRender = com.solosu.mtforum.ui.UiSettings.isWebRender(this)
+                    && !TextUtils.isEmpty(strArrSplitEditFooter[0])
+                    && this.binding.webContent != null;
+            // build92: 原帖渲染下不管「原位开关」怎么设，图都必须按作者插入的位置排，
+            // 所以缩略图升级和列表页兜底图无条件做（injectFallbackImagesInline 幂等，
+            // 下面 renderContentInWeb 里再调一次不会重复注入）。
+            if (webRender) {
+                strArrSplitEditFooter[0] = upgradeThumbnailsToFull(strArrSplitEditFooter[0]);
+                strArrSplitEditFooter[0] = injectFallbackImagesInline(strArrSplitEditFooter[0]);
+            }
             String strExtractAndSeparateImages = imagesInline
                     ? strArrSplitEditFooter[0]
                     : extractAndSeparateImages(strArrSplitEditFooter[0], arrayList);
@@ -850,29 +885,59 @@ public class ThreadDetailActivity extends AppCompatActivity {
             String bodyHtmlForRender = strArrReplaceHiddenQuoteWithPlaceholder[0];
             com.solosu.mtforum.util.BBCodeUtil.Extracted extractedMain =
                     com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(bodyHtmlForRender);
-            renderMainCodeBlocks(extractedMain);
+            // build92: 原帖渲染时代码块已经在 WebView 里按站点样式排好了，
+            // 再抽出来渲染成卡片就是同一段代码出现两次。
+            if (webRender) {
+                renderMainCodeBlocks(null);
+            } else {
+                renderMainCodeBlocks(extractedMain);
+            }
             if (extractedMain.hasBlocks()) bodyHtmlForRender = extractedMain.html;
-            this.binding.tvContent.setText(safeFromHtml(bodyHtmlForRender, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+            // build92: 原帖渲染优先。
+            //
+            // 以前无论如何都要把正文塞进 TextView 重新排版一遍。站点模板里
+            // 「插进正文的图」的位置信息只存在于原始 HTML 中，一旦解析成
+            // 纯文本 + 图片 URL 列表就丢了 —— 克米 mobile 模板把这类图放在
+            // .comiis_messages 里，位置就是作者插入的位置，我们的解析器却只
+            // 把 URL 收集起来另放。用户原话：「应该直接套用网页原帖内容不要解析」。
+            //
+            // 所以默认直接用 WebView 按原样渲染站点下发的 HTML，图就落在原处。
+            if (webRender) {
+                renderContentInWeb(strArrSplitEditFooter[0]);
+            } else {
+                if (this.binding.webContent != null) {
+                    this.binding.webContent.setVisibility(View.GONE);
+                }
+                this.binding.tvContent.setVisibility(View.VISIBLE);
+                this.binding.tvContent.setText(safeFromHtml(bodyHtmlForRender, createInlineImageGetter(this.binding.tvContent), com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+            }
             // build69: 给正文里的内联图片挂点击，之前原位显示的图根本点不开
             boolean unlocked = postDetail.isHasHiddenContent() && this.httpClient.isLoggedIn()
                     && !TextUtils.isEmpty(postDetail.getHiddenContentHtml())
                     && !com.solosu.mtforum.ai.AutoReplyEngine.isLockedHidden(postDetail.getHiddenContentHtml());
             String hiddenNotice = unlocked ? "隐藏内容(已解锁)"
                     : strArrReplaceHiddenQuoteWithPlaceholder[1];
-            applyHiddenNoticeHighlight(this.binding.tvContent.getText(), hiddenNotice);
-            setupClickableLinks(this.binding.tvContent);
-            // build70: 必须放在 setupClickableLinks 之后 —— 它会把 textIsSelectable 设为 true，
-            // 选择模式会吞掉 ClickableSpan 的点击，所以这里改用触摸命中测试，不依赖 MovementMethod
-            attachInlineImageClicks(this.binding.tvContent);
+            if (!webRender) {
+                applyHiddenNoticeHighlight(this.binding.tvContent.getText(), hiddenNotice);
+                setupClickableLinks(this.binding.tvContent);
+                // build70: 必须放在 setupClickableLinks 之后 —— 它会把 textIsSelectable 设为 true，
+                // 选择模式会吞掉 ClickableSpan 的点击，所以这里改用触摸命中测试，不依赖 MovementMethod
+                attachInlineImageClicks(this.binding.tvContent);
+            }
             // build87: 帖子页一张图都没解析出来（典型：站点对游客把附件换成
             // 「您需要登录才可以查看」）时，用列表页带过来的真实 CDN 缩略图兜底。
             // 列表页能显示、进帖却什么都没有，是最扎眼的一种「图片不显示」。
             // build90: 但原位模式下兜底图已经补写进正文了，不能再进底部图廊，
             // 否则同一张图在正文和帖子底部各出现一次。
-            if (!imagesInline && galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
-                galleryUrls.addAll(this.listImageFallback);
+            if (webRender) {
+                // 图已经在 WebView 里按原位置渲染了，底部图廊必须让位，否则一图两显
+                renderImageGallery(null);
+            } else {
+                if (!imagesInline && galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
+                    galleryUrls.addAll(this.listImageFallback);
+                }
+                renderImageGallery(galleryUrls);
             }
-            renderImageGallery(galleryUrls);
         } else {
             this.binding.tvContent.setVisibility(0);
             this.binding.tvContent.setTextSize(14.0f);
@@ -5070,6 +5135,261 @@ private void viewHiddenContent() {
      *
      * @param urls 要显示的图片地址；为空则隐藏图廊
      */
+    // ==================================================================
+    // build92: 原帖正文 WebView 渲染
+    //
+    // 以前把帖子 HTML 拆成 TextView 重新排版。站点模板（克米 mobile）里
+    // 「插进正文的图」的位置信息只在原始 HTML 中，解析成纯文本后必然丢失，
+    // 图片只能堆到正文底部 —— 用户连续多版反馈同一个问题。
+    //
+    // 现在默认直接把站点下发的 HTML 原样交给 WebView 渲染，排版交给站点
+    // 自己的模板，图就落在作者插入的位置。
+    // ==================================================================
+
+    /** build92: 站点自己的排版样式，套在正文外面 */
+    private static final String WEB_CONTENT_CSS =
+            "<style>"
+            + "html,body{margin:0;padding:0;background:transparent;}"
+            + "body{font-size:15px;line-height:1.7;color:#1a1a1a;"
+            + "word-wrap:break-word;overflow-wrap:break-word;-webkit-text-size-adjust:100%;}"
+            + "*{max-width:100% !important;}"
+            + "img{max-width:100% !important;height:auto !important;display:block;"
+            + "margin:8px auto;border-radius:6px;cursor:pointer;}"
+            + "a{color:#337ecc;text-decoration:none;word-break:break-all;}"
+            + "a:active{opacity:.6;}"
+            + "pre,.blk_code,.blockcode{background:#f4f5f7;padding:10px;border-radius:6px;"
+            + "overflow-x:auto;font-size:12.5px;line-height:1.55;white-space:pre-wrap;"
+            + "word-break:break-all;font-family:monospace;}"
+            + "blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid #d8d8d8;"
+            + "background:#fafafa;color:#555;}"
+            + "table{width:auto !important;max-width:100% !important;}"
+            + "font{font-size:inherit !important;}"
+            + "div,td,th{max-width:100% !important;}"
+            + "p{margin:6px 0;}"
+            + "</style>";
+
+    /**
+     * build92: 用 WebView 原样渲染帖子正文。
+     *
+     * @param contentHtml 站点下发的正文原始 HTML（未经图片抽离）
+     */
+    private void renderContentInWeb(String contentHtml) {
+        if (this.binding.webContent == null || android.text.TextUtils.isEmpty(contentHtml)) {
+            // 极端情况：旧布局没这个控件、或正文为空 —— 退回 TextView，绝不留空页
+            if (this.binding.webContent != null) {
+                this.binding.webContent.setVisibility(View.GONE);
+            }
+            this.binding.tvContent.setVisibility(View.VISIBLE);
+            if (!android.text.TextUtils.isEmpty(this.postDetail != null
+                    ? this.postDetail.getContentHtml() : null)) {
+                this.binding.tvContent.setText(safeFromHtml(
+                        com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(
+                                this.postDetail.getContentHtml()).html,
+                        createInlineImageGetter(this.binding.tvContent),
+                        com.solosu.mtforum.util.BBCodeUtil.createTagHandler(this)));
+            } else {
+                this.binding.tvContent.setText("");
+            }
+            return;
+        }
+        final android.webkit.WebView web = this.binding.webContent;
+
+        // 正文是论坛用户内容，绝不能让它执行脚本（XSS）。
+        // 只保留 JS 用来量高度 + 图片点击回调，脚本全部剥掉。
+        String body = contentHtml
+                .replaceAll("(?is)<script[^>]*>.*?</script\s*>", "")
+                .replaceAll("(?is)<script[^>]*/?>", "")
+                .replaceAll("(?is)<iframe[^>]*>.*?</iframe\s*>", "")
+                .replaceAll("(?is)<iframe[^>]*/?>", "")
+                .replaceAll("(?i)\son[a-z]+\s*=\s*\"[^\"]*\"", "")
+                .replaceAll("(?i)\son[a-z]+\s*=\s*'[^']*'", "")
+                .replaceAll("(?i)javascript:", "#");
+
+        // 游客态站点会把附件换成「登录可见」，此时正文里一张 <img> 都没有。
+        // 用列表页带过来的真实 CDN 图补进去，至少图能看到。
+        // （缩略图升级已在 bindData 里做过，这里只兜底补图；该方法幂等）
+        body = injectFallbackImagesInline(body);
+
+        String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" "
+                + "content=\"width=device-width,initial-scale=1\"><meta charset=\"utf-8\">"
+                + WEB_CONTENT_CSS + "</head><body>" + body + "</body></html>";
+
+        android.webkit.WebSettings ws = web.getSettings();
+        if (ws != null) {
+            ws.setJavaScriptEnabled(true);
+            ws.setLoadWithOverviewMode(true);
+            ws.setUseWideViewPort(false);
+            ws.setSupportZoom(false);
+            ws.setBuiltInZoomControls(false);
+            ws.setDisplayZoomControls(false);
+            ws.setAllowFileAccess(false);
+            ws.setAllowContentAccess(false);
+            ws.setAllowFileAccessFromFileURLs(false);
+            ws.setAllowUniversalAccessFromFileURLs(false);
+            ws.setMediaPlaybackRequiresUserGesture(true);
+            ws.setDomStorageEnabled(false);
+            ws.setDatabaseEnabled(false);
+            ws.setSaveFormData(false);
+            ws.setCacheMode(android.webkit.WebSettings.LOAD_NO_CACHE);
+        }
+        web.setBackgroundColor(0);
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
+        web.setLongClickable(true);
+        web.setOnLongClickListener(v -> false);
+
+        web.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view,
+                                                    android.webkit.WebResourceRequest req) {
+                return handlePostWebLink(req == null || req.getUrl() == null
+                        ? null : req.getUrl().toString());
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view, String url) {
+                return handlePostWebLink(url);
+            }
+
+            @Override
+            public void onPageFinished(android.webkit.WebView view, String url) {
+                bindPostWebImageClicks(view);
+                bindPostWebReady(view);
+                measurePostWebHeight(view);
+            }
+        });
+
+        // 图片点击回调 + 图片全部加载完的回调：JS 只暴露这两个方法，且只接受字符串
+        web.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void openImage(String url) {
+                if (android.text.TextUtils.isEmpty(url) || url.startsWith("data:")) return;
+                final String u = url;
+                runOnUiThread(() -> openImagePreview(u));
+            }
+
+            /**
+             * build93: 正文图片全部 onload/onerror 之后回调。
+             *
+             * <p>图片没加载完时 document.body.scrollHeight 是按「图还没占高度」算的，
+             * 按这个高度给 WebView 设 layoutParams，图一加载完就会被截断，或者
+             * 反过来留一大片空白。所以必须等图齐了再量一次。
+             */
+            @android.webkit.JavascriptInterface
+            public void onReady() {
+                runOnUiThread(() -> measurePostWebHeight(web));
+            }
+        }, "PostBody");
+
+        web.setVisibility(View.VISIBLE);
+        this.binding.tvContent.setVisibility(View.GONE);
+        web.loadDataWithBaseURL(com.solosu.mtforum.network.HttpClient.BASE_URL,
+                html, "text/html", "utf-8", "about:blank");
+    }
+
+    /** build92: 给正文里所有 <img> 挂点击，点了走全屏预览 */
+    private void bindPostWebImageClicks(android.webkit.WebView web) {
+        if (web == null) return;
+        String js = "(function(){try{var a=document.getElementsByTagName('img');"
+                + "for(var i=0;i<a.length;i++){(function(e){"
+                + "e.style.cursor='pointer';"
+                + "e.onclick=function(ev){ev.preventDefault();ev.stopPropagation();"
+                + "var s=e.currentSrc||e.src||'';"
+                + "if(window.PostBody&&window.PostBody.openImage){PostBody.openImage(s);}"
+                + "};})(a[i]);}}catch(x){}})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /**
+     * build93: 等正文图片全部加载完再回调 onReady 重新量高度。
+     *
+     * <p>只用 onPageFinished 量一次是不够的：那时图片刚开始下载，高度按「图没占位」算。
+     */
+    private void bindPostWebReady(android.webkit.WebView web) {
+        if (web == null) return;
+        String js = "(function(){try{var a=document.getElementsByTagName('img');"
+                + "var n=a.length,c=0,done=false;"
+                + "function fin(){if(!done){done=true;"
+                + "if(window.PostBody&&window.PostBody.onReady){PostBody.onReady();}}}"
+                + "if(n===0){fin();return;}"
+                + "for(var i=0;i<n;i++){(function(e){"
+                + "function one(){if(++c>=n)fin();}"
+                + "if(e.complete){one();}"
+                + "else{e.addEventListener('load',one);e.addEventListener('error',one);}"
+                + "})(a[i]);}"
+                + "setTimeout(fin,3000);"
+                + "}catch(x){fin();}})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /**
+     * build92: WebView 嵌在 NestedScrollView 里，必须按内容实际高度撑开，
+     * 否则要么被截断、要么自己内部滚动把父滚动器卡住。
+     */
+    private void measurePostWebHeight(final android.webkit.WebView web) {
+        if (web == null) return;
+        web.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            web.evaluateJavascript(
+                    "document.body.scrollHeight",
+                    value -> {
+                        try {
+                            int h = value == null ? 0
+                                    : (int) Float.parseFloat(value.trim());
+                            if (h <= 0) return;
+                            float d = getResources().getDisplayMetrics().density;
+                            android.view.ViewGroup.LayoutParams lp = web.getLayoutParams();
+                            if (lp == null) return;
+                            lp.height = (int) (h * d);
+                            web.setLayoutParams(lp);
+                        } catch (Exception ignored) {
+                        }
+                    });
+        }, 140L);
+    }
+
+    /**
+     * build92: WebView 里点链接的处理。
+     * 站内帖子 -> 应用内跳转；站外 -> 交给系统浏览器。
+     * 一律返回 true：正文 WebView 永远不自己导航。
+     */
+    private boolean handlePostWebLink(String url) {
+        if (android.text.TextUtils.isEmpty(url)) return true;
+        if (url.startsWith("about:blank")) return true;
+        try {
+            android.net.Uri uri = android.net.Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            String scheme = uri.getScheme();
+            if (scheme == null || (!scheme.equalsIgnoreCase("http")
+                    && !scheme.equalsIgnoreCase("https"))) {
+                return true;
+            }
+            if (host == null || !host.endsWith("binmt.cc")) {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                return true;
+            }
+            // 站内帖子伪静态地址：thread-173937-1-1.html
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("thread-(\\d+)-\\d+-\\d+\\.html").matcher(path);
+            if (m.find()) {
+                try {
+                    Intent it = new Intent(this, ThreadDetailActivity.class);
+                    it.putExtra("tid", m.group(1));
+                    startActivity(it);
+                } catch (Exception ignored) {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                }
+                return true;
+            }
+            // 站内其它地址（版块页、空间页等）一律外开，避免套娃 WebView
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (Exception ignored) {
+        }
+        return true;
+    }
+
     private void renderImageGallery(List<String> urls) {
         if (urls == null || urls.isEmpty()) {
             this.binding.cardImageGallery.setVisibility(View.GONE);
@@ -5204,10 +5524,46 @@ private void viewHiddenContent() {
         for (String url : this.listImageFallback) {
             if (TextUtils.isEmpty(url)) continue;
             sb.append("<br><img src=\"")
-                    .append(url.replace("&", "&amp;"))
+                    .append(escapeHtmlAttr(url))
                     .append("\"><br>");
         }
         return sb.toString();
+    }
+
+    /**
+     * build93: 属性值转义。
+     *
+     * <p>旧写法只做 {@code url.replace("&", "&amp;")}，两个问题：
+     * ① 源串里已经是 {@code &amp;} 的会被二次转义成 {@code &amp;amp;}，
+     *    CDN 的 {@code ?aid=X&size=Y&key=Z} 直接就取不到图；
+     * ② 不转义双引号，url 里出现 {@code "} 会把属性截断，整段 img 标签烂掉。
+     */
+    private static String escapeHtmlAttr(String raw) {
+        if (TextUtils.isEmpty(raw)) return "";
+        StringBuilder out = new StringBuilder(raw.length() + 16);
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            switch (ch) {
+                case '&':
+                    // 只在不是实体起点时转义，避免二次转义
+                    if (i + 1 < raw.length() && raw.charAt(i + 1) == '#') {
+                        out.append(ch);
+                    } else if (raw.startsWith("&amp;", i) || raw.startsWith("&lt;", i)
+                            || raw.startsWith("&gt;", i) || raw.startsWith("&quot;", i)
+                            || raw.startsWith("&#", i) || raw.startsWith("&apos;", i)) {
+                        out.append(ch);
+                    } else {
+                        out.append("&amp;");
+                    }
+                    break;
+                case '<': out.append("&lt;"); break;
+                case '>': out.append("&gt;"); break;
+                case '"': out.append("&quot;"); break;
+                case '\'': out.append("&#39;"); break;
+                default: out.append(ch);
+            }
+        }
+        return out.toString();
     }
 
     private static String upgradeThumbnailsToFull(String html) {

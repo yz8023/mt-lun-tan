@@ -1,5 +1,115 @@
 # 更新日志
 
+## v5.11 (versionCode 46) — 原帖内容直接用 WebView 渲染 · 逐功能审查
+
+### 用户反馈
+
+> 现在你转到审查的角度，挨个审查功能是否有缺陷，是否有漏洞？将其补齐修复。
+> 已知问题进入帖子，解析后没有将图片正确的还原到原处，或者说，应该直接套用
+> 网页原帖内容不要解析
+
+两件事：① **图片不要再解析重组，直接套用网页原帖内容**；② 转到审查角度，
+逐个功能找缺陷、找漏洞，补齐。
+
+---
+
+## 一、进帖图片：不再解析，直接套原帖
+
+### 根因
+
+之前所有版本都在做同一件事：把帖子 HTML 拆开，图片 URL 抽出来，正文转成
+TextView 能显示的 Spanned。**站点模板里「插进正文的图」的位置信息只存在于
+原始 HTML 中，一旦拆成纯文本 + URL 列表就必然丢失。**
+
+站点（克米 mobile 模板）自己的选择器说得很清楚：
+
+```
+comiis_wx_img_obj = $(".comiis_flxx_style img[...], .comiis_messages img[...]")
+```
+
+- `.comiis_messages img` = 作者插进正文的图，位置就是作者插入的位置
+- `.comiis_flxx_style img` = 只上传、没插进正文的图，站点自己也排在正文之后
+
+所以**登录态下按原样渲染，图天然落在原位**。是我们自己解析才把它挪走了。
+
+### 修法
+
+`ThreadDetailActivity` 新增 `web_content`（WebView），正文容器 `frame_content`
+里和 `tv_content` 并列。`bindData` 里默认走 WebView：
+
+```java
+if (webRender) {
+    renderContentInWeb(strArrSplitEditFooter[0]);
+}
+```
+
+`renderContentInWeb` 做的事：
+
+1. **剥脚本**：`<script>` / `<iframe>` / `on*=` 全删，`javascript:` 换成 `#`。
+   论坛正文是用户内容，不能让它执行脚本。
+2. **套一层自己的样式**：克米的 class 在应用里没有对应 CSS，直接裸渲染会散架。
+   用 `WEB_CONTENT_CSS` 给出 `img{max-width:100%;height:auto}`、代码块、
+   引用块、表格的基本排版。
+3. **缩略图升级 + 兜底图**：`upgradeThumbnailsToFull` 把懒加载属性换成真实
+   CDN 地址；`injectFallbackImagesInline` 在正文无 `<img>` 时补列表页的图
+   （游客态站点不下发附件图，这一条保留）。
+4. **图片点击**：JS 注入 `onclick` → `PostBody.openImage(url)` → 全屏预览。
+   JS 桥只暴露 `openImage` / `onReady` 两个方法，且只接受字符串。
+5. **高度自适应**：WebView 嵌在 NestedScrollView 里，必须按内容实际高度撑开。
+   `onPageFinished` 量一次，**图片全部 `load`/`error` 完再量一次**——
+   图片没下载完时 `scrollHeight` 是按「图还没占位」算的，只量一次必然截断或留白。
+6. **链接**：站内 `thread-\d+-\d+-\d+\.html` 走应用内跳转，其余交给系统浏览器，
+   一律不让正文 WebView 自己导航（避免套娃）。
+7. **`onDestroy` 显式 `destroy()`**：WebView 持有 Activity Context，详情页来回
+   进出不释放就是一条内存泄漏链。
+
+配套新增抽屉开关「**按原帖排版渲染**」（默认开，`post_web_render`），
+关掉则退回旧的 TextView 解析渲染。`onResume` 检测开关变动即本地重渲。
+
+---
+
+## 二、审查出来的缺陷与漏洞（已修）
+
+| # | 问题 | 严重度 | 修法 |
+|---|------|--------|------|
+| 1 | **原帖渲染下代码块渲染两遍** —— `extractCodeBlocks` 抽出来做成卡片，原始 HTML 里那份还在 WebView 里 | 高（直接可见） | `webRender` 时 `renderMainCodeBlocks(null)` 跳过 |
+| 2 | **`renderContentInWeb` 早退时页面空白** —— `webContent == null` 直接 return，正文一个字都不显示 | 高 | 早退分支回落 TextView 渲染 |
+| 3 | **主线程同步落盘**：`BlacklistManager.addLocal` 从「拉黑作者」对话框确定按钮调用，`.commit()` 在主线程 | 中（ANR 边缘） | 改 `.apply()` |
+| 4 | **主线程同步落盘**：`DraftManager.saveDraft` 调用链是 `PostActivity.onPause → saveDraftNow`，`.commit()` 在主线程 | 中 | 改 `.apply()` |
+| 5 | **图片 URL 转义不完整**：只做 `replace("&","&amp;")`，源串已是 `&amp;` 会被二次转义成 `&amp;amp;`，CDN 的 `?aid=X&size=Y&key=Z` 直接取不到图；且不转义 `"`，url 含引号会截断属性 | 中 | 新增 `escapeHtmlAttr`，实体感知 + 全字符转义 |
+| 6 | **WebView 高度只量一次**，图片未加载完 → 内容截断或留白 | 中 | JS 等所有图片 `load`/`error` 后回调 `onReady` 重量（带 3s 兜底） |
+
+### 审查过、确认没问题的部分
+
+- **AndroidManifest**：除 `MainActivity`（LAUNCHER）外全部 `exported="false"`，
+  无导出 Receiver/Provider/Service，无自定义 deeplink scheme。
+- **Token 泄漏**：全仓 grep `ghp_…` 无命中，`.git/config` 不含 token，
+  push 走命令行参数传入。
+- **切号同步**：`AccountManager.switchTo` 清 HTTP cookie、`clearPendingCache`、
+  图片磁盘缓存、`ListImageRegistry`，并 `SWITCH_EPOCH.incrementAndGet()`。
+- **登录态**：`HttpClient` 与 `CookieManager` 双向同步，切号后 `restoreCookieStore`
+  + `syncToCookieManager`。
+- **图片地址**：`ForumParser` 的 `attachImageUrls` 取的是 `comiis_loadimages` /
+  `file` 等懒加载真图地址，全屏翻页不是缩略图。
+- **`injectFallbackImagesInline` 幂等**：正文已有 `<img>` 就不注入，
+  WebView 里再调一次不会重复。
+
+### 遗留（非缺陷，记录在案）
+
+- `usesCleartextTraffic="true"`。全仓无 `http://` 硬编码基线（都是校验判断），
+  站点/CDN 实测全走 https；暂不动，避免误伤某条图片跳转。
+- `BlacklistManager` 服务端黑名单缓存、`McpPreferences` 退出登录清 token 仍用
+  `.commit()` —— 前者在网络回调线程，后者要求落盘后才算退出，有意保留。
+
+---
+
+## 构建
+
+- versionCode **46** / versionName **5.11**
+- 单测 **91 通过 / 0 失败 / 0 错误**
+- 签名 `9ce3aefa…15da`（与 v4.8 起一致，可覆盖升级）
+- APK 3925169 字节
+
 ## v5.10 (versionCode 45) — 开关立刻生效 · 站点无 PC 模板的实证结论
 
 ### 用户反馈

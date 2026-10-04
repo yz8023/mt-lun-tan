@@ -313,6 +313,20 @@
                             android:textColor="@color/text_primary"
                             android:lineSpacingExtra="6dp" />
 
+                        <!--
+                            build92: 原帖正文用 WebView 直接渲染站点下发的 HTML。
+                            以前把正文拆成 TextView 重新排版，图片位置必然丢失
+                            （用户原话「应该直接套用网页原帖内容不要解析」）。
+                            WebView 按原样渲染，图就落在作者插入的位置。
+                            默认走这条路；tv_content 留给空内容/异常时的兜底。
+                        -->
+                        <WebView
+                            android:id="@+id/web_content"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@android:color/transparent"
+                            android:visibility="gone" />
+
                     </FrameLayout>
 
                     <!-- build72: 附件列表（点击才下载，解析阶段不发请求） -->

@@ -95,7 +95,9 @@ public class DraftManager {
             if (oldest == null) break;
             l.remove(oldest);
         }
-        prefs(c).edit().putString(KEY, toJSON(l)).commit();
+        // build93: commit() 同步落盘。调用链是 PostActivity.onPause ->
+        // saveDraftNow，在主线程上 —— 草稿长一点就是一次可见的掉帧。
+        prefs(c).edit().putString(KEY, toJSON(l)).apply();
         return e.id;
     }
 
@@ -105,11 +107,11 @@ public class DraftManager {
         for (int i = 0; i < l.size(); i++) {
             if (l.get(i).id == id) { l.remove(i); break; }
         }
-        prefs(c).edit().putString(KEY, toJSON(l)).commit();
+        prefs(c).edit().putString(KEY, toJSON(l)).apply();
     }
 
     public static void clear(Context c) {
-        prefs(c).edit().putString(KEY, "[]").commit();
+        prefs(c).edit().putString(KEY, "[]").apply();
     }
 
     private static String toJSON(List<Entry> l) {
