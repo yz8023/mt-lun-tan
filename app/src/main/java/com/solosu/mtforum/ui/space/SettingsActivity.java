@@ -84,10 +84,6 @@ public class SettingsActivity extends AppCompatActivity {
             DialogHelper.applyToAlertDialog(dialog, this);
         });
 
-        // Read-only MCP endpoint (loopback by default, optional token-protected LAN forwarding).
-        binding.cardMcp.setOnClickListener(v -> startActivity(
-                new Intent(this, com.solosu.mtforum.mcp.McpSettingsActivity.class)));
-
         // 错误日志查看
         binding.layoutErrorLog.setOnClickListener(v -> showErrorLogDialog());
         updateErrorLogCount();

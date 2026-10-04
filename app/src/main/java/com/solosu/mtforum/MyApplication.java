@@ -46,6 +46,12 @@ public class MyApplication extends Application {
             @Override
             public void onActivityResumed(android.app.Activity a) {
                 com.solosu.mtforum.session.SiteAccessManager.onActivityResumed(a);
+                // build99: 向系统申请高刷新率（默认开）。
+                // 不申请的话，多数国产 ROM 会把第三方 App 按 60Hz 合成 ——
+                // 这正是用户问的「为什么论坛 FPS 锁 60」。见 util/RefreshRate。
+                if (com.solosu.mtforum.ui.UiSettings.isHighRefresh(a)) {
+                    com.solosu.mtforum.util.RefreshRate.apply(a);
+                }
                 // build95: 抽屉里开了「显示 FPS」就在每个界面顶部挂上帧率。
                 // 用 ActivityLifecycleCallbacks 统一接，不用逐个 Activity 改。
                 if (com.solosu.mtforum.ui.UiSettings.isShowFps(a)) {
@@ -97,10 +103,5 @@ public class MyApplication extends Application {
         // build60: 多账号定时签到 —— 建好通知渠道并按设置重排 WorkManager 周期任务
         SignInNotifier.ensureChannel(this);
         SignInScheduler.reschedule(this);
-
-        // Read-only MCP endpoint for AI clients; disabled by default and bearer-token protected.
-        if (com.solosu.mtforum.mcp.McpPreferences.enabled(this)) {
-            com.solosu.mtforum.mcp.McpService.start(this);
-        }
     }
 }

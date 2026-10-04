@@ -20,8 +20,8 @@
 | 内置浏览器 | `InAppBrowserActivity` | 已有；系统浏览器、复制链接、电脑模式、Cookie 双向同步 |
 | RSS 列表 | Discuz RSS 与导读为相同公开主题数据；原生客户端直接提供四类导读和分页，不另建重复 RSS 页面 | 等价覆盖 |
 | 主题与阅读设置 | `ThemeManager`、设置页 | 已有；深浅色、主题色、各层不透明度 |
-| MCP 只读读取 | `McpServer`、`ForumTools` | 已有；Bearer Token、只读白名单、字段脱敏、请求大小与超时限制 |
-| MCP 公网访问 | `CloudflareTunnelManager` | 已补齐；内置经校验的 arm64 cloudflared，自动注册 Quick Tunnel、生成凭据、重连并显示公网 `/mcp` 地址 |
+| MCP 只读读取 | ~~`McpServer`、`ForumTools`~~ | **v5.16 已整体移除**（用户判定无效，且内置 cloudflared 占 APK 的 82%） |
+| MCP 公网访问 | ~~`CloudflareTunnelManager`~~ | **v5.16 已整体移除**；APK 从 20.8 MB 降到约 3.8 MB |
 
 ## 细则审计与实现原则
 
@@ -30,7 +30,7 @@
 3. **写操作保留完整表单语义**：编辑/删除使用站点返回表单的字段，不猜测 Discuz 参数；回复消息中的编辑入口不得移除。
 4. **编辑器能力**：发帖与回复共用 BBCode 工具、预览、颜色/渐变、图片上传、草稿和快捷回复。mtbbs_app 的桌面键盘快捷键属于 Windows 交互，不照搬到触屏 Android。
 5. **论坛风控**：列表按需分页，后台请求走节流器；多账号签到使用隔离 CookieJar，不能污染前台账号。
-6. **MCP 安全边界**：只暴露读取工具；不提供回复、解锁、点赞或任意 URL 探针；返回前脱敏 Cookie、密码、formhash、auth 与 saltkey。公网隧道不削弱 Bearer Token 校验。
+6. **~~MCP 安全边界~~**：该功能 v5.16 已移除，不再有对外暴露的读取端点。
 7. **界面组织**：首页将导读类型集中在列表上方；设置按“账号与自动化 / 外观与阅读 / 网络、浏览与下载 / AI 与高级工具 / 关于与更新”分组；侧栏继续按账号、签到、AI 自动化和其他工具分组。
 
 ## 平台差异（不作为缺失）

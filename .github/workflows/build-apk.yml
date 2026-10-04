@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.15
+        default: v5.16
 
 permissions:
   contents: write
@@ -60,21 +60,13 @@ jobs:
           unzip -q gradle.zip -d "$HOME/gradle-dist"
           echo "$HOME/gradle-dist/gradle-8.13/bin" >> "$GITHUB_PATH"
 
-      # cloudflared 是 App 内免费公网 MCP 隧道的实际运行程序。固定官方版本和
-      # SHA256，避免 latest 漂移或供应链内容被静默替换。Android 会从
-      # nativeLibraryDir 以可执行权限解压这个 arm64 静态 ELF。
-      - name: Bundle verified cloudflared for arm64
+      # build99: 不再往安装包里塞 cloudflared。
+      # 它压缩后就有 17 MB，占整个 APK 的 82%（实测 20.81 MB 里 17.02 MB 是它），
+      # 而它只服务于「公网 MCP 隧道」这一个功能 —— 该功能用户判定无效，
+      # 本轮已整体移除。去掉后 APK 约 3.8 MB。
+      - name: Report APK size budget
         run: |
-          set -euo pipefail
-          VERSION=2026.9.3
-          SHA256=aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d
-          DIR=app/src/main/jniLibs/arm64-v8a
-          mkdir -p "$DIR"
-          curl --fail --retry 3 -sSL \
-            -o "$DIR/libcloudflared.so" \
-            "https://github.com/cloudflare/cloudflared/releases/download/${VERSION}/cloudflared-linux-arm64"
-          echo "$SHA256  $DIR/libcloudflared.so" | sha256sum -c -
-          chmod 755 "$DIR/libcloudflared.so"
+          du -sh app/src/main/res app/src/main/java 2>/dev/null || true
 
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --no-daemon
@@ -141,11 +133,11 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - **帖子正文代码一键复制（重做）**：不再靠 JS 猜站点结构，改由 App 在渲染前把代码块替换成自带「复制」按钮的卡片，另加「复制正文」长按面板可逐段复制代码。
-          - **快捷回复可勾选 / 可编辑 / 可删除**：新增管理面板，勾上的才显示在快捷条；支持 {title}、{author}、{to}、{forum}、{floor}、{url}、{tid}、{username}、{uid}、{date}、{time} 十一个占位符。
-          - **发帖快捷标签**：标签字段名解析不到时退回 Discuz 标准名 tags（以前会直接禁用标签功能）；标签选择器支持本地筛选、站内搜索、手动添加，编辑帖子时自动带出已有标签。
-          - **BBCode 快捷键补齐**：[qq]、[hr]、[media=x,500,375]、[email=地址]名称[/email]、[url=地址]名字[/url]，带参数的标签走弹窗填充并替换选区。
-          - **修复用了 [code] 之后颜色全部变成字面量**：根因是 Html.fromHtml 的 ParagraphStyle 段落边界校验失败（代码块前必须补 <br>），现在代码块前后样式都正常。
+          - **安装包从 20.8 MB 降到约 3.8 MB**：移除了只服务于 MCP 的 cloudflared 二进制（压缩后 17 MB，占整个包的 82%）。
+          - **移除 MCP 功能**：顶栏的 MCP 按钮、设置页的 MCP 入口、后台 MCP 服务与隧道下载一并删除，不再占体积、不再挂前台服务。
+          - **侧边栏分区折叠**：账号 / 自动化 / 显示 / 其它四个分区可折叠，状态记住；默认只展开「显示」（功能开关）。
+          - **首页图片改为固定尺寸裁切**：单帖最多显示 2 张（原来 3 张），统一 4:3 圆角裁切，列表不再被长图撑变形。
+          - **FPS 显示说明**：帧率上不去（锁 60）通常不是 App 限制，而是设备面板刷新率或系统对 WebView 合成限帧 —— 设置里新增实时诊断，会显示设备当前刷新率与上限。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -160,14 +152,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 正文代码一键复制 · 快捷回复可勾选 · 发帖标签 · [code] 预览修复" \
+              --title "MTForum v${VERSION} — 安装包瘦身 20.8→3.8MB · 移除 MCP · 侧边栏折叠 · 首页图片固定尺寸" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 正文代码一键复制 · 快捷回复可勾选 · 发帖标签 · [code] 预览修复" \
+              --title "MTForum v${VERSION} — 安装包瘦身 20.8→3.8MB · 移除 MCP · 侧边栏折叠 · 首页图片固定尺寸" \
               --notes-file release-notes.md \
               --latest
           fi

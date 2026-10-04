@@ -58,7 +58,7 @@ public final class FpsOverlay {
             tv.setLayoutParams(mlp);
         });
 
-        startCounting(tv);
+        startCounting(tv, activity);
     }
 
     /** 摘掉 FPS 显示。 */
@@ -69,7 +69,7 @@ public final class FpsOverlay {
         if (v != null) decor.removeView(v);
     }
 
-    private static void startCounting(final TextView tv) {
+    private static void startCounting(final TextView tv, final Activity activity) {
         final android.view.Choreographer choreographer =
                 android.view.Choreographer.getInstance();
         final android.view.Choreographer.FrameCallback callback =
@@ -84,7 +84,14 @@ public final class FpsOverlay {
                         long elapsed = frameTimeNanos - startNs;
                         if (elapsed >= WINDOW_MS * 1_000_000L) {
                             float fps = frames * 1_000_000_000f / elapsed;
-                            tv.setText(String.format(Locale.US, "FPS %.0f", fps));
+                            // build99: 同时显示「屏幕当前在跑多少赫兹」。
+                            // 用户问「为什么论坛 FPS 锁 60」—— 把这两个数字并排显示，
+                            // 一眼就能分清是 App 渲染慢，还是屏幕本来就在 60Hz
+                            // （多数国产 ROM 对未申请高刷的第三方 App 就是 60Hz）。
+                            float hz = RefreshRate.current(activity);
+                            tv.setText(hz > 0
+                                    ? String.format(Locale.US, "FPS %.0f · 屏 %.0fHz", fps, hz)
+                                    : String.format(Locale.US, "FPS %.0f", fps));
                             frames = 0;
                             startNs = frameTimeNanos;
                         }

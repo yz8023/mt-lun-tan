@@ -177,31 +177,33 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
-        <!-- 单图封面:非首页页面使用,保持其它页面现有显示方式 -->
-        <!-- build95: 原来是 160dp 固定高 + centerCrop。竖长图被裁成中间一条、
-             宽图被拉变形，正是「主页部分图片用长图导致显示异常」的根因。
-             现在高度 wrap_content + adjustViewBounds + fitCenter，按图片自身
-             比例排；maxHeight 兜住超长图，别把卡片撑到一屏。 -->
+        <!--
+            单图封面（build99 按用户要求改回固定尺寸裁切）。
+            build95 曾把这里改成 wrap_content + fitCenter 以「不裁切长图」，
+            但那样每张卡高度都不一样：一张长截图能占掉大半屏，列表参差不齐。
+            用户明确要求「裁切显示大小为固定尺寸」，于是改回固定高度 + centerCrop：
+            统一 150dp 高（接近 4:3），图片按中心裁切填满、四角圆角；
+            内容超出部分裁掉，但整条列表整齐划一。
+        -->
         <ImageView
-        android:contentDescription="图标"
             android:id="@+id/iv_thumbnail"
+            android:contentDescription="图标"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="150dp"
             android:layout_marginTop="10dp"
-            android:adjustViewBounds="true"
             android:background="@drawable/thread_image_bg"
-            android:maxHeight="320dp"
-            android:scaleType="fitCenter"
+            android:clipToOutline="true"
+            android:scaleType="centerCrop"
             android:visibility="gone" />
 
-        <!-- 首页多图区域:最多显示四张图片 -->
+        <!-- 首页多图区域:最多两张（build86: 4→2），固定尺寸裁切（build99） -->
         <GridLayout
             android:id="@+id/ll_thread_images"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:columnCount="2"
-            android:rowCount="2"
+            android:rowCount="1"
             android:visibility="gone" />
 
 

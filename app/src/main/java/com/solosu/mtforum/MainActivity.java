@@ -445,6 +445,34 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_fps_row, swFps);
         }
 
+        // build99: 高刷新率开关（默认开）。开着时每个 Activity 恢复都向系统申请
+        // 设备支持的最高刷新率 —— 不申请的话多数 ROM 直接按 60Hz 合成。
+        SwitchMaterial swRefresh = findViewById(R.id.drawer_switch_refresh);
+        if (swRefresh != null) {
+            swRefresh.setChecked(com.solosu.mtforum.ui.UiSettings.isHighRefresh(this));
+            final TextView tvRefreshDesc = findViewById(R.id.drawer_refresh_desc);
+            if (tvRefreshDesc != null) {
+                tvRefreshDesc.setText(com.solosu.mtforum.util.RefreshRate.statusLine(this));
+            }
+            swRefresh.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setHighRefresh(this, checked);
+                if (checked) {
+                    float hz = com.solosu.mtforum.util.RefreshRate.apply(this);
+                    Toast.makeText(this, hz > 0
+                                    ? String.format(java.util.Locale.US,
+                                            "已申请 %.0fHz（受屏幕与系统限制）", hz)
+                                    : "系统未提供可用的刷新率信息",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    // 关掉只影响「以后的申请」，不强行把窗口改回 60Hz —— 改回去
+                    // 反而会在系统层面留下一个 60 的首选值，得不偿失。
+                    Toast.makeText(this, "已关闭高刷申请，重启应用后完全生效",
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+            bindSwitchRow(R.id.drawer_refresh_row, swRefresh);
+        }
+
         // build95: 正文链接打开方式（应用内 / 系统浏览器）
         SwitchMaterial swLink = findViewById(R.id.drawer_switch_link_open);
         if (swLink != null) {
@@ -527,7 +555,62 @@ public class MainActivity extends AppCompatActivity {
         // 运行日志
         // build75: 旧的 drawer_log 绑定已移除，统一走上面的「记录中心」入口
 
+        setupDrawerCollapse();
+
         refreshDrawerHeader();
+    }
+
+    // ==================== build99: 侧边栏分区折叠 ====================
+
+    /** 侧边栏四个分区：{头部标题 id, 内容容器 id, 偏好键} */
+    private static final int[][] DRAWER_GROUPS = {
+            {R.id.drawer_head_account, R.id.drawer_group_account, 0},
+            {R.id.drawer_head_auto, R.id.drawer_group_auto, 1},
+            {R.id.drawer_head_show, R.id.drawer_group_show, 2},
+            {R.id.drawer_head_other, R.id.drawer_group_other, 3},
+    };
+
+    /**
+     * build99: 侧边栏分区折叠。
+     *
+     * <p>用户反馈「侧边栏功能进行折叠」。侧边栏有一千多行、四大块（账号签到 / AI 自动化 /
+     * 显示 / 其它），全展开时要滚好几屏才能找到底部那几个工具入口。
+     *
+     * <p>点分区标题收起 / 展开，状态存在偏好里下次照旧。
+     * <b>默认只展开「显示」</b> —— 那一块是日常会动的开关（图片原位显示、原帖渲染、
+     * FPS、链接打开方式…），其余三块默认收起，一眼能看到全部四个分区。
+     */
+    private void setupDrawerCollapse() {
+        for (final int[] g : DRAWER_GROUPS) {
+            final View head = findViewById(g[0]);
+            final View body = findViewById(g[1]);
+            if (head == null || body == null) continue;
+            final boolean open = com.solosu.mtforum.ui.UiSettings.isDrawerGroupOpen(this, g[2]);
+            applyDrawerGroup(head, body, open);
+            head.setOnClickListener(v -> {
+                boolean now = body.getVisibility() != View.VISIBLE;
+                com.solosu.mtforum.ui.UiSettings.setDrawerGroupOpen(this, g[2], now);
+                applyDrawerGroup(head, body, now);
+                com.solosu.mtforum.ui.anim.Motion.pressFeedback(head, 0.98f);
+            });
+        }
+    }
+
+    /** 展开/收起一个分区：内容整块显隐，标题右边的箭头换成对应的方向 */
+    private void applyDrawerGroup(View head, View body, boolean open) {
+        body.setVisibility(open ? View.VISIBLE : View.GONE);
+        if (!(head instanceof TextView)) return;
+        TextView tv = (TextView) head;
+        android.graphics.drawable.Drawable[] ds = tv.getCompoundDrawables();
+        android.graphics.drawable.Drawable arrow = ds.length > 2 ? ds[2] : null;
+        if (arrow == null) return;
+        // 箭头是 vector，setLevel 不会转向 —— 直接换成另一张（向下 = 展开中）
+        arrow = androidx.core.content.ContextCompat.getDrawable(this,
+                open ? R.drawable.ic_arrow_down : R.drawable.ic_arrow_right);
+        if (arrow == null) return;
+        int size = (int) (14 * getResources().getDisplayMetrics().density);
+        arrow.setBounds(0, 0, size, size);
+        tv.setCompoundDrawables(null, null, arrow, null);
     }
 
     /** 整行点击等于切换开关 */

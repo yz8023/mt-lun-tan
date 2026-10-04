@@ -3,64 +3,13 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// ==================== cloudflared（公网 MCP 隧道）====================
-// CHANGELOG v4.4 起就写着「构建时下载并校验官方 cloudflared 2026.9.3 arm64 静态程序」，
-// 但 build.gradle 被工具重新生成时把这个任务丢掉了，导致从仓库源码构建出的 APK
-// 比发布版少了 lib/arm64-v8a/libcloudflared.so（约 21MB），
-// 公网 MCP / Quick Tunnel 直接不可用。
-// 这里补回来：缺文件时才下载，已有文件（含本地手动放置的）不重复拉。
-def cloudflaredVersion = '2026.9.3'
-def cloudflaredUrl = "https://github.com/cloudflare/cloudflared/releases/download/${cloudflaredVersion}/cloudflared-linux-arm64"
-def cloudflaredDir = file("src/main/jniLibs/arm64-v8a")
-def cloudflaredBin = file("src/main/jniLibs/arm64-v8a/libcloudflared.so")
-
-tasks.register('fetchCloudflared') {
-    outputs.file(cloudflaredBin)
-    outputs.upToDateWhen { cloudflaredBin.isFile() && cloudflaredBin.length() > 1024L * 1024L }
-    doLast {
-        if (cloudflaredBin.isFile() && cloudflaredBin.length() > 1024L * 1024L) {
-            logger.lifecycle("cloudflared 已存在，跳过下载（${cloudflaredBin.length()} B）")
-            return
-        }
-        cloudflaredDir.mkdirs()
-        logger.lifecycle("下载 cloudflared ${cloudflaredVersion} (arm64) ...")
-        try {
-            new URL(cloudflaredUrl).withInputStream { input ->
-                cloudflaredBin.withOutputStream { output -> output << input }
-            }
-        } catch (Exception e) {
-            // 不阻断构建：App 端对「安装包不含 cloudflared」已有明确提示，
-            // 这里只大声警告，避免离线/受限网络下整个 release 构建失败。
-            logger.warn("[cloudflared] 下载失败：${e.message}；公网 MCP 隧道在本安装包中不可用。")
-            return
-        }
-        if (!cloudflaredBin.isFile() || cloudflaredBin.length() < 1024L * 1024L) {
-            logger.warn("[cloudflared] 下载结果异常，已清理；公网 MCP 隧道在本安装包中不可用。")
-            cloudflaredBin.delete()
-            return
-        }
-        // 粗校验 ELF 魔数：下载到错误页/截断文件时能立刻发现
-        byte[] magic = new byte[4]
-        cloudflaredBin.withInputStream { it.read(magic, 0, 4) }
-        if (!(magic[0] == (byte) 0x7F && magic[1] == (byte) 'E' && magic[2] == (byte) 'L' && magic[3] == (byte) 'F')) {
-            logger.warn("[cloudflared] 文件不是 ELF 可执行程序，已清理；公网 MCP 隧道在本安装包中不可用。")
-            cloudflaredBin.delete()
-            return
-        }
-        logger.lifecycle("cloudflared 就绪：${cloudflaredBin.length()} B")
-    }
-}
-
-// build84: cloudflared 不再默认打进安装包。
-// 它一个文件压缩后 17MB，占整个 APK 的 82%（实测总包 20.8MB，去掉它只剩 3.8MB），
-// 而它只服务于「公网 MCP 隧道」这一个可选功能。改为 App 端首次启用隧道时按需下载
-// （见 mcp/CloudflareTunnelManager.ensureBinary()）。
-//
-// 因此这里<b>不再</b>把 fetchCloudflared 挂到 preBuild / JniLibFolders 上——
-// 之前那么做导致任何构建都会自动把 37MB 二进制拉回 jniLibs 再打进包里，
-// 这也是「安装包太大」的直接原因。
-// 若确实需要打出「含 cloudflared」的旧式安装包，手动执行：
-//     gradle fetchCloudflared :app:assembleRelease
+// ==================== 关于 cloudflared（v5.16 起已移除）====================
+// v4.4~v5.15 期间这里会下载官方 arm64 cloudflared 打进 jniLibs，用于「公网 MCP 隧道」。
+// 该功能用户判定无效，v5.16 已整体移除；这个任务一并删掉 —— 它压缩后 17 MB，
+// 占整个 APK 的 82%（实测 20.81 MB 里 17.02 MB 是它），是「安装包体积过大」的直接原因。
+// 顺带一提：正因为它是构建时下载的，GitHub Actions 的源码包从来不含它，
+// 而 release 工作流会把它塞进 APK —— 于是「源码构建出的包」和「发布包」体积差 5 倍。
+// 现在两边一致，都不再包含任何 native 二进制。
 
 android {
     namespace 'com.solosu.mtforum'
@@ -70,8 +19,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 50
-        versionName "5.15"
+        versionCode 51
+        versionName "5.16"
         // 应用界面只有中/英文资源，去掉依赖库中不会使用的几十套翻译。
         resourceConfigurations += ['zh', 'en']
 

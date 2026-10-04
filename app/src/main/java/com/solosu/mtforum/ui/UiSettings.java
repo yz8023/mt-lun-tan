@@ -48,6 +48,15 @@ public final class UiSettings {
     /** build95: 是否在界面顶部显示 FPS */
     private static final String KEY_SHOW_FPS = "show_fps";
 
+    /**
+     * build99: 是否向系统申请设备支持的最高刷新率。
+     *
+     * <p>默认<b>开</b>。原因：多数国产 ROM 对没有主动申请的第三方 App 一律按
+     * 60Hz 合成，用户看到的就是「论坛 FPS 锁 60」——那不是 App 的限制，
+     * 但只有 App 主动申请，系统才会给高刷。想省电可以在侧边栏关掉。
+     */
+    private static final String KEY_HIGH_REFRESH = "high_refresh_rate";
+
     private UiSettings() {
     }
 
@@ -163,6 +172,20 @@ public final class UiSettings {
         return !"external".equals(linkOpenMode(c));
     }
 
+    /**
+     * build99: 侧边栏分区是否展开（0=账号 1=AI 自动化 2=显示 3=其它）。
+     *
+     * <p>默认只展开「显示」：那一块是用户平时真会动的开关，其余三块默认收起，
+     * 这样一屏就能看到四个分区标题，不用滚半天找底部的设置 / 标签 / 运行日志入口。
+     */
+    public static boolean isDrawerGroupOpen(android.content.Context c, int index) {
+        return sp(c).getBoolean("drawer_group_open_" + index, index == 2);
+    }
+
+    public static void setDrawerGroupOpen(android.content.Context c, int index, boolean open) {
+        sp(c).edit().putBoolean("drawer_group_open_" + index, open).apply();
+    }
+
     /** build95: 顶部 FPS 显示 */
     public static boolean isShowFps(Context c) {
         return sp(c).getBoolean(KEY_SHOW_FPS, false);
@@ -170,5 +193,14 @@ public final class UiSettings {
 
     public static void setShowFps(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_SHOW_FPS, v).apply();
+    }
+
+    /** build99: 是否申请高刷新率（默认开） */
+    public static boolean isHighRefresh(Context c) {
+        return sp(c).getBoolean(KEY_HIGH_REFRESH, true);
+    }
+
+    public static void setHighRefresh(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_HIGH_REFRESH, v).apply();
     }
 }

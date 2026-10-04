@@ -73,13 +73,6 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <TextView style="@style/SettingsSection" android:text="AI 与高级工具" />
-            <com.google.android.material.card.MaterialCardView android:id="@+id/card_mcp" style="@style/SettingsCard" android:clickable="true" android:focusable="true" android:foreground="?attr/selectableItemBackground">
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
-                    <TextView style="@style/SettingsTitle" android:text="只读 MCP 与公网隧道" />
-                    <TextView style="@style/SettingsSummary" android:text="让外部 AI 通过 Token 安全读取当前论坛登录态；可内置免费 HTTPS 隧道" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
             <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
                 <LinearLayout android:id="@+id/layout_error_log" style="@style/SettingsRow" android:clickable="true" android:focusable="true" android:background="?attr/selectableItemBackground">
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">

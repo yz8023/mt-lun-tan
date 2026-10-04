@@ -288,7 +288,8 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         } else {
             holder.ivAvatar.setImageResource(R.drawable.ic_account);
         }
-        // 帖子封面图：2 列网格，最多两张（用户明确要求「最多显示两张图」）。
+        // 帖子封面图：2 列网格，最多两张，固定尺寸裁切
+        // （用户要求「首页图片显示限制数量最大 2，裁切显示大小为固定尺寸」）。
         // 没有图片列表时回退到单图封面。
         holder.ivThumbnail.setVisibility(View.GONE);
         holder.llThreadImages.setVisibility(View.GONE);
@@ -312,26 +313,24 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
                 int colW = avail <= 0 ? 0 : (avail - gap) / 2;
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams();
                 params.width = colW > 0 ? colW : 0;
-                // build84: 高度改成 WRAP_CONTENT + adjustViewBounds。
-                // 原来是硬编码 dp(104) 再配 CENTER_CROP —— 每张图都被压成同一个
-                // 104dp 高的方块，竖图被裁、宽图被拉，正是用户反馈「图片显示异常」的
-                // 根因（参照项目 mtluntan 的 PostImage 注释里明确写了这一点）。
-                // 现在宽度由列权重决定，高度按图片自身比例自适应，绝不变形。
-                params.height = GridLayout.LayoutParams.WRAP_CONTENT;
+                // build99: 固定尺寸裁切（用户明确要求）。
+                // 高度 = 列宽 × 3/4（≈4:3），两张图永远一样大、每张卡片图文区高度
+                // 也永远一样 —— 列表整齐，长截图不会再撑出一屏。图片本身用
+                // CENTER_CROP 居中裁切，宁可裁掉边缘也不拉伸变形。
+                params.height = colW > 0 ? Math.round(colW * 0.75f) : dp(110);
                 params.columnSpec = GridLayout.spec(i % 2, 1f);
-                params.rowSpec = GridLayout.spec(i / 2);
-                params.setMargins(i % 2 == 0 ? 0 : gap, i / 2 == 0 ? 0 : gap,
-                        i % 2 == 1 ? 0 : gap, i / 2 == 1 ? 0 : gap);
+                params.rowSpec = GridLayout.spec(0);
+                params.setMargins(i % 2 == 0 ? 0 : gap, 0, i % 2 == 1 ? 0 : gap, 0);
                 imageView.setLayoutParams(params);
-                imageView.setAdjustViewBounds(true);
-                imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                imageView.setAdjustViewBounds(false);
+                imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 imageView.setBackgroundResource(R.drawable.thread_image_bg);
                 imageView.setClipToOutline(true);
                 Glide.with(context)
                         .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(i)))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
-                        .fitCenter()
+                        .centerCrop()
                         .into(imageView);
                 holder.llThreadImages.addView(imageView);
             }
@@ -339,13 +338,13 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             String thumbnailUrl = thread.getThumbnailUrl();
             if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) {
                 holder.ivThumbnail.setVisibility(View.VISIBLE);
-                // build95: centerCrop -> fitCenter。封面图原来是中心裁剪，
-                // 竖长图只剩中间一条。改成完整 fit，长图也能看全。
+                // build99: 单图封面也固定尺寸居中裁切，和两图网格保持同一视觉规则
+                // （布局里已写死 150dp 高 + centerCrop）
                 Glide.with(context)
                         .load(com.solosu.mtforum.util.ForumImageLoader.model(thumbnailUrl))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
-                        .fitCenter()
+                        .centerCrop()
                         .into(holder.ivThumbnail);
             }
         }

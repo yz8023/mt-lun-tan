@@ -2,13 +2,25 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v4.7（versionCode 32）**
+当前版本：**v5.16（versionCode 51）**
 
 ---
 
+## v5.16：安装包瘦身（20.8 → 3.8 MB）· 移除 MCP · 侧边栏折叠 · 首页图片固定尺寸 · 高刷申请
+
+- **移除 MCP 功能**（顶栏按钮、设置入口、前台服务、公网隧道一并删除）。该功能用户判定无效，
+  且它是唯一需要内置 cloudflared 的地方。
+- **安装包瘦身**：cloudflared 一个文件压缩后就 17 MB，占整个 APK 的 **82%**（实测 20.81 MB → 去掉后约 3.8 MB）。
+  同时去掉已无用的 `extractNativeLibs` 与 `FOREGROUND_SERVICE_SPECIAL_USE` 权限。
+- **侧边栏分区折叠**：账号 / AI 自动化 / 显示 / 其它四块可点击收起展开，状态记忆；默认只展开「显示」。
+- **首页图片**：单帖最多 2 张（已是原要求），改为**固定尺寸居中裁切**（两图各 4:3，单图 150dp），
+  列表不再被长截图撑高、每张卡片高度一致。
+- **高刷新率**：新增「请求高刷新率」开关（默认开）。系统对未主动申请的第三方 App 常按 60Hz 合成 ——
+  这解释了「为什么 FPS 锁 60」；FPS 浮层现在同时显示「屏 xHz」以便区分布局与系统限制。
+
 ## v4.7：修复 Android 隧道 DNS · 帖子原图识别
 
-- App 使用 Android 网络栈注册 Quick Tunnel，并预解析 Cloudflare 边缘 IP，绕过 cloudflared 误连 `[::1]:53` 的 DNS 问题。
+- （v5.16 已整体移除 MCP 与隧道功能）App 使用 Android 网络栈注册 Quick Tunnel，并预解析 Cloudflare 边缘 IP，绕过 cloudflared 误连 `[::1]:53` 的 DNS 问题。
 - 修复 Comiis 的 `comiis_loadimages=1` 被当成图片 URL，导致正文请求 `/1` 并显示站点随机表情/占位图。
 - 主楼、评论、列表和离线页面只接受真实图片候选，普通文件名含 face/icon 不再被误判成表情。
 
