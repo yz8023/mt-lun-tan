@@ -297,6 +297,30 @@
                             app:drawableTint="@color/primary" />
                     </LinearLayout>
 
+                    <!--
+                        build98: 帖子标签（站点 div.comiis_tags 的内容）。
+                        站点上标签就在正文下方一排，这里照原样显示成一排可点的胶囊，
+                        点了进标签页看同类帖子。没打标签时整行隐藏。
+                    -->
+                    <HorizontalScrollView
+                        android:id="@+id/hsv_thread_tags"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="8dp"
+                        android:overScrollMode="never"
+                        android:scrollbars="none"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:id="@+id/ll_thread_tags"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
                     <FrameLayout
                         android:id="@+id/frame_content"
                         android:layout_width="match_parent"

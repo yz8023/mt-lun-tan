@@ -53,6 +53,15 @@ public class TagActivity extends AppCompatActivity {
     private int mode = MODE_TAGS;
     private String currentTagId, currentTagName;
 
+    /** build98: 其它页面（帖子详情里的标签胶囊）用这个直接打开某个标签 */
+    public static void openTag(android.content.Context ctx, String id, String name) {
+        if (ctx == null || TextUtils.isEmpty(id)) return;
+        android.content.Intent it = new android.content.Intent(ctx, TagActivity.class);
+        it.putExtra("tag_id", id);
+        it.putExtra("tag_name", name == null ? "" : name);
+        ctx.startActivity(it);
+    }
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -87,7 +96,14 @@ public class TagActivity extends AppCompatActivity {
         });
         swipe.setOnRefreshListener(this::reload);
 
-        loadTagCloud();
+        // build98: 从帖子详情页的标签胶囊进来时，直接落在该标签的帖子列表上
+        String initId = getIntent() == null ? null : getIntent().getStringExtra("tag_id");
+        String initName = getIntent() == null ? null : getIntent().getStringExtra("tag_name");
+        if (!TextUtils.isEmpty(initId)) {
+            loadThreads(initId, TextUtils.isEmpty(initName) ? "标签" : initName);
+        } else {
+            loadTagCloud();
+        }
     }
 
     private void reload() {

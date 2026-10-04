@@ -143,6 +143,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private String currentReplyTarget = "";
     private boolean isLoadingMore = false;
     private String currentReplyPid = "";
+    // build98: 快捷回复变量 {to} / {floor} 的值（正在回复谁、哪一层）
+    private String currentReplyToName = "";
+    private String currentReplyFloor = "";
     private String currentLoginUid = null; // build73: 当前登录 uid(判定是否本人)
     // build74b: 打赏目标(空=主楼;有值=评论楼层)
     private String rewardTargetPid = "";
@@ -468,9 +471,14 @@ public class ThreadDetailActivity extends AppCompatActivity {
             this.currentReplyPid = item != null ? item.getPid() : "";
             // build71: 不再把"回复 xx:"当预填文本塞进输入框(它会被一起发出去)
             this.currentReplyTarget = "";
+            // build98: 快捷回复变量 {to}/{floor} 跟着这个目标走
+            this.currentReplyToName = author;
+            this.currentReplyFloor = item != null ? item.getFloorLabel() : "";
         } else {
             this.currentReplyPid = "";
             this.currentReplyTarget = "";
+            this.currentReplyToName = "";
+            this.currentReplyFloor = "";
         }
         showReplyBottomSheet(this.currentReplyTarget);
     }
@@ -964,6 +972,9 @@ public class ThreadDetailActivity extends AppCompatActivity {
                         System.currentTimeMillis() - tRenderStart));
         // build72: 附件列表
         renderAttachments(postDetail.getContentHtml());
+        // build98: 帖子标签（站点 div.comiis_tags）—— 照原样显示成一排可点胶囊
+        renderThreadTags(postDetail);
+
         // build71: 记浏览历史
         com.solosu.mtforum.session.HistoryStore.record(this, this.tid,
                 postDetail.getTitle(), postDetail.getAuthor());
@@ -1383,6 +1394,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private void lambda$showReplyBottomSheet$29(DialogInterface d) {
         this.currentReplyPid = "";
         this.currentReplyTarget = "";
+        this.currentReplyToName = "";
+        this.currentReplyFloor = "";
     }
 
     private void lambda$showReplyBottomSheet$30(View dialogView, DialogInterface d) {
@@ -1532,6 +1545,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private void lambda$completeReplyPublished$33() {
         this.currentReplyPid = "";
         this.currentReplyTarget = "";
+        this.currentReplyToName = "";
+        this.currentReplyFloor = "";
         this.binding.tilReply.setError(null);
         // build80: 回复已发出 -> 清空待发送图片队列与残留的 [attachimg] 标签,
         //          否则图片会一直留在回复栏里(已提交成功却看着像没发出去)
@@ -2103,6 +2118,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 public void onClick(android.view.View widget) {
                     currentReplyPid = "";
                     currentReplyTarget = "";
+                    currentReplyToName = "";
+                    currentReplyFloor = "";
                     showReplyBottomSheet("");
                 }
 
@@ -4109,6 +4126,9 @@ private void viewHiddenContent() {
             @Override public void run() {
                 currentReplyPid = item.getPid();
                 currentReplyTarget = "回复 " + author + "：";
+                // build98: 给快捷回复的 {to} / {floor} 变量备好值
+                currentReplyToName = author;
+                currentReplyFloor = item.getFloorLabel();
                 showReplyBottomSheet("");
             }
         }, dialog);
@@ -4660,8 +4680,120 @@ private void viewHiddenContent() {
 
         if (btnEdit != null) {
             com.solosu.mtforum.ui.anim.Motion.pressFeedback(btnEdit, 0.92f);
-            btnEdit.setOnClickListener(v -> showQuickReplyEditor(container, input));
+            // build98: 轻点打开「勾选 / 编辑 / 删除 / 变量」管理面板；
+            // 长按仍是老的多行批量编辑（一行一条），习惯了的用户可以继续用。
+            btnEdit.setOnClickListener(v -> com.solosu.mtforum.ui.widget.QuickReplyManagerSheet.show(
+                    this, () -> renderQuickReplyChips(container, input)));
+            btnEdit.setOnLongClickListener(v -> {
+                showQuickReplyEditor(container, input);
+                return true;
+            });
         }
+    }
+
+    /**
+     * build98: 把帖子的标签渲染成一排可点胶囊（站点上它们就在正文上方那一排）。
+     *
+     * <p>点一下进 {@code TagActivity} 的那个标签，看同类帖子 —— 用户说的
+     * 「标签就是这个」（{@code misc.php?mod=tag&id=384&type=thread&mobile=2}）。
+     * 帖子没打标签时整行隐藏，不留空白。
+     */
+    private void renderThreadTags(PostDetail detail) {
+        try {
+            final android.widget.LinearLayout box = this.binding.llThreadTags;
+            final View scroll = this.binding.hsvThreadTags;
+            if (box == null || scroll == null) return;
+            box.removeAllViews();
+            java.util.List<String> names = detail == null ? null : detail.getTagNames();
+            java.util.List<String> ids = detail == null ? null : detail.getTagIds();
+            if (names == null || names.isEmpty()) {
+                scroll.setVisibility(View.GONE);
+                return;
+            }
+            float d = getResources().getDisplayMetrics().density;
+            int padH = (int) (10 * d), padV = (int) (5 * d), gap = (int) (6 * d);
+            for (int i = 0; i < names.size(); i++) {
+                final String name = names.get(i);
+                final String id = (ids != null && i < ids.size()) ? ids.get(i) : "";
+                TextView chip = new TextView(this);
+                chip.setText("#" + name);
+                chip.setTextSize(12f);
+                chip.setTextColor(getColor(R.color.primary));
+                chip.setBackgroundResource(R.drawable.bg_quick_reply_chip);
+                chip.setPadding(padH, padV, padH, padV);
+                chip.setMaxLines(1);
+                chip.setEllipsize(TextUtils.TruncateAt.END);
+                android.widget.LinearLayout.LayoutParams lp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.rightMargin = gap;
+                chip.setLayoutParams(lp);
+                com.solosu.mtforum.ui.anim.Motion.pressFeedback(chip, 0.92f);
+                chip.setOnClickListener(v ->
+                        com.solosu.mtforum.ui.tag.TagActivity.openTag(this, id, name));
+                box.addView(chip);
+            }
+            scroll.setVisibility(View.VISIBLE);
+        } catch (Throwable ignored) {
+            // 标签只是锦上添花，任何异常都不能影响正文
+        }
+    }
+
+    /**
+     * build98: 快捷回复里的变量值表。
+     *
+     * <p>用户在短语里写 {@code {author} 的 {title} 写得不错}，插入时换成当前帖子的真实内容。
+     * 只放「当前确实知道」的值 —— 不知道的（比如没在回复某人时的 {to}）就不放，
+     * 占位符原样留给用户自己删，免得替换成空串让人一头雾水。
+     */
+    private java.util.Map<String, String> quickReplyVars() {
+        java.util.Map<String, String> vars =
+                com.solosu.mtforum.session.QuickReplyManager.newVarMap();
+        if (this.postDetail != null) {
+            if (!TextUtils.isEmpty(this.postDetail.getTitle())) {
+                vars.put("{title}", this.postDetail.getTitle());
+            }
+            if (!TextUtils.isEmpty(this.postDetail.getAuthor())) {
+                vars.put("{author}", this.postDetail.getAuthor());
+            }
+            if (!TextUtils.isEmpty(this.postDetail.getForumName())) {
+                vars.put("{forum}", this.postDetail.getForumName());
+            }
+        }
+        if (!TextUtils.isEmpty(this.tid)) {
+            vars.put("{tid}", this.tid);
+            vars.put("{url}", com.solosu.mtforum.network.HttpClient.BASE_URL
+                    + "thread-" + this.tid + "-1-1.html");
+        }
+        if (!TextUtils.isEmpty(this.currentReplyToName)) {
+            vars.put("{to}", this.currentReplyToName);
+        }
+        if (!TextUtils.isEmpty(this.currentReplyFloor)) {
+            vars.put("{floor}", this.currentReplyFloor);
+        }
+        try {
+            com.solosu.mtforum.session.UserSessionManager usm =
+                    com.solosu.mtforum.session.UserSessionManager.getInstance();
+            String name = usm.getUsername(this);
+            if (!TextUtils.isEmpty(name)) vars.put("{username}", name);
+            String uid = usm.getUid(this);
+            if (!TextUtils.isEmpty(uid)) vars.put("{uid}", uid);
+        } catch (Exception ignored) {
+        }
+        java.text.SimpleDateFormat df =
+                new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA);
+        java.text.SimpleDateFormat tf =
+                new java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA);
+        long now = System.currentTimeMillis();
+        vars.put("{date}", df.format(new java.util.Date(now)));
+        vars.put("{time}", tf.format(new java.util.Date(now)));
+        return vars;
+    }
+
+    /** build98: 展开快捷短语里的 {变量} */
+    private String expandQuickReply(String phrase) {
+        return com.solosu.mtforum.session.QuickReplyManager.applyVars(phrase, quickReplyVars());
     }
 
     private void renderQuickReplyChips(final android.widget.LinearLayout container,
@@ -4692,19 +4824,21 @@ private void viewHiddenContent() {
 
             com.solosu.mtforum.ui.anim.Motion.pressFeedback(chip, 0.92f);
 
-            // 轻点：填进输入框，光标移到末尾
+            // 轻点：填进输入框（变量已展开），光标移到末尾
             chip.setOnClickListener(v -> {
                 if (input == null) return;
+                String text = expandQuickReply(phrase);
                 String cur = input.getText() == null ? "" : input.getText().toString();
-                String next = android.text.TextUtils.isEmpty(cur) ? phrase : cur + phrase;
+                String next = android.text.TextUtils.isEmpty(cur) ? text : cur + text;
                 input.setText(next);
                 input.setSelection(next.length());
             });
-            // 长按：直接发送
+            // 长按：填进去并直接发送（同样先展开变量）
             chip.setOnLongClickListener(v -> {
                 if (input == null) return false;
-                input.setText(phrase);
-                input.setSelection(phrase.length());
+                String text = expandQuickReply(phrase);
+                input.setText(text);
+                input.setSelection(text.length());
                 View send = ((View) container.getParent().getParent())
                         .findViewById(R.id.btn_send_reply);
                 if (send != null) send.performClick();
@@ -4718,8 +4852,10 @@ private void viewHiddenContent() {
     private void showQuickReplyEditor(final android.widget.LinearLayout container,
                                       final com.google.android.material.textfield.TextInputEditText input) {
         final android.widget.EditText et = new android.widget.EditText(this);
+        // build98: 这里要读「全部」条目（allTexts），不能用 list()（那只是勾选过的）。
+        // 用 list() 的话，用户只要用老编辑器保存一次，没勾选的条目就被静默删掉了。
         et.setText(com.solosu.mtforum.session.QuickReplyManager.toLines(
-                com.solosu.mtforum.session.QuickReplyManager.list(this)));
+                com.solosu.mtforum.session.QuickReplyManager.allTexts(this)));
         et.setTextSize(14f);
         et.setTextColor(getResources().getColor(R.color.text_primary, null));
         et.setGravity(android.view.Gravity.TOP);
@@ -4799,10 +4935,91 @@ private void viewHiddenContent() {
         if (btn == null) return;
         com.solosu.mtforum.ui.anim.Motion.pressFeedback(btn, 0.92f);
         btn.setOnClickListener(v -> copyMainPost(true));
+        // build98: 长按不再只是「复制纯文本」，改成一个小面板：纯文本正文 / 逐段复制代码。
+        // 帖子里的代码块在 WebView 模式下是站点原样渲染的，万一注入的按钮点不到，
+        // 这里就是保底入口。
         btn.setOnLongClickListener(v -> {
-            copyMainPost(false);
+            showCopyOptions();
             return true;
         });
+    }
+
+    /**
+     * build98: 「复制正文」长按面板 —— 纯文本 + 逐段代码。
+     */
+    private void showCopyOptions() {
+        final java.util.List<com.solosu.mtforum.util.BBCodeUtil.CodeBlock> blocks =
+                collectPostCodeBlocks();
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        labels.add("复制纯文本正文");
+        for (int i = 0; i < blocks.size(); i++) {
+            com.solosu.mtforum.util.BBCodeUtil.CodeBlock b = blocks.get(i);
+            String lang = TextUtils.isEmpty(b.lang) ? "代码" : b.lang;
+            int lines = b.code.isEmpty() ? 0 : b.code.split("\n", -1).length;
+            labels.add("复制第 " + (i + 1) + " 段代码（" + lang + "，" + lines + " 行）");
+        }
+        if (blocks.isEmpty()) {
+            // 没有代码块就没必要弹面板了，保持老行为
+            copyMainPost(false);
+            return;
+        }
+        android.app.Dialog d = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("复制正文")
+                .setItems(labels.toArray(new String[0]), (dlg, which) -> {
+                    if (which == 0) {
+                        copyMainPost(false);
+                    } else {
+                        com.solosu.mtforum.util.BBCodeUtil.CodeBlock b = blocks.get(which - 1);
+                        copyPlainText(this, b.code, "已复制第 " + which + " 段代码");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(d, this);
+    }
+
+    /**
+     * build98: 把当前帖子里的代码块都找出来。
+     *
+     * <p>两条来源都算上：正文渲染成卡片时（老路径）从卡片里取原始代码；
+     * WebView 原帖渲染时卡片是空的，就从抓到的 HTML 里重新抽一遍
+     * （{@code extractCodeBlocks} 认得 pre / div.comiis_blockcode / ol&gt;li 三种结构）。
+     */
+    private java.util.List<com.solosu.mtforum.util.BBCodeUtil.CodeBlock> collectPostCodeBlocks() {
+        java.util.List<com.solosu.mtforum.util.BBCodeUtil.CodeBlock> out = new java.util.ArrayList<>();
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
+        if (container != null) {
+            for (int i = 0; i < container.getChildCount(); i++) {
+                View child = container.getChildAt(i);
+                if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
+                    String code = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
+                    if (!TextUtils.isEmpty(code) && seen.add(code)) {
+                        out.add(newCodeBlock(((com.solosu.mtforum.ui.widget.CodeBlockView) child)
+                                .getLang(), code));
+                    }
+                }
+            }
+        }
+        String html = !TextUtils.isEmpty(this.currentContentHtmlForCopy)
+                ? this.currentContentHtmlForCopy
+                : (this.postDetail != null ? this.postDetail.getContentHtml() : null);
+        if (!TextUtils.isEmpty(html)) {
+            com.solosu.mtforum.util.BBCodeUtil.Extracted ex =
+                    com.solosu.mtforum.util.BBCodeUtil.extractCodeBlocks(html);
+            if (ex.hasBlocks()) {
+                for (com.solosu.mtforum.util.BBCodeUtil.CodeBlock b : ex.blocks) {
+                    if (!TextUtils.isEmpty(b.code) && seen.add(b.code)) out.add(b);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** CodeBlock 的构造器是包内可见，这里借道同包工具类造一个（只用于展示语言/行数） */
+    private static com.solosu.mtforum.util.BBCodeUtil.CodeBlock newCodeBlock(String lang,
+                                                                             String code) {
+        return com.solosu.mtforum.util.BBCodeUtil.makeCodeBlock(lang, code);
     }
 
     /**
@@ -4818,22 +5035,17 @@ private void viewHiddenContent() {
                 return;
             }
         }
-        // 纯文本：正文 + 被摘走的代码块
+        // 纯文本：正文 + 代码块。build98: 代码块统一走 collectPostCodeBlocks() ——
+        // WebView 原帖渲染时卡片是空的，正文里那段代码以前会漏掉。
         StringBuilder sb = new StringBuilder();
         CharSequence body = this.binding.tvContent.getText();
-        if (body != null) sb.append(body.toString().trim());
-        android.widget.LinearLayout container = this.binding.llCodeBlocksMain;
-        if (container != null && container.getVisibility() == View.VISIBLE) {
-            for (int i = 0; i < container.getChildCount(); i++) {
-                View child = container.getChildAt(i);
-                if (child instanceof com.solosu.mtforum.ui.widget.CodeBlockView) {
-                    String code = ((com.solosu.mtforum.ui.widget.CodeBlockView) child).getCode();
-                    if (!TextUtils.isEmpty(code)) {
-                        if (sb.length() > 0) sb.append("\n\n");
-                        sb.append(code);
-                    }
-                }
-            }
+        if (body != null && this.binding.tvContent.getVisibility() == View.VISIBLE) {
+            sb.append(body.toString().trim());
+        }
+        for (com.solosu.mtforum.util.BBCodeUtil.CodeBlock b : collectPostCodeBlocks()) {
+            if (TextUtils.isEmpty(b.code)) continue;
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append(b.code);
         }
         copyPlainText(this, sb.toString(), asBBCode ? "已复制正文" : "已复制纯文本");
     }
@@ -5169,6 +5381,19 @@ private void viewHiddenContent() {
             + "pre,.blk_code,.blockcode{background:#f4f5f7;padding:10px;border-radius:6px;"
             + "overflow-x:auto;font-size:12.5px;line-height:1.55;white-space:pre-wrap;"
             + "word-break:break-all;font-family:monospace;}"
+            // build98: App 自己生成的代码卡片（PostCodeRender）。按钮在正常文档流里，
+            // 有语言标签、有整块头部可点，绝不会出现「找不到按钮」的情况。
+            + ".mt-code{margin:10px 0;border-radius:8px;overflow:hidden;"
+            + "background:#282c34;border:1px solid #3a3f4b;}"
+            + ".mt-code-hd{display:flex;align-items:center;justify-content:space-between;"
+            + "padding:6px 10px;background:#21252b;color:#9aa4b2;font-size:11px;"
+            + "font-family:monospace;}"
+            + ".mt-code-lang{opacity:.9;}"
+            + ".mt-code-btn{display:inline-block;padding:2px 12px;border-radius:4px;"
+            + "background:#3d4453;color:#e6e6e6;font-size:12px;cursor:pointer;}"
+            + ".mt-code-bd{margin:0;padding:10px;background:transparent;color:#e6e6e6;"
+            + "overflow-x:auto;font-size:12.5px;line-height:1.6;white-space:pre;"
+            + "word-break:normal;font-family:monospace;}"
             + "blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid #d8d8d8;"
             + "background:#fafafa;color:#555;}"
             + "table{width:auto !important;max-width:100% !important;}"
@@ -5218,6 +5443,11 @@ private void viewHiddenContent() {
         // 用列表页带过来的真实 CDN 图补进去，至少图能看到。
         // （缩略图升级已在 bindData 里做过，这里只兜底补图；该方法幂等）
         body = injectFallbackImagesInline(body);
+
+        // build98: 代码块换成 App 自己的卡片（自带复制按钮）。
+        // 放在这里 = 交给 WebView 的 HTML 里已经有一个「我们百分百认识」的按钮，
+        // 后面那句 JS 只是把点击接上剪贴板，不依赖站点模板。
+        body = com.solosu.mtforum.util.PostCodeRender.decorate(body);
 
         String html = "<!DOCTYPE html><html><head><meta name=\"viewport\" "
                 + "content=\"width=device-width,initial-scale=1\"><meta charset=\"utf-8\">"
@@ -5346,39 +5576,24 @@ private void viewHiddenContent() {
     }
 
     /**
-     * build97: 给正文里的代码块注入「复制」按钮。
+     * 给正文里的代码块注入「复制」按钮（build97 引入，build98 重写）。
      *
      * <p>v5.11 起主楼改用 WebView 原样渲染站点 HTML，代码块不再抽出来做成
      * CodeBlockView 卡片（抽了就会同一段代码出现两遍），于是 CodeBlockView 自带
      * 的复制按钮也没了。用户报「正文代码类型不能直接复制」。
      *
-     * <p>这里给每个 {@code pre} / {@code .blk_code} / {@code .blockcode} 右上角
-     * 塞一个绝对定位的小按钮，点击经 {@code PostBody.copyText} 桥回 native 写剪贴板。
-     * 按钮是 JS 现造的，不依赖站点 CSS，样式内联写死。
+     * <p>build97 的第一版给每个块塞了个绝对定位按钮，但用户反馈「还是不能复制」，
+     * 排查出三个原因，见 {@link com.solosu.mtforum.util.PostWebCodeCopyScript}：
+     * 按钮被代码块自己的横向滚动带走 / 复制出来带着“复制”两个字 / 站点懒加载出来的
+     * 代码块压根没来得及挂按钮。这一版全部修掉，并额外提供 native 兜底入口
+     * （长按「复制正文」→ 选择要复制第几段代码，见 {@link #showCopyOptions()}），
+     * 即使 WebView 里一个按钮都没点上，也能把代码拿走。
      */
     private void bindPostWebCodeCopy(android.webkit.WebView web) {
         if (web == null) return;
-        String js = "(function(){try{"
-                + "var sel='pre,.blk_code,.blockcode,.comiis_blockcode';"
-                + "var list=document.querySelectorAll(sel);"
-                + "for(var i=0;i<list.length;i++){(function(box){"
-                + "if(box.getAttribute('data-copybtn')==='1')return;"
-                + "box.setAttribute('data-copybtn','1');"
-                + "var st=getComputedStyle(box);"
-                + "if(st.position==='static')box.style.position='relative';"
-                + "var btn=document.createElement('div');"
-                + "btn.textContent='复制';"
-                + "btn.style.cssText='position:absolute;top:6px;right:6px;z-index:99;"
-                + "padding:2px 8px;font-size:11px;line-height:18px;border-radius:4px;"
-                + "background:rgba(0,0,0,.55);color:#fff;cursor:pointer;"
-                + "user-select:none;-webkit-user-select:none;';"
-                + "btn.onclick=function(ev){ev.preventDefault();ev.stopPropagation();"
-                + "if(window.PostBody&&window.PostBody.copyText){"
-                + "PostBody.copyText(box.innerText||box.textContent||'');}};"
-                + "box.appendChild(btn);"
-                + "})(list[i]);}"
-                + "}catch(x){}})();";
-        web.evaluateJavascript(js, null);
+        // 脚本本体在 util/PostWebCodeCopyScript（纯字符串、零 Android 依赖，
+        // 有 JVM 单测守着选择器与「复制内容不带按钮文案」这两条不变量）
+        web.evaluateJavascript(com.solosu.mtforum.util.PostWebCodeCopyScript.js(), null);
     }
 
     /**

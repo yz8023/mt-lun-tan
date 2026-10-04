@@ -65,6 +65,12 @@ public class PostDetail {
     // ===== 图片资源 =====
     private List<String> imageUrls;  // 正文中包含的图片URL列表
 
+    // ===== 标签（build98）=====
+    // 站点用 div.comiis_tags 承载帖子的标签，每个标签是 a[href*=misc.php?mod=tag&id=X]。
+    // 详情页把它显示成一排可点的小胶囊，点了进标签页看同类帖子。
+    private List<String> tagNames;   // 标签名
+    private List<String> tagIds;     // 标签 id（进详情页要用）
+
     public PostDetail() {}
 
     // ===== Getters & Setters =====
@@ -183,4 +189,10 @@ public class PostDetail {
 
     public List<String> getImageUrls() { return imageUrls; }
     public void setImageUrls(List<String> imageUrls) { this.imageUrls = imageUrls; }
+
+    public List<String> getTagNames() { return tagNames; }
+    public void setTagNames(List<String> tagNames) { this.tagNames = tagNames; }
+
+    public List<String> getTagIds() { return tagIds; }
+    public void setTagIds(List<String> tagIds) { this.tagIds = tagIds; }
 }

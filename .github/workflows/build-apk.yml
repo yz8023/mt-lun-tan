@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v4.7
+        default: v5.15
 
 permissions:
   contents: write
@@ -141,11 +141,11 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - 修复 Android 上 cloudflared 使用 [::1]:53 导致 Quick Tunnel 注册失败：改由 App 注册隧道并预解析边缘 IP。
-          - 仅在真实 Tunnel Connection 成功后复制随机 trycloudflare hostname，不再把 API 域名误当公网 MCP 地址。
-          - 修复 Comiis 懒加载开关值 1 被当成图片 URL，导致帖子原图变成站点随机表情或占位图。
-          - 主楼、评论、列表与离线页面统一筛选真实图片属性，并收紧 Discuz 表情路径识别。
-          - 保留顶栏 MCP 一键启用/复制、只读白名单、Bearer 鉴权、脱敏与自动重连。
+          - **帖子正文代码一键复制（重做）**：不再靠 JS 猜站点结构，改由 App 在渲染前把代码块替换成自带「复制」按钮的卡片，另加「复制正文」长按面板可逐段复制代码。
+          - **快捷回复可勾选 / 可编辑 / 可删除**：新增管理面板，勾上的才显示在快捷条；支持 {title}、{author}、{to}、{forum}、{floor}、{url}、{tid}、{username}、{uid}、{date}、{time} 十一个占位符。
+          - **发帖快捷标签**：标签字段名解析不到时退回 Discuz 标准名 tags（以前会直接禁用标签功能）；标签选择器支持本地筛选、站内搜索、手动添加，编辑帖子时自动带出已有标签。
+          - **BBCode 快捷键补齐**：[qq]、[hr]、[media=x,500,375]、[email=地址]名称[/email]、[url=地址]名字[/url]，带参数的标签走弹窗填充并替换选区。
+          - **修复用了 [code] 之后颜色全部变成字面量**：根因是 Html.fromHtml 的 ParagraphStyle 段落边界校验失败（代码块前必须补 <br>），现在代码块前后样式都正常。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -160,14 +160,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — Android DNS 隧道与帖子图片修复" \
+              --title "MTForum v${VERSION} — 正文代码一键复制 · 快捷回复可勾选 · 发帖标签 · [code] 预览修复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — Android DNS 隧道与帖子图片修复" \
+              --title "MTForum v${VERSION} — 正文代码一键复制 · 快捷回复可勾选 · 发帖标签 · [code] 预览修复" \
               --notes-file release-notes.md \
               --latest
           fi

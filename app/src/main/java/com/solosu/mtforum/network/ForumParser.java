@@ -1785,6 +1785,22 @@ public class ForumParser {
             }
         }
 
+        // === 5.5 build98: 帖子标签（div.comiis_tags）===
+        try {
+            List<TagItem> threadTags = parseThreadTags(html);
+            if (!threadTags.isEmpty()) {
+                List<String> names = new ArrayList<>();
+                List<String> ids = new ArrayList<>();
+                for (TagItem t : threadTags) {
+                    names.add(t.name);
+                    ids.add(t.id);
+                }
+                detail.setTagNames(names);
+                detail.setTagIds(ids);
+            }
+        } catch (Throwable ignored) {
+        }
+
         // === 6. 帖子正文 + 附件图片 ===
         Element opMsg = opPostli.select("div.comiis_message").first();
         if (opMsg != null) {
@@ -2718,6 +2734,16 @@ detail.setTotalPages(maxPage);
     //   帖子页标签容器 div.comiis_tags（该帖没打标签时是空 div）
     // ══════════════════════════════════════════════════════════════
 
+    /**
+     * build98: Discuz 核心的标签字段名。
+     *
+     * <p>站点只有 mobile 模板时，发帖页里可能压根找不到标签 input（build96 因此把
+     * 「标签」按钮直接禁了）。但 Discuz 处理发帖的表单字段名一直是 {@code tags}，
+     * 而且对不认识的 POST 字段是「忽略」而不是报错 —— 所以用它兜底是安全的：
+     * 「带上了」和「没带上」之间，前者明显更好。
+     */
+    public static final String DEFAULT_TAG_FIELD = "tags";
+
     /** build96: 标签云入口 */
     public static String getTagIndexUrl() {
         return BASE_DOMAIN + "misc.php?mod=tag&mobile=2";
@@ -2821,6 +2847,71 @@ detail.setTotalPages(maxPage);
             }
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    /**
+     * build98: 读表单里已经填好的标签（编辑帖子时用它预填选择器）。
+     *
+     * <p>找 {@code name=tags}（或任何名字含 tag）的 input，取它的 value。
+     * 找不到就返回 {@code null}，调用方照常走「没有标签」的分支。
+     */
+    public static String parseTagValue(String html) {
+        if (TextUtils.isEmpty(html)) return null;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
+            for (org.jsoup.nodes.Element in : doc.select("input[name]")) {
+                String n = in.attr("name");
+                if (n == null) continue;
+                String ln = n.toLowerCase(java.util.Locale.ROOT);
+                if ((ln.equals("tags") || ln.contains("tag"))
+                        && !ln.contains("stage") && !ln.contains("vtag")) {
+                    String v = in.attr("value");
+                    if (!TextUtils.isEmpty(v)) return v.trim();
+                }
+            }
+            // data-value 里也可能是 JSON（部分插件把标签写在 data 属性里）
+            for (org.jsoup.nodes.Element el : doc.select("[data-tags]")) {
+                String v = el.attr("data-tags");
+                if (!TextUtils.isEmpty(v)) return v.trim();
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * build98: 帖子页里的标签（{@code div.comiis_tags} 里的 {@code a[href*=mod=tag]}）。
+     *
+     * <p>帖子没打标签时站点给的是空 div，这里自然返回空列表。
+     * 用于在详情页把标签显示出来并可点击进标签页 —— 用户说的「标签就是这个」。
+     */
+    public static List<TagItem> parseThreadTags(String html) {
+        List<TagItem> out = new ArrayList<>();
+        if (TextUtils.isEmpty(html) || !html.contains("comiis_tags")) return out;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
+            org.jsoup.select.Elements boxes = doc.select("div.comiis_tags");
+            for (org.jsoup.nodes.Element box : boxes) {
+                for (org.jsoup.nodes.Element a : box.select("a[href*=mod=tag]")) {
+                    String href = a.attr("href");
+                    if (href == null || !href.contains("id=")) continue;
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("[?&]id=(\\d+)").matcher(href);
+                    if (!m.find()) continue;
+                    String id = m.group(1);
+                    String name = a.attr("title");
+                    if (TextUtils.isEmpty(name)) name = a.text();
+                    if (TextUtils.isEmpty(name)) continue;
+                    name = name.trim();
+                    boolean dup = false;
+                    for (TagItem t : out) if (t.id.equals(id)) { dup = true; break; }
+                    if (dup) continue;
+                    out.add(new TagItem(id, name));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
     }
 
     public static String getGuideUrl(String view, int page) {

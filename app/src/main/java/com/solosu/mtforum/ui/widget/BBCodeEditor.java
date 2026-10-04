@@ -25,22 +25,23 @@ import com.solosu.mtforum.ui.anim.Motion;
 import com.solosu.mtforum.util.BBCodeUtil;
 
 /**
- * BBCode 编辑器工具（build71 新增）。
+ * BBCode 编辑器工具（build71 新增，build98 扩充）。
  *
  * <p>回复弹窗与发帖页共用一套：
  * <ul>
- *   <li><b>实时预览</b> —— 输入停顿 300ms 自动重渲染，不用来回点「预览」切换</li>
- *   <li><b>21 个常用标签</b> —— 套在选区上，没选区就插一对并把光标放中间</li>
+ *   <li><b>实时预览</b> —— 输入停顿 300ms 自动重渲染，不用来回点「预览」切换。
+ *       build98：预览走 {@link #renderPreview}，任何一步失败都不会再把 BBCode 原文
+ *       甩给用户（用了 [code] 之后满屏 [color=#B30000] 的那个问题）。</li>
+ *   <li><b>常用标签</b> —— 套在选区上，没选区就插一对并把光标放中间</li>
+ *   <li><b>弹窗填充</b> —— QQ / 邮箱 / 链接 / 视频 / 图片 这类带参数的标签，
+ *       点一下弹小窗填地址和名称，不用自己记 {@code [email=xx]yy[/email]} 的写法</li>
  *   <li><b>RGB 取色器</b> —— 三条滑块 + 实时色块，直接生成 {@code [color=#RRGGBB]}</li>
- *   <li><b>彩虹字</b> —— 把选中文字按 HSV 均匀分色，逐字包 {@code [color]}</li>
+ *   <li><b>彩虹字 / 渐变字</b> —— 把选中文字按色相逐字包 {@code [color]}</li>
  * </ul>
- *
- * <p>标签集参考论坛上「发帖预览插件」的实现（作者提到的那套：
- * 加粗/斜体/下划线/颜色/字号/链接/图片/代码/引用/隐藏/免费 等）。
  */
 public final class BBCodeEditor {
 
-    /** 预设标签：{显示名, 前缀, 后缀} */
+    /** 预设标签：{显示名, 前缀, 后缀}（一次点击直接套选区，不需要额外输入） */
     public static final String[][] PRESETS = {
             {"加粗", "[b]", "[/b]"},
             {"斜体", "[i]", "[/i]"},
@@ -50,8 +51,6 @@ public final class BBCodeEditor {
             {"字号3", "[size=3]", "[/size]"},
             {"字号5", "[size=5]", "[/size]"},
             {"字号7", "[size=7]", "[/size]"},
-            {"链接", "[url=]", "[/url]"},
-            {"图片", "[img]", "[/img]"},
             {"代码", "[code]\n", "\n[/code]"},
             {"引用", "[quote]", "[/quote]"},
             {"隐藏", "[hide]", "[/hide]"},
@@ -63,6 +62,30 @@ public final class BBCodeEditor {
             {"列表", "[list]\n[*]", "\n[/list]"},
             {"表格", "[table]\n[tr][td]", "[/td][/tr]\n[/table]"},
             {"背景色", "[backcolor=#FFF000]", "[/backcolor]"},
+    };
+
+    /**
+     * 需要「弹窗快速填充」的标签（build98）。
+     *
+     * <p>用户在反馈里点名要的几条：{@code [qq]}、{@code [media=x,500,375]}、
+     * {@code [email=地址]名称[/email]}、{@code [url=地址]名称[/url]}。
+     * 这些标签都带参数，直接在正文里手写容易写错，改成弹个小窗填。
+     *
+     * <p>字段定义：{显示名, 弹窗标题, 字段1提示, 字段1默认, 字段2提示, 字段2默认, 模板}
+     * —— 模板里 {@code %1$s}=字段1、{@code %2$s}=字段2；字段2提示为 null 表示只有一个输入框。
+     * 模板中出现 {@code %2$s} 但用户没填时，用字段1的值兜底（例：链接不写名字就显示地址）。
+     */
+    private static final String[][] FILLS = {
+            {"链接", "插入链接", "链接地址（http://…）", "", "显示文字（留空=用地址）", "",
+                    "[url=%1$s]%2$s[/url]"},
+            {"QQ", "插入 QQ 号", "QQ 号", "", null, null, "[qq]%1$s[/qq]"},
+            {"邮箱", "插入邮箱", "邮箱地址", "", "显示名称（留空=用地址）", "",
+                    "[email=%1$s]%2$s[/email]"},
+            {"视频", "插入网络视频", "视频地址（mp4/m3u8/flv…）", "",
+                    "尺寸（默认 x,500,375，可留空）", "x,500,375",
+                    "[media=%2$s]%1$s[/media]"},
+            {"图片", "插入图片", "图片地址", "", "尺寸 W,H（可留空）", "",
+                    "[img=%2$s]%1$s[/img]"},
     };
 
     /** 常用色板，点一下直接套 [color] */
@@ -79,7 +102,7 @@ public final class BBCodeEditor {
     /**
      * 往容器里铺一排标签按钮。
      *
-     * @param extraColor 是否附带「取色」「彩虹字」两个特殊按钮
+     * @param extraColor 是否附带「取色」「彩虹字」「渐变字」三个特殊按钮
      */
     public static void buildToolbar(final Activity act, LinearLayout bar,
                                     final EditText input, boolean extraColor) {
@@ -95,6 +118,11 @@ public final class BBCodeEditor {
                     v -> applyRainbow(act, input)));
             bar.addView(chip(act, "渐变字", padH, padV, gap,
                     v -> showGradientPicker(act, input)));
+        }
+        // build98: 带参数的四条排在最前面（弹窗填充），随后是免输入的固定标签
+        for (final String[] f : FILLS) {
+            bar.addView(chip(act, f[0], padH, padV, gap,
+                    v -> showFillDialog(act, input, f)));
         }
         for (final String[] p : PRESETS) {
             bar.addView(chip(act, p[0], padH, padV, gap,
@@ -135,6 +163,125 @@ public final class BBCodeEditor {
         return t;
     }
 
+    // ==================== 弹窗填充（带参数的标签） ====================
+
+    /**
+     * 弹出小窗填参数，再把标签插进正文（build98）。
+     *
+     * <p>有选区的时侯，选区内容会预填进第二个字段（显示文字）—— 先写好文字再套链接是最常见的写法。
+     */
+    private static void showFillDialog(final Activity act, final EditText input,
+                                       final String[] spec) {
+        if (act == null || input == null || spec == null || spec.length < 7) return;
+        final String title = spec[1];
+        final String hint1 = spec[2];
+        final String def1 = spec[3];
+        final String hint2 = spec[4];
+        final String def2 = spec[5];
+        final String template = spec[6];
+
+        // 选区文字默认填到「显示文字」里
+        String selected = "";
+        Editable e = input.getText();
+        if (e != null) {
+            int st = Math.max(0, input.getSelectionStart());
+            int en = Math.max(st, input.getSelectionEnd());
+            if (en > st) selected = e.subSequence(st, en).toString();
+        }
+
+        float d = act.getResources().getDisplayMetrics().density;
+        int pad = (int) (16 * d);
+        LinearLayout box = new LinearLayout(act);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(pad, pad / 2, pad, 0);
+
+        TextView label1 = new TextView(act);
+        label1.setText(hint1);
+        label1.setTextSize(12f);
+        label1.setTextColor(act.getColor(R.color.text_hint));
+        final EditText et1 = new EditText(act);
+        et1.setSingleLine(true);
+        et1.setTextSize(14f);
+        et1.setHint(hint1);
+        et1.setText(def1 == null ? "" : def1);
+        box.addView(label1);
+        box.addView(et1);
+
+        final EditText et2;
+        if (TextUtils.isEmpty(hint2)) {
+            et2 = null;
+        } else {
+            TextView label2 = new TextView(act);
+            label2.setText(hint2);
+            label2.setTextSize(12f);
+            label2.setTextColor(act.getColor(R.color.text_hint));
+            label2.setPadding(0, (int) (10 * d), 0, 0);
+            et2 = new EditText(act);
+            et2.setSingleLine(true);
+            et2.setTextSize(14f);
+            et2.setHint(hint2);
+            et2.setText(selected.isEmpty() && def2 != null ? def2 : selected);
+            box.addView(label2);
+            box.addView(et2);
+        }
+
+        Dialog dlg = new AlertDialog.Builder(act)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("插入", (d2, w) -> {
+                    String v1 = et1.getText() == null ? "" : et1.getText().toString().trim();
+                    if (TextUtils.isEmpty(v1)) {
+                        Toast.makeText(act, "第一项不能为空", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String v2 = et2 == null || et2.getText() == null
+                            ? "" : et2.getText().toString().trim();
+                    if (TextUtils.isEmpty(v2)) v2 = v1;    // 没写名字就用地址/号码
+                    String open;
+                    String close;
+                    if (template.contains("%2$s")) {
+                        String[] parts = template.split("%2\\$s", -1);
+                        open = String.format(parts[0], v1);
+                        close = parts.length > 1 ? parts[1] : "";
+                    } else {
+                        open = String.format(template, v1);
+                        close = "";
+                    }
+                    // 显示文字来自弹窗（已预填选区），所以整块替换掉选区，不能再套一层
+                    String ins = open + v2 + close;
+                    replaceSelection(input, ins);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dlg, act);
+        if (et1.getText() != null && et1.getText().length() == 0) et1.requestFocus();
+    }
+
+    /** 用一段现成文本替换当前选区（没选区就插在光标处），光标落到末尾 */
+    private static void replaceSelection(EditText input, String ins) {
+        if (input == null) return;
+        Editable e = input.getText();
+        if (e == null) return;
+        int st = Math.max(0, input.getSelectionStart());
+        int en = Math.max(st, input.getSelectionEnd());
+        e.replace(st, en, ins);
+        input.setSelection(Math.min(st + ins.length(), e.length()));
+    }
+
+    /** 把标签套在选区上（有选区就包住选区，没选区就插一对并把光标放进中间） */
+    private static void insertWrapped(EditText input, String open, String close) {
+        if (input == null) return;
+        Editable e = input.getText();
+        if (e == null) return;
+        int st = Math.max(0, input.getSelectionStart());
+        int en = Math.max(st, input.getSelectionEnd());
+        String sel = e.subSequence(st, en).toString();
+        String ins = open + sel + close;
+        e.replace(st, en, ins);
+        int caret = sel.isEmpty() ? st + open.length() : st + ins.length();
+        input.setSelection(Math.min(caret, e.length()));
+    }
+
     // ==================== 实时预览 ====================
 
     /**
@@ -155,13 +302,7 @@ public final class BBCodeEditor {
                 return;
             }
             preview.setTextColor(act.getColor(R.color.text_primary));
-            try {
-                String html = BBCodeUtil.convertBBCodeToHtml(raw);
-                preview.setText(Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT,
-                        null, BBCodeUtil.createTagHandler(act)));
-            } catch (Exception e) {
-                preview.setText(raw);
-            }
+            preview.setText(renderPreview(act, raw));
         };
         input.addTextChangedListener(new TextWatcher() {
             @Override
@@ -181,20 +322,51 @@ public final class BBCodeEditor {
         render.run();
     }
 
+    /**
+     * BBCode → 可显示的富文本（build98）。
+     *
+     * <p><b>为什么不能直接 {@code Html.fromHtml} 了事</b>：只要有一步抛异常，旧实现就
+     * {@code preview.setText(raw)} 把 BBCode 原文贴出来 —— 用户看到的就是
+     * 「天天[color=#B30000]向上[/color]」，以为颜色坏了。真正的异常源已经修掉（代码块
+     * {@code <pre>} 的段落边界，见 {@code BBCodeUtil}），但预览这种「边打字边跑」的地方
+     * 必须再加一层兜底：逐级降级，任何一级都不至于把标记语言暴露给用户。
+     *
+     * <p>降级顺序：带样式的完整渲染 → 不带代码块底色的完整渲染 → 去掉 {@code <pre>}
+     * 的渲染 → 纯文本（剥掉所有 BBCode/HTML 标记）。
+     */
+    public static CharSequence renderPreview(Activity act, String raw) {
+        if (TextUtils.isEmpty(raw)) return "";
+        String html;
+        try {
+            html = BBCodeUtil.convertBBCodeToHtml(raw);
+        } catch (Throwable t) {
+            return BBCodeUtil.toPlainText(raw);
+        }
+        try {
+            return Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT, null,
+                    BBCodeUtil.createTagHandler(act));
+        } catch (Throwable ignore) {
+            // 代码块样式最可能是问题源：丢掉 TagHandler，颜色/字号仍然保留
+        }
+        try {
+            return Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT);
+        } catch (Throwable ignore) {
+            // 还是不行就把 <pre> 整个拆掉（只降级代码块的样式，不动其余内容）
+        }
+        try {
+            String flat = html.replaceAll("(?i)</?pre[^>]*>", "<br>");
+            return Html.fromHtml(flat, Html.FROM_HTML_MODE_COMPACT);
+        } catch (Throwable ignore) {
+            // 到这一步就是输入本身有结构性问题了
+        }
+        return BBCodeUtil.toPlainText(raw);
+    }
+
     // ==================== 选区操作 ====================
 
     /** 把标签套在选区上；没选区就插一对并把光标放中间 */
     public static void wrapSelection(EditText input, String open, String close) {
-        if (input == null) return;
-        Editable e = input.getText();
-        if (e == null) return;
-        int st = Math.max(0, input.getSelectionStart());
-        int en = Math.max(st, input.getSelectionEnd());
-        String sel = e.subSequence(st, en).toString();
-        String ins = open + sel + close;
-        e.replace(st, en, ins);
-        int caret = sel.isEmpty() ? st + open.length() : st + ins.length();
-        input.setSelection(Math.min(caret, e.length()));
+        insertWrapped(input, open, close);
     }
 
     // ==================== 彩虹字 ====================
@@ -217,17 +389,12 @@ public final class BBCodeEditor {
         StringBuilder sb = new StringBuilder();
         int n = 0;
         for (int i = 0; i < sel.length(); i++) {
-            char ch = sel.charAt(i);
-            if (Character.isWhitespace(ch)) {      // 空白不着色，省得一堆空标签
-                sb.append(ch);
-                continue;
-            }
-            n++;
+            if (!Character.isWhitespace(sel.charAt(i))) n++;
         }
         int idx = 0;
         for (int i = 0; i < sel.length(); i++) {
             char ch = sel.charAt(i);
-            if (Character.isWhitespace(ch)) {
+            if (Character.isWhitespace(ch)) {      // 空白不着色，省得一堆空标签
                 sb.append(ch);
                 continue;
             }
@@ -268,24 +435,25 @@ public final class BBCodeEditor {
 
         final Runnable refresh = () -> {
             int c = Color.rgb(rgb[0], rgb[1], rgb[2]);
-            GradientDrawable g = new GradientDrawable();
-            g.setColor(c);
-            g.setCornerRadius(10 * d);
-            swatch.setBackground(g);
-            hexText.setText(hex(c) + "    R" + rgb[0] + " G" + rgb[1] + " B" + rgb[2]);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(8 * d);
+            bg.setColor(c);
+            swatch.setBackground(bg);
+            hexText.setText(hex(c));
         };
 
         root.addView(swatch);
         root.addView(hexText);
         for (int i = 0; i < 3; i++) {
-            final int k = i;
             LinearLayout row = new LinearLayout(act);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             TextView lbl = new TextView(act);
             lbl.setText(names[i]);
+            lbl.setTextSize(13f);
+            lbl.setWidth((int) (24 * d));
             lbl.setTextColor(act.getColor(R.color.text_secondary));
-            lbl.setWidth((int) (22 * d));
+            final int k = i;
             SeekBar bar = new SeekBar(act);
             bar.setMax(255);
             bar.setProgress(rgb[i]);

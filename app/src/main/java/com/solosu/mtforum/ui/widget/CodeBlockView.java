@@ -43,6 +43,7 @@ public class CodeBlockView extends LinearLayout {
     private View header;
 
     private String rawCode = "";
+    private String rawLang = "";
     private boolean expanded = true;
     private boolean collapsible = false;
 
@@ -99,6 +100,7 @@ public class CodeBlockView extends LinearLayout {
      */
     public void bind(String lang, String code) {
         rawCode = code == null ? "" : code;
+        rawLang = TextUtils.isEmpty(lang) ? "" : lang.trim();
         tvContent.setText(rawCode);
 
         tvLang.setText(TextUtils.isEmpty(lang) ? "代码" : lang.trim());
@@ -150,6 +152,11 @@ public class CodeBlockView extends LinearLayout {
     /** 取当前这块的干净代码（不含行号） */
     public String getCode() {
         return rawCode;
+    }
+
+    /** build98: 取语言标签（「复制第 N 段代码（java，12 行）」里要用） */
+    public String getLang() {
+        return rawLang;
     }
 
     private void copyToClipboard() {

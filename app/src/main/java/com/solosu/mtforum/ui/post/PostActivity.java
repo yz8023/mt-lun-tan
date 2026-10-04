@@ -79,6 +79,8 @@ public class PostActivity extends AppCompatActivity {
     private String currentFormhash;
     /** build96: 站点发帖页标签输入框的真实 name；null = 该版块没开标签 */
     private String currentTagField;
+    /** build98: 标签字段名是不是按 Discuz 标准名兜底猜的（站点没在发帖页暴露该字段时） */
+    private boolean tagFieldGuessed;
     /** build96: 用户已选标签（逗号分隔） */
     private String currentTags = "";
     private String currentUid;
@@ -157,23 +159,25 @@ public class PostActivity extends AppCompatActivity {
         android.widget.TextView btnPickTags = findViewById(R.id.btn_pick_tags);
         if (btnPickTags != null) {
             btnPickTags.setOnClickListener(v -> {
-                // 站点这个版块没开标签时，字段名解析不出来。直接告诉用户，
-                // 别让 TA 选完一堆标签结果发出去什么都不带。
-                if (currentTagField == null) {
-                    android.widget.Toast.makeText(this,
-                            "该版块未启用标签功能", android.widget.Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                new com.solosu.mtforum.ui.tag.TagPickerSheet(this, csv -> {
-                    currentTags = csv == null ? "" : csv;
-                    android.widget.TextView tv = findViewById(R.id.tv_picked_tags);
-                    if (tv != null) {
-                        tv.setText(currentTags.trim().isEmpty() ? "未选择" : currentTags);
-                        tv.setTextColor(currentTags.trim().isEmpty()
-                                ? getColor(R.color.text_hint) : getColor(R.color.primary));
-                    }
-                }).show();
+                // build98: 不再因为「字段名解析不出来」就把用户拦下 —— 站点只有 mobile
+                // 模板，字段名解析不到太正常了，而标准名 tags 一直是可用的（见 resolveTagField）。
+                com.solosu.mtforum.ui.tag.TagPickerSheet sheet =
+                        new com.solosu.mtforum.ui.tag.TagPickerSheet(this,
+                                currentTags, csv -> {
+                            currentTags = csv == null ? "" : csv;
+                            bindPickedTags();
+                        });
+                sheet.show();
             });
+            // 编辑帖子时把已有的标签带出来（读不到就当没有，不影响流程）
+            new Thread(() -> {
+                final String existing = loadExistingTags();
+                if (android.text.TextUtils.isEmpty(existing)) return;
+                runOnUiThread(() -> {
+                    currentTags = existing;
+                    bindPickedTags();
+                });
+            }).start();
         }
 
         loadFormhashAndUserInfo();
@@ -181,6 +185,15 @@ public class PostActivity extends AppCompatActivity {
         if (!isEditMode()) {
             restoreDraft();
         }
+    }
+
+    /** build98: 刷新「已选标签」那一行（空态提示「未选择」，有值时高亮） */
+    private void bindPickedTags() {
+        android.widget.TextView tv = findViewById(R.id.tv_picked_tags);
+        if (tv == null) return;
+        boolean empty = currentTags == null || currentTags.trim().isEmpty();
+        tv.setText(empty ? "未选择" : currentTags);
+        tv.setTextColor(empty ? getColor(R.color.text_hint) : getColor(R.color.primary));
     }
 
     private void initViews() {
@@ -926,10 +939,8 @@ private void uploadImages(List<Uri> uris) {
                 if (desktopHtml != null) {
                     if (currentFormhash == null) currentFormhash = ForumParser.parseFormhash(desktopHtml);
                     extractUidAndHash(desktopHtml);
-                    // build96: 顺便解析标签输入框的真实字段名。不猜 —— Discuz 核心
-                    // 标准名是 tags，但插件/二开可能改名，猜错的后果是发帖直接失败。
-                    // 解析不到就留空，发帖时跳过 tags 参数，退化成不带标签发帖。
-                    currentTagField = ForumParser.parseTagFieldName(desktopHtml);
+                    // build96 解析标签输入框的真实字段名；build98 起移动版页面也看一遍
+                    currentTagField = resolveTagField(mobileHtml, desktopHtml);
                 }
             } catch (Exception ignored) {}
         }).start();
@@ -950,9 +961,64 @@ private void uploadImages(List<Uri> uris) {
             if (desktopHtml != null) {
                 if (currentFormhash == null) currentFormhash = ForumParser.parseFormhash(desktopHtml);
                 extractUidAndHash(desktopHtml);
-                currentTagField = ForumParser.parseTagFieldName(desktopHtml);
+                currentTagField = resolveTagField(mobileHtml, desktopHtml);
             }
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * build98: 解析发帖表单里「标签」字段的真实名字。
+     *
+     * <h3>为什么以前点了标签按钮总提示「该版块未启用标签功能」</h3>
+     * build96 只从<b>桌面版发帖页</b>里找 {@code name="tags"} 之类的 input。但 v5.10
+     * 已经实测过：这个站点只有克米 mobile 模板，用桌面 UA 请求拿回来的还是移动页面，
+     * 于是解析结果几乎必然是 null → 按钮直接被拦下，用户永远选不了标签。
+     *
+     * <h3>现在的顺序</h3>
+     * <ol>
+     *   <li>移动版发帖页（真正会提交的那张表单）</li>
+     *   <li>桌面版发帖页（万一以后站点补了 PC 模板）</li>
+     *   <li>退回 Discuz 核心字段名 {@code tags} —— 站点对不认识的 POST 字段一律忽略，
+     *       不会因此发帖失败；反过来「选了标签一个都没带上」才是真的坏结果</li>
+     * </ol>
+     */
+    private String resolveTagField(String mobileHtml, String desktopHtml) {
+        String field = ForumParser.parseTagFieldName(mobileHtml);
+        String from = "移动版发帖页";
+        if (field == null) {
+            field = ForumParser.parseTagFieldName(desktopHtml);
+            from = "发帖页";
+        }
+        if (field == null) {
+            tagFieldGuessed = true;
+            field = ForumParser.DEFAULT_TAG_FIELD;
+            from = "标准字段名兜底";
+        } else {
+            tagFieldGuessed = false;
+        }
+        com.solosu.mtforum.ai.AiLog.i("PostActivity", "标签字段名 = " + field + "（" + from + "）");
+        return field;
+    }
+
+    /**
+     * build98: 读「编辑帖子」表单里已有的标签，编辑时预填到标签选择器里。
+     * 读不到就返回空串（不影响任何流程）。
+     */
+    private String loadExistingTags() {
+        try {
+            if (!isEditMode() || TextUtils.isEmpty(editTid) || TextUtils.isEmpty(editPid)) {
+                return "";
+            }
+            String url = HttpClient.BASE_URL + "forum.php?mod=post&action=edit&tid="
+                    + editTid + "&pid=" + editPid + (editIsReply ? "&mobile=2" : "");
+            String html = editIsReply
+                    ? HttpClient.getInstance().get(url)
+                    : HttpClient.getInstance().getDesktop(url);
+            String tags = ForumParser.parseTagValue(html);
+            return tags == null ? "" : tags;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void extractUidAndHash(String html) {
@@ -1140,10 +1206,20 @@ private void uploadImages(List<Uri> uris) {
                 params.put("subject", title);
                 params.put("message", content);
                 params.put("allownoticeauthor", "1");
-                // build96: 标签。只在①站点解析出了标签字段名 ②用户确实选了标签
-                // 时才提交 —— 两个条件缺一个都不发，绝不让发帖因为标签失败。
-                if (currentTagField != null && !currentTags.trim().isEmpty()) {
-                    params.put(currentTagField, currentTags.trim());
+                // build96: 标签；build98: 字段名兜底。
+                //
+                // 站点只有克米 mobile 模板，发帖页里经常根本没有标签 input，
+                // build96 因此把「标签」按钮整个禁掉了（用户报「发帖要能快捷选择标签」）。
+                // 但 Discuz 处理发帖的表单字段名一直是 tags，且对不认识的 POST 字段
+                // 是「忽略」而不是报错 —— 所以拿不到真实字段名时用标准名提交，
+                // 最坏情况只是标签没生效，绝不会让发帖失败。
+                String tagField = !TextUtils.isEmpty(currentTagField)
+                        ? currentTagField : ForumParser.DEFAULT_TAG_FIELD;
+                if (!currentTags.trim().isEmpty()) {
+                    params.put(tagField, currentTags.trim());
+                    com.solosu.mtforum.ai.AiLog.i("PostActivity",
+                            "提交标签 " + tagField + "=" + currentTags.trim()
+                                    + (tagFieldGuessed ? "（字段名为标准名兜底）" : ""));
                 }
 
                 // 上传接口返回的 aid 只是暂存附件，发帖时还必须提交 attachnew[aid][description]，

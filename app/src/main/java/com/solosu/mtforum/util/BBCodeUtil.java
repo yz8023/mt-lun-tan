@@ -80,7 +80,29 @@ public final class BBCodeUtil {
     private static final Pattern P_MEDIA = Pattern.compile("(?is)\\[(?:media|audio|video|flash)\\s*=\\s*([^\\]]+)]");
     private static final Pattern P_MEDIA_END = Pattern.compile("(?i)\\[/(?:media|audio|video|flash)]");
     private static final Pattern P_MEDIA2 = Pattern.compile("(?is)\\[(?:media|audio|video|flash)]([^\\[]+?)\\[/(?:media|audio|video|flash)]");
+    /** 带可选尺寸参数的媒体块：{@code [media=x,500,375]URL[/media]} */
+    private static final Pattern P_MEDIA_BLOCK = Pattern.compile(
+            "(?is)\\[(media|audio|video|flash)(?:\\s*=\\s*([^\\]]*))?]([^\\[]*?)\\[/\\1]");
+    /** build98: {@code [qq]123456[/qq]} */
+    private static final Pattern P_QQ = Pattern.compile("(?is)\\[qq]([^\\[]*?)\\[/qq]");
     private static final Pattern P_TIDY_TAG = Pattern.compile("(?i)\\[/?[a-z0-9]+(?:=[^\\]]*)?]");
+
+    /** 渲染时会产生换行的标签（<br> 与所有块级标签的开合） */
+    private static final Pattern P_HTML_LINE_BREAK = Pattern.compile(
+            "(?i)<br\\s*/?>|</?(?:p|div|pre|blockquote|ul|ol|li|table|tr|td|th|h[1-6]|hr)\\b[^>]*>");
+    /**
+     * 结尾能造出「干净段落边界」的标签。
+     *
+     * <p>实测（见 Diag2，AOSP Html：COMPACT / LEGACY 同理）：{@code Html.fromHtml} 会把
+     * HTML 源码里裸的 {@code \n} 变成「空格 + 换行」（{@code " \n"}），字符前多出的那个
+     * 空格让段落边界判定失败；而 {@code <br>} 产出的是纯 {@code \n}，{@code </div>} /
+     * {@code </p>} / {@code </pre>} 这类块级收尾标签也是干净的换行。所以：HTML 前缀以这些
+     * 收尾时可以直接接 {@code <pre>}，否则必须先补一个 {@code <br>}。
+     */
+    private static final Pattern P_SAFE_BREAK_TAIL = Pattern.compile(
+            "(?i)(?:<br\\s*/?>|<hr\\s*/?>|</(?:p|div|pre|blockquote|ul|ol|li|table|tr|td|th|h[1-6])>)\\s*$");
+    /** 其余标签本身不产生可见文本，直接丢掉 */
+    private static final Pattern P_HTML_ANY_TAG = Pattern.compile("<[^>]*>");
 
     // Discuz [size=N] 档位映射(1~7 -> px),超出按 px 原样
     private static final int[] SIZE_MAP = {12, 14, 16, 18, 22, 26, 30};
@@ -123,8 +145,18 @@ public final class BBCodeUtil {
         return s.replace("&", "&amp;").replace("\"", "&quot;");
     }
 
-    private static String mapSize(String raw) {
-        if (raw == null) return "16px";
+    /** 判断一个媒体标签参数是不是真正的地址（而不是 {@code x,500,375} 这种尺寸参数） */
+    static boolean looksLikeUrl(String s) {
+        if (s == null) return false;
+        String v = s.trim().toLowerCase(Locale.ROOT);
+        return v.startsWith("http://") || v.startsWith("https://")
+                || v.startsWith("//") || v.startsWith("www.")
+                || v.startsWith("rtmp") || v.startsWith("mms")
+                || v.endsWith(".mp4") || v.endsWith(".m3u8") || v.endsWith(".mp3")
+                || v.endsWith(".flv") || v.endsWith(".swf");
+    }
+
+    private static String mapSize(String raw) {        if (raw == null) return "16px";
         String s = raw.trim().toLowerCase(Locale.ROOT);
         try {
             if (s.endsWith("px")) return s;
@@ -140,6 +172,18 @@ public final class BBCodeUtil {
     // ==================== 核心转换 ====================
 
     /**
+     * build98: 等价于 {@code TextUtils.isEmpty} 的本地实现。
+     *
+     * <p>为什么不直接用 {@code TextUtils}：单元测试跑在 JVM 上，android.jar 里
+     * 那些方法没实现（调用会抛 "Method isEmpty in android.text.TextUtils not mocked"），
+     * 于是 {@code convertBBCodeToHtml} 这类<b>纯字符串逻辑</b>根本没法被测到 ——
+     * 而「用了 [code] 之后颜色变成字面量」这个 bug 恰恰只在这种纯逻辑测试里能守住。
+     */
+    private static boolean isEmpty(CharSequence s) {
+        return s == null || s.length() == 0;
+    }
+
+    /**
      * BBCode -> HTML(供 Html.fromHtml 渲染)
      * 与旧实现相比:
      * - Pattern 全部预编译为 static,避免每次 replaceAll 重新编译
@@ -147,7 +191,7 @@ public final class BBCodeUtil {
      * - 新增表格/indent/user/media/sub/sup/spoiler 等标签
      */
     public static String convertBBCodeToHtml(String html) {
-        if (TextUtils.isEmpty(html)) {
+        if (isEmpty(html)) {
             return "";
         }
         String result = html;
@@ -165,7 +209,7 @@ public final class BBCodeUtil {
                 // 空行也保留(防止 Html 合并)
                 inner.append(escapeCodeText(line)).append("<br>");
             }
-            String langLabel = (!TextUtils.isEmpty(lang) && !"code".equalsIgnoreCase(lang.trim()))
+            String langLabel = (!isEmpty(lang) && !"code".equalsIgnoreCase(lang.trim()))
                     ? "<span class=\"mt-lang\" style=\"color:#9CA3AF;font-size:12px\">"
                         + escapeHtml(lang.trim()) + "</span><br>"
                     : "";
@@ -229,16 +273,56 @@ public final class BBCodeUtil {
         result = P_USER2.matcher(result).replaceAll("<a href=\"home.php?mod=space&username=$1\">$1</a>");
 
         // media/audio/video/flash -> 链接(客户端不内嵌播放器)
-        result = P_MEDIA2.matcher(result).replaceAll("<a href=\"$1\">$1</a>");
+        //
+        // build98: [media=x,500,375]URL[/media] 里的 "x,500,375" 是尺寸参数，不是地址。
+        // 旧实现用的是「只匹配开标签」的 P_MEDIA，于是把参数当成了 URL，生成一个指向
+        // "x,500,375" 的假链接，真正的视频地址反倒裸露在正文里。现在按「参数像不像
+        // 地址」区分：像地址用它当 URL，不像就用块内的内容当 URL。
+        Matcher mediaBlockM = P_MEDIA_BLOCK.matcher(result);
+        StringBuffer sbMediaBlock = new StringBuffer();
+        while (mediaBlockM.find()) {
+            String param = mediaBlockM.group(2);
+            String inner = mediaBlockM.group(3);
+            boolean paramIsUrl = param != null && looksLikeUrl(param.trim());
+            String url = paramIsUrl ? param.trim() : (inner == null ? "" : inner.trim());
+            String label = url.isEmpty() ? "视频" : url;
+            mediaBlockM.appendReplacement(sbMediaBlock,
+                    Matcher.quoteReplacement("<a href=\"" + escapeAttr(url) + "\">" + escapeHtml(label) + "</a>"));
+        }
+        mediaBlockM.appendTail(sbMediaBlock);
+        result = sbMediaBlock.toString();
+        // 残留的、没配对的 [media=URL]（缺 [/media]）才走旧的单标签替换，
+        // 且只认「参数确实是地址」的，避免再造假链接
         Matcher mediaM = P_MEDIA.matcher(result);
         StringBuffer sb2 = new StringBuffer();
         while (mediaM.find()) {
-            String url = mediaM.group(1).trim();
-            mediaM.appendReplacement(sb2, Matcher.quoteReplacement("<a href=\"" + url + "\">" + url + "</a>"));
+            String param = mediaM.group(1) == null ? "" : mediaM.group(1).trim();
+            if (looksLikeUrl(param)) {
+                mediaM.appendReplacement(sb2, Matcher.quoteReplacement(
+                        "<a href=\"" + escapeAttr(param) + "\">" + escapeHtml(param) + "</a>"));
+            } else {
+                mediaM.appendReplacement(sb2, "");
+            }
         }
         mediaM.appendTail(sb2);
         result = sb2.toString();
         result = P_MEDIA_END.matcher(result).replaceAll("");
+
+        // QQ：[qq]123456[/qq] -> 点一下就能聊的 QQ 链接
+        Matcher qqM = P_QQ.matcher(result);
+        StringBuffer sbQq = new StringBuffer();
+        while (qqM.find()) {
+            String qq = qqM.group(1) == null ? "" : qqM.group(1).trim();
+            if (qq.isEmpty()) {
+                qqM.appendReplacement(sbQq, "");
+            } else {
+                qqM.appendReplacement(sbQq, Matcher.quoteReplacement(
+                        "<a href=\"https://wpa.qq.com/msgrd?v=3&uin=" + escapeAttr(qq)
+                                + "&site=qq&menu=yes\">QQ：" + escapeHtml(qq) + "</a>"));
+            }
+        }
+        qqM.appendTail(sbQq);
+        result = sbQq.toString();
 
         // 列表
         result = P_LIST1.matcher(result).replaceAll("<ol>$1</ol>");
@@ -265,20 +349,84 @@ public final class BBCodeUtil {
         result = P_TIDY_TAG.matcher(result).replaceAll("");
 
         // 4) 还原代码块占位符
+        //
+        // build98: <pre> 之前必须落在「行首」。这是「用了 [code] 之后预览里颜色全变成
+        // 字面量 [color=#B30000]」的真正根因：
+        //
+        // Html.fromHtml 解析完之后有一段收尾处理：把结果里所有 ParagraphStyle span
+        // 重新 setSpan(..., SPAN_PARAGRAPH)。而 SpannableStringBuilder.setSpan 对
+        // SPAN_PARAGRAPH 的要求是「起点必须落在段落边界」（index 0，或前一个字符是
+        // '\n'）。我们的代码块 TagHandler 正好给 <pre> 套了一个 LineBackgroundSpan，
+        // 它就是 ParagraphStyle 的子接口 —— 于是只要代码块前面还有同一行的正文
+        // （例：天天[color=#B30000]向上[/color] 紧跟 [code]…[/code]），就会抛出
+        //   RuntimeException: PARAGRAPH span must start at paragraph boundary (5 follows  )
+        // 整个 Html.fromHtml 失败 —— 预览只能回退成「原文」，用户看到的就是满屏
+        // [color=#B30000] 字面量，颜色全丢（帖子正文页同理，靠 safeFromHtml 兜底）。
+        // 修法：还原占位符前先看它前面的 HTML 渲染成文本后是否已经换过行，没换就补一个 <br>。
         StringBuffer sb3 = new StringBuffer();
         Matcher phM = Pattern.compile("\u0001CODE(\\d+)\u0001").matcher(result);
         while (phM.find()) {
             int idx = Integer.parseInt(phM.group(1));
-            if (idx >= 0 && idx < codeBlocks.size()) {
-                phM.appendReplacement(sb3, Matcher.quoteReplacement(codeBlocks.get(idx)));
-            } else {
-                phM.appendReplacement(sb3, "");
-            }
+            String block = (idx >= 0 && idx < codeBlocks.size()) ? codeBlocks.get(idx) : "";
+            String lead = needsBreakBefore(result.substring(0, phM.start())) ? "<br>" : "";
+            phM.appendReplacement(sb3, Matcher.quoteReplacement(lead + block));
         }
         phM.appendTail(sb3);
         result = sb3.toString();
 
         return result;
+    }
+
+    /**
+     * 代码块 HTML 前面要不要补一个 {@code <br>}？（即：直接接上去会不会让 Html.fromHtml 崩）
+     *
+     * <p>规则来自对 AOSP {@code Html} 的实测（COMPACT / LEGACY 两种模式一致）：
+     * <ul>
+     *   <li>前缀为空 / 前缀以 {@code <br>}、{@code <hr>}、{@code </div>}、{@code </p>}、
+     *       {@code </pre>} 等块级收尾标签结尾 → 直接接 {@code <pre>} 安全</li>
+     *   <li>前缀是行内内容（文字、{@code </span>}、{@code &nbsp;}…）→ 必须补 {@code <br>}</li>
+     *   <li>前缀以<b>裸换行</b>结尾也不行：Html 会把源码里的 {@code \n} 变成「空格＋换行」，
+     *       多出来的那个空格照样让段落边界判定失败（实测 start 落在空格后面）</li>
+     * </ul>
+     *
+     * <p>纯 Java、无 Android 依赖，可被 JVM 单测直接覆盖。
+     */
+    public static boolean needsBreakBefore(String htmlPrefix) {
+        if (htmlPrefix == null || htmlPrefix.isEmpty()) return false;
+        return !P_SAFE_BREAK_TAIL.matcher(htmlPrefix).find();
+    }
+
+    /**
+     * BBCode / HTML 混合文本 → 尽量干净的纯文本。
+     *
+     * <p>给「连 Html.fromHtml 都失败」的兜底路径用：宁可没有颜色，也绝不能把
+     * {@code [color=#B30000]}、{@code <span style=...>} 这些标记当正文显示给用户。
+     *
+     * <p>纯 Java、无 Android 依赖，可被 JVM 单测直接覆盖。
+     */
+    public static String toPlainText(String src) {
+        if (src == null || src.isEmpty()) return "";
+        String s = src;
+        // 代码块单独处理：里面的 [b] 之类是字面量，别让后面的清理规则动它
+        Matcher codeM = P_CODE.matcher(s);
+        StringBuffer sb = new StringBuffer();
+        while (codeM.find()) {
+            String content = codeM.group(2) == null ? "" : codeM.group(2);
+            codeM.appendReplacement(sb, Matcher.quoteReplacement("\n" + content.trim() + "\n"));
+        }
+        codeM.appendTail(sb);
+        s = sb.toString();
+        s = P_HTML_LINE_BREAK.matcher(s).replaceAll("\n");
+        s = P_HTML_ANY_TAG.matcher(s).replaceAll("");
+        s = P_TIDY_TAG.matcher(s).replaceAll("");
+        s = s.replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
+        s = s.replaceAll("[ \\t]+\\n", "\n").replaceAll("\\n{3,}", "\n\n");
+        return s.trim();
     }
 
     // ==================== Html.fromHtml TagHandler(<pre> 代码块渲染) ====================
@@ -315,20 +463,31 @@ public final class BBCodeUtil {
                 } else if (inPre) {
                     int start = Math.max(0, preStart);
                     int end = output.length();
-                    if (end > start) {
-                        output.setSpan(new CodeBlockSpan(start, end, bgColor), start, end,
-                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        output.setSpan(new android.text.style.ForegroundColorSpan(textColor),
-                                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        output.setSpan(new TypefaceSpan("monospace"), start, end,
-                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        output.setSpan(new RelativeSizeSpan(0.95f), start, end,
-                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        output.setSpan(new LeadingMarginSpan.Standard((int) dp(4), 0), start, end,
-                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    }
                     inPre = false;
                     preStart = -1;
+                    if (end > start) {
+                        // build98: 这里必须「要么正确、要么放弃」，绝不能把异常抛出去。
+                        // LineBackgroundSpan 是 ParagraphStyle 的子接口，Html.fromHtml
+                        // 收尾时会把它按 SPAN_PARAGRAPH 重设，起点不在段落边界就抛
+                        // RuntimeException，整个解析（连同正文颜色、字号）一起失败。
+                        // convertBBCodeToHtml 已在 <pre> 前补齐换行；这里是最后一道保险：
+                        // 真遇到没对齐的情况，只是代码块少个底色，其余样式照旧。
+                        try {
+                            output.setSpan(new CodeBlockSpan(start, end, bgColor), start, end,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            output.setSpan(new android.text.style.ForegroundColorSpan(textColor),
+                                    start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            output.setSpan(new TypefaceSpan("monospace"), start, end,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            output.setSpan(new RelativeSizeSpan(0.95f), start, end,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                            output.setSpan(new LeadingMarginSpan.Standard((int) dp(4), 0), start, end,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        } catch (RuntimeException e) {
+                            android.util.Log.w("BBCodeUtil",
+                                    "代码块 span 不在段落边界上，已跳过底色（正文其余样式不受影响）", e);
+                        }
+                    }
                 }
             }
         }
@@ -435,6 +594,11 @@ public final class BBCodeUtil {
             this.lang = lang;
             this.code = code;
         }
+    }
+
+    /** build98: 给包外调用方（拿不到包内构造器）造一个 CodeBlock，用于展示语言/行数 */
+    public static CodeBlock makeCodeBlock(String lang, String code) {
+        return new CodeBlock(lang, code);
     }
 
     /** 抽取结果：剩余正文 HTML + 代码块列表 */
