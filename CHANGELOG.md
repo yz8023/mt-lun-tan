@@ -1,5 +1,66 @@
 # 更新日志
 
+## v5.10 (versionCode 45) — 开关立刻生效 · 站点无 PC 模板的实证结论
+
+### 用户反馈
+
+> 还是不能显示到帖子的原本位置，底部确实是都能兜底了，开关也是没有作用
+
+三条信息：① 原位还是没做到；② 底部兜底是好的；③ **开关拨了没反应**。
+
+### 一、开关「没有作用」：不是开关坏了，是要下次进帖才生效
+
+接线本身是好的（`setChecked` 读当前值 → `setOnCheckedChangeListener` 写偏好 →
+`bindSwitchRow` 整行可点，行也没有被任何代码隐藏，全仓只有一处绑定）。
+问题是 `ThreadDetailActivity` 只在 `bindData` 里读一次这个偏好——用户在抽屉里
+拨开关时，面前那个帖子页已经渲染完了，**什么都不重渲**，看起来就是「没有作用」。
+
+**修法**：新增 `lastImagesInline` 字段记录本次渲染用的排布方式，
+`onResume()` 发现变了就用**已经拿到的 `postDetail` 本地重渲**（`bindData(postDetail, false)`），
+不重新请求网络。现在拨完开关退回来，页面当场就变。
+
+另外删掉 `MainActivity` 里一句 v5.5 留下的自相矛盾的注释：
+「正文图片现在固定以原图在原位展示，旧版底部图廊开关不再适用」——
+开关明明一直在，这句话会把人带偏。
+
+### 二、为什么「原位」还是做不到：站点根本没有 PC 模板
+
+这一版把可能性都试过了，结论是硬限制：
+
+| 试的 URL | 结果 |
+|---|---|
+| `mod=viewthread&tid=X&mobile=2` | 克米 mobile 模板，游客无附件图 |
+| `mod=viewthread&tid=X`（去掉 mobile=2） | **还是同一个克米 mobile 模板**（`comiis_app`），没有 PC 模板 |
+| `?archiver=1` | SSL EOF |
+| `archiver/?tid-X.html` | 1604 字节，空壳 |
+| `api/mobile/index.php?module=viewthread&tid=X` | 33124 字节 WAP 页，无附件 |
+| `forum.php?mod=post&action=reply...` 预载 | 需登录 |
+
+PC 模板本来是有希望的一条路：Discuz 的 PC 模板把 `[attachimg]aid[/attachimg]`
+渲染成**正文内联的 `<img>`**，位置就是作者插入的位置；而克米 mobile 模板把附件
+整体挪到正文之后的块里（`.comiis_flxx_style`）。**但这个站强制走 mobile 模板，
+PC 模板这条路不存在。**
+
+站点自己的懒加载选择器也印证了 mobile 模板的行为：
+
+```js
+comiis_wx_img_obj = $(".comiis_flxx_style img[...], .comiis_messages img[...]")
+```
+
+- `.comiis_messages img` —— 作者**插进正文里**的图（有权限时内联，位置正确）
+- `.comiis_flxx_style img` —— 只上传、没插进正文的图（排在正文之后的附件区）
+
+**所以：只有 app 处于登录态、且站点愿意把 `.comiis_messages` 里的内联图下发时，
+图才会落在原本的位置。** 游客态服务端连 `.comiis_messages` 里的 `<img>` 都不发
+（tid=173937 实测：`comiis_loadimages="` 0 次、`aid=` 1 次且在 JS 里），
+只能像现在这样兜底。
+
+### 三、其它
+
+- `versionCode` 44 → **45**，`versionName` 5.9 → **5.10**。
+
+---
+
 ## v5.9 (versionCode 44) — 原位显示不再被设备上的旧偏好覆盖
 
 ### 用户反馈（与 v5.8 相同，原话重复）

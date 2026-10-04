@@ -122,6 +122,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
      * 这就是「切换账号后进入帖子还是原账号信息，不会全同步」。
      */
     private String lastRenderUid = null;
+    /**
+     * build91: 上一次渲染时「正文图片原位显示」的取值。
+     * {@link #onResume()} 发现用户在抽屉里拨过开关就立刻本地重渲，
+     * 不用等下次进帖 —— 否则开关看起来「没有作用」。
+     */
+    private Boolean lastImagesInline = null;
     private boolean onlyOpReplies = false;
     private boolean repliesDescending = true;
     private List<ReplyItem> displayedReplies = new ArrayList();
@@ -306,7 +312,19 @@ public class ThreadDetailActivity extends AppCompatActivity {
     @Override // androidx.fragment.app.FragmentActivity, android.app.Activity
     protected void onResume() {
         super.onResume();
-        if (this.lastRenderUid == null || isFinishing() || isDestroyed()) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        // build91: 抽屉里拨了「正文图片原位显示」开关，回到帖子页立刻重渲染。
+        // 以前只有下次进帖才生效 —— 在当时打开的页面上拨开关毫无反应，
+        // 用户报的就是「开关也是没有作用」。用已拿到的 postDetail 本地重渲，
+        // 不重新请求网络。
+        if (this.postDetail != null && this.lastImagesInline != null
+                && this.lastImagesInline != com.solosu.mtforum.ui.UiSettings.isImagesInline(this)) {
+            bindData(this.postDetail, false);
+            return;
+        }
+        if (this.lastRenderUid == null) {
             return;
         }
         if (!this.lastRenderUid.equals(likeFavScope())) {
@@ -685,6 +703,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
         }
         // build87: 记住这次渲染用的是哪个账号，供 onResume 检测切号
         this.lastRenderUid = likeFavScope();
+        // build91: 记住这次渲染用的是哪种图片排布，供 onResume 检测开关变动
+        this.lastImagesInline = com.solosu.mtforum.ui.UiSettings.isImagesInline(this);
         this.postDetail = postDetail;
         this.binding.progressBar.setVisibility(8);
         this.binding.swipeRefresh.setEnabled(true);

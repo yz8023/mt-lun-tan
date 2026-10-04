@@ -390,8 +390,12 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_ai_summary_row, swAiSummary);
         }
 
-        // 正文图片现在固定以原图在原位展示，旧版“底部图廊”开关不再适用。
         // build89: 正文图片原位显示开关。
+        //
+        // build91: 原先这里挂着一句 v5.5 留下的「正文图片现在固定以原图在原位展示，
+        // 旧版底部图廊开关不再适用」—— 那是错的，开关一直在、也确实有用，
+        // 只是 build91 之前要下次进帖才生效，看起来像没反应。
+        // 现在 ThreadDetailActivity.onResume 会检测开关变动并立刻本地重渲。
         //
         // v5.5 把这个行整行 setVisibility(GONE) 藏了、开关也设了 clickable=false，
         // 但 CHANGELOG 里写着「设置里想用原位仍然可以手动打开」—— 文档承诺的
