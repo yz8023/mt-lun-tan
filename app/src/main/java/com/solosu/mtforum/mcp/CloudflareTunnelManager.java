@@ -154,6 +154,62 @@ public final class CloudflareTunnelManager {
             File binary = ensureBinary();
             if (binary == null) throw new IllegalStateException("cloudflared 下载失败（公网隧道仅支持 arm64 设备）");
 
+            String protocol = McpPreferences.tunnelProtocol(app);
+            String edgeVer = McpPreferences.edgeIpVersion(app);
+
+            List<String> command = new ArrayList<>();
+            command.add(binary.getAbsolutePath());
+            command.add("--no-autoupdate");
+            command.add("--protocol"); command.add(protocol);
+            command.add("--edge-ip-version"); command.add(edgeVer);
+            AiLog.i("mcp-tunnel", "协议 " + protocol + " / 边缘 IP 版本 " + edgeVer
+                    + " / 模式 " + McpPreferences.tunnelMode(app));
+
+            if (McpPreferences.isTokenTunnel(app)) {
+                // ═══ build97: 永久隧道（named tunnel + Token）═══
+                //
+                // 临时隧道（quick tunnel）是匿名注册，Cloudflare 对它有速率限制，
+                // 重连几次就回 429 —— 用户报的「开启无效，429」主要就是这个。
+                // 永久隧道走用户在 Dashboard 建好的 tunnel，用 Token 直接认领，
+                // **不走匿名注册，没有 429**，地址也是固定的，不用每次变。
+                String token = McpPreferences.tunnelToken(app);
+                if (token == null || token.trim().isEmpty()) {
+                    throw new IllegalStateException("已选永久隧道，但还没有填 Token");
+                }
+                // cloudflared 的 Token 模式：环境变量 TUNNEL_TOKEN，命令 run --token
+                command.add("tunnel");
+                command.add("run");
+                command.add("--token");
+                command.add(token.trim());
+                // Token 模式下的公网地址由用户在 Dashboard 配置，这里只能提示
+                pendingUrl = "";
+                message = "永久隧道连接中（地址见 Cloudflare Dashboard）";
+                ProcessBuilder pb = new ProcessBuilder(command).directory(app.getCacheDir())
+                        .redirectErrorStream(true);
+                pb.environment().put("TUNNEL_TOKEN", token.trim());
+                pb.environment().put("NO_AUTOUPDATE", "true");
+                Process p = pb.start();
+                process = p;
+                message = "永久隧道连接中";
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                    String line;
+                    while (generation.get() == run && (line = reader.readLine()) != null) {
+                        parseLine(line);
+                        AiLog.i("mcp-tunnel", line.length() > 500 ? line.substring(0, 500) : line);
+                    }
+                }
+                int exit = p.waitFor();
+                if (generation.get() == run) {
+                    state = State.FAILED;
+                    publicUrl = "";
+                    String detail = !lastError.isEmpty() ? lastError : lastOutput;
+                    message = detail.isEmpty()
+                            ? "永久隧道进程无输出退出（代码 " + exit + "）" : detail + "（代码 " + exit + "）";
+                    if (McpPreferences.tunnel(app) && McpPreferences.enabled(app)) scheduleRestart(run);
+                }
+                return;
+            }
+
             // Registration is deliberately done by OkHttp. cloudflared's Go resolver reads
             // Android's placeholder /etc/resolv.conf ([::1]:53) and cannot resolve the API.
             Quick quick = registerQuickTunnel();
@@ -165,16 +221,13 @@ public final class CloudflareTunnelManager {
                     .put("TunnelID", quick.id).put("TunnelSecret", quick.secret).toString());
             File config = new File(app.getCacheDir(), "mt_mcp_tunnel.yml");
             write(config, "tunnel: " + quick.id + "\ncredentials-file: " + credentials.getAbsolutePath()
-                    + "\nprotocol: http2\nno-autoupdate: true\nedge-ip-version: \"4\"\nretry-dns-errors: true\n"
+                    + "\nprotocol: " + protocol + "\nno-autoupdate: true\nedge-ip-version: \"" + edgeVer + "\"\nretry-dns-errors: true\n"
                     + "ingress:\n  - hostname: " + quick.hostname + "\n    service: http://127.0.0.1:"
                     + McpPreferences.port(app) + "\n  - service: http_status:404\n");
 
             List<String> edges = resolveEdgeIps();
             if (edges.isEmpty()) throw new IllegalStateException("无法解析 Cloudflare 边缘节点 IP");
-            List<String> command = new ArrayList<>();
-            command.add(binary.getAbsolutePath());
             command.add("tunnel"); command.add("--config"); command.add(config.getAbsolutePath());
-            command.add("--no-autoupdate");
             for (String edge : edges) { command.add("--edge"); command.add(edge); }
             command.add("run"); command.add(quick.id);
             AiLog.i("mcp-tunnel", "使用 Android 预解析边缘节点：" + edges);

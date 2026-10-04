@@ -1,5 +1,129 @@
 # 更新日志
 
+## v5.14 (versionCode 49) — 评论区图片可点开看原图 · 代码块复制回归修复 · MCP 永久隧道
+
+### 用户反馈（本轮）
+
+1. 帖子内链接自动设置超链接可直接点击打开（跟随设置内部打开或者外部打开）
+2. 可设置是否显示 FPS 在顶部
+3. 切换账号后打开帖子还是在用原身份阅读帖子，没有更新身份
+4. MCP 开启无效，要不是 429 要不是错误 1 直接结束。隧道不是有啥子临时隧道/永久隧道、
+   协议/边缘 IP 版本这些配置吗
+5. MT 论坛有一个标签功能，发帖可以快捷设置标签以及快速搜索标签
+6. 顶部热门点开没有卡片详细信息显示，只有空白标题，完全看不到内容
+7. 主页显示部分图片被使用长图导致显示异常
+8. **评论区图片无法显示原图（像网页那样）** ← 新
+9. **正文代码类型不能直接复制了** ← 新
+
+1~7 已在 v5.12 / v5.13 修掉（切号身份同步、长图比例、正文缩略图、热门空白、
+MCP 403 与错误信息、链接内外打开、FPS 开关、标签功能）。这一版修 8、9，
+并把 4 的隧道配置补齐。
+
+---
+
+## ⑧ 评论区图片无法显示原图
+
+### 根因：评论区的图根本没挂点击
+
+评论区走的是 `tvContent` + ImageGetter 图文混排（`llReplyImages` 那条旧路
+已经被隐藏）。而 `setImageClick()` **只服务旧方案** —— 它给
+`llReplyImages` 里独立的 ImageView 挂点击，那条路现在
+`setVisibility(GONE)`，一次都不会执行。
+
+于是评论区的图能显示，但**点下去毫无反应**，看不到原图。主楼早就挂了
+`attachInlineImageClicks`，评论区一直没有。
+
+### 修法
+
+把主楼那套触摸命中测试提取成公共工具
+`util/InlineImageClicks.java`，评论区也挂上：
+
+```java
+InlineImageClicks.attach(tvContent, url -> {
+    Intent it = new Intent(ctx, ImagePreviewActivity.class);
+    it.putExtra("image_url", url);
+    ctx.startActivity(it);
+});
+```
+
+必须放在 `setupClickableLinks` **之后** —— 它会把 `textIsSelectable` 设为 true，
+选择模式会吞掉 ClickableSpan 的点击，所以用触摸命中测试，不依赖 MovementMethod。
+
+### 顺带修掉的一个真 bug
+
+评论区的 `upgradeImageSources()` 原来是独立实现，只做
+`ImageUrl.realUrl(img)` + `toAbsolute`，比主楼少了一层 `isUsableImageValue` 过滤。
+
+站点 JS 拼出来的废值会漏过去。实测见过这种：
+
+```html
+<img src="' + IMGDIR + '/imageloading.gif" class="comiis_loading comiis_noloadimage">
+```
+
+挑中这种废值后 `img.attr("src", ...)` 被写坏，**图直接不显示**。
+
+已统一委托 `util/PostImageHtml.upgradeThumbnailsToFull(html, base)`，
+主楼和评论区走同一套真图挑选 + 值校验。
+
+---
+
+## ⑨ 正文代码不能直接复制 —— v5.11 的回归
+
+v5.11 起主楼改用 WebView 原样渲染站点 HTML。当时为了避免「同一段代码出现两遍」，
+在 `webRender` 分支里调了 `renderMainCodeBlocks(null)` 跳过代码块卡片 ——
+**但 `CodeBlockView` 自带的「一键复制」按钮也跟着没了**。这就是回归来源。
+
+### 修法
+
+WebView 模式下给每个 `pre` / `.blk_code` / `.blockcode` / `.comiis_blockcode`
+**注入一个绝对定位的「复制」按钮**：
+
+```js
+var sel='pre,.blk_code,.blockcode,.comiis_blockcode';
+// 每个块右上角塞一个 div，onclick -> PostBody.copyText(box.innerText)
+```
+
+点击经 JS 桥回 native 写剪贴板（`ClipboardManager` + `ClipData`），
+并 Toast「已复制」。用 `data-copybtn` 属性防重复注入。
+JS 桥从原来的 2 个方法（`openImage` / `onReady`）扩到 3 个。
+
+---
+
+## ④ MCP 隧道配置补齐（临时/永久 + 协议 + 边缘 IP）
+
+### 429 的真正来源
+
+`CloudflareTunnelManager` 原来只有 **quick tunnel** 一条路。quick tunnel 是
+**匿名注册**到 Cloudflare 的共享服务，**它有速率限制，重连几次就回 429** ——
+这就是「开启无效，429」的主因。另外 `protocol: http2` 和
+`edge-ip-version: "4"` 全是硬编码，IPv6 网络下连不上边缘节点也没法改。
+
+### 修法
+
+**新增永久隧道（named tunnel + Token）模式**：用 Cloudflare Dashboard 建好的
+tunnel，`cloudflared tunnel run --token <TOKEN>` 直接认领，
+**不走匿名注册，没有 429**，公网地址也是固定的（在 Dashboard 里配）。
+
+`McpPreferences` 新增四项配置：
+
+| 配置 | 取值 | 默认 |
+|------|------|------|
+| `tunnel_mode` | `quick` / `token` | `quick` |
+| `tunnel_token` | Dashboard 给的 Token | 空 |
+| `tunnel_protocol` | `http2` / `quic` | `http2` |
+| `edge_ip_version` | `4` / `6` / `auto` | `4` |
+
+`McpSettingsActivity` 加了对应的单选列表和 Token 输入框
+（含焦点丢失与 apply 时双保险落盘）。IPv6 网络下用 4 连不上边缘节点时，
+改成 `6` 或 `auto` 再试。
+
+---
+
+## 构建
+
+- versionCode **49** / versionName **5.14**
+- 签名 `9ce3aefa…15da`（不变，可覆盖升级）
+
 ## v5.13 (versionCode 48) — 标签功能（标签汇 / 快速搜索 / 发帖快捷标签）
 
 > 上一版留的问题：MT 论坛有一个标签功能，发帖可以快捷设置标签以及快速搜索标签。

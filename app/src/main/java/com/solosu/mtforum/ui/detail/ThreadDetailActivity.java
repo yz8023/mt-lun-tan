@@ -5265,6 +5265,9 @@ private void viewHiddenContent() {
             public void onPageFinished(android.webkit.WebView view, String url) {
                 bindPostWebImageClicks(view);
                 bindPostWebReady(view);
+                // build97: 给代码块注入复制按钮（WebView 原样渲染后 CodeBlockView 卡片
+                // 不再渲染，复制能力必须在这里补回来）
+                bindPostWebCodeCopy(view);
                 measurePostWebHeight(view);
             }
         });
@@ -5289,6 +5292,33 @@ private void viewHiddenContent() {
             public void onReady() {
                 runOnUiThread(() -> measurePostWebHeight(web));
             }
+
+            /**
+             * build97: 复制正文代码块。
+             *
+             * <p>WebView 模式下代码块按站点原样渲染在页面里，v5.11 起就不再抽出来
+             * 做成 CodeBlockView 卡片（否则同一段代码出现两遍）。但 CodeBlockView
+             * 带的「一键复制」也跟着没了 —— 用户报的就是「正文代码类型不能直接复制」。
+             * 这里给每个 pre/.blk_code 注入一个复制按钮，点它经 JS 桥回 native 写剪贴板。
+             */
+            @android.webkit.JavascriptInterface
+            public void copyText(String text) {
+                if (android.text.TextUtils.isEmpty(text)) return;
+                final String t = text;
+                runOnUiThread(() -> {
+                    try {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager)
+                                        getSystemService(CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("code", t));
+                            Toast.makeText(ThreadDetailActivity.this,
+                                    "已复制", Toast.LENGTH_SHORT).show();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                });
+            }
         }, "PostBody");
 
         web.setVisibility(View.VISIBLE);
@@ -5312,6 +5342,42 @@ private void viewHiddenContent() {
                 + "e.addEventListener('click',go,true);"
                 + "e.addEventListener('touchend',go,true);"
                 + "})(a[i]);}}catch(x){}})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /**
+     * build97: 给正文里的代码块注入「复制」按钮。
+     *
+     * <p>v5.11 起主楼改用 WebView 原样渲染站点 HTML，代码块不再抽出来做成
+     * CodeBlockView 卡片（抽了就会同一段代码出现两遍），于是 CodeBlockView 自带
+     * 的复制按钮也没了。用户报「正文代码类型不能直接复制」。
+     *
+     * <p>这里给每个 {@code pre} / {@code .blk_code} / {@code .blockcode} 右上角
+     * 塞一个绝对定位的小按钮，点击经 {@code PostBody.copyText} 桥回 native 写剪贴板。
+     * 按钮是 JS 现造的，不依赖站点 CSS，样式内联写死。
+     */
+    private void bindPostWebCodeCopy(android.webkit.WebView web) {
+        if (web == null) return;
+        String js = "(function(){try{"
+                + "var sel='pre,.blk_code,.blockcode,.comiis_blockcode';"
+                + "var list=document.querySelectorAll(sel);"
+                + "for(var i=0;i<list.length;i++){(function(box){"
+                + "if(box.getAttribute('data-copybtn')==='1')return;"
+                + "box.setAttribute('data-copybtn','1');"
+                + "var st=getComputedStyle(box);"
+                + "if(st.position==='static')box.style.position='relative';"
+                + "var btn=document.createElement('div');"
+                + "btn.textContent='复制';"
+                + "btn.style.cssText='position:absolute;top:6px;right:6px;z-index:99;"
+                + "padding:2px 8px;font-size:11px;line-height:18px;border-radius:4px;"
+                + "background:rgba(0,0,0,.55);color:#fff;cursor:pointer;"
+                + "user-select:none;-webkit-user-select:none;';"
+                + "btn.onclick=function(ev){ev.preventDefault();ev.stopPropagation();"
+                + "if(window.PostBody&&window.PostBody.copyText){"
+                + "PostBody.copyText(box.innerText||box.textContent||'');}};"
+                + "box.appendChild(btn);"
+                + "})(list[i]);}"
+                + "}catch(x){}})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -5446,28 +5512,6 @@ private void viewHiddenContent() {
         });
     }
 
-    private static String pickRealImageUrl(org.jsoup.nodes.Element img) {
-        String[] attrs = {"file", "comiis_loadimages", "zoomfile",
-                "data-original", "data-src", "data-file", "src"};
-        for (String a : attrs) {
-            String v = img.attr(a);
-            if (v == null) continue;
-            v = v.trim();
-            if (!isUsableImageValue(v) || isPlaceholderImage(v)) continue;
-            return v;
-        }
-        return null;
-    }
-
-    private static boolean isUsableImageValue(String value) {
-        if (TextUtils.isEmpty(value)) return false;
-        String low=value.trim().toLowerCase(java.util.Locale.ROOT);
-        if (low.matches("\\d+") || "true".equals(low) || "false".equals(low)
-                || "lazy".equals(low) || low.startsWith("javascript:") || low.startsWith("data:")) return false;
-        return low.startsWith("http://") || low.startsWith("https://") || low.startsWith("//")
-                || low.startsWith("/") || low.startsWith("./") || low.contains("/") || low.contains(".");
-    }
-
     /** Only actual Discuz smiley paths are inline; words such as face/icon in a normal
      * attachment filename must never cause a content image to be discarded. */
     private static boolean isInlineForumImage(String url) {
@@ -5488,15 +5532,7 @@ private void viewHiddenContent() {
      * <p>统一委托 {@link ImageUrl}，保证 {@code pickRealImageUrl} 和
      * {@code extractAndSeparateImages} 两条路径对「什么是占位图」判断一致。
      */
-    private static boolean isPlaceholderImage(String url) {
-        return ImageUrl.isPlaceholder(url);
-    }
-
     /** build80: 委托 {@link ImageUrl}，保证与其它图片路径的补全规则一致。 */
-    private static String toAbsolute(String url) {
-        return ImageUrl.toAbsolute(url);
-    }
-
     /**
      * 原位模式下修正正文里的图片地址。
      *
@@ -5583,21 +5619,22 @@ private void viewHiddenContent() {
         return out.toString();
     }
 
+    /**
+     * build97: 已提取到 {@link com.solosu.mtforum.util.PostImageHtml}，
+     * 主楼和评论区共用。这里只留一个薄封装，省得改所有调用点。
+     */
     private static String upgradeThumbnailsToFull(String html) {
-        if (TextUtils.isEmpty(html)) return html;
-        try {
-            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
-            for (org.jsoup.nodes.Element img : doc.select("img")) {
-                String real = pickRealImageUrl(img);
-                if (real == null) continue;
-                String abs = toAbsolute(real);
-                if (TextUtils.isEmpty(abs)) continue;
-                if (!abs.equals(img.attr("src"))) img.attr("src", abs);
-            }
-            return doc.body().html();
-        } catch (Throwable t) {
-            return html;
-        }
+        return com.solosu.mtforum.util.PostImageHtml.upgradeThumbnailsToFull(html);
+    }
+
+    /** build97: 委托 PostImageHtml（原私有实现已提取，评论区共用） */
+    private static String pickRealImageUrl(org.jsoup.nodes.Element img) {
+        return com.solosu.mtforum.util.PostImageHtml.pickRealImageUrl(img);
+    }
+
+    /** build97: 委托 ImageUrl */
+    private static boolean isPlaceholderImage(String url) {
+        return com.solosu.mtforum.util.ImageUrl.isPlaceholder(url);
     }
 
     /**

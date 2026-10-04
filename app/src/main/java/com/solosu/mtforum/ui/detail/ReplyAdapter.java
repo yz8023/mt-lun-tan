@@ -302,6 +302,22 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                         item, false, rendered, tvContent, itemView.getContext()));
                 setupClickableLinks(tvContent);
                 attachCopyOnLongClick(tvContent);
+                // build97: 评论区的图以前完全没挂点击 —— 图文混排走 ImageGetter，
+                // 而 setImageClick 只服务旧方案（llReplyImages 里独立的 ImageView），
+                // 那条路现在已经被隐藏。用户报的就是「评论区图片无法显示原图」。
+                // 必须放在 setupClickableLinks 之后：它会把 textIsSelectable 设 true，
+                // 选择模式会吞掉点击，所以这里用触摸命中测试，不依赖 MovementMethod。
+                final android.content.Context ctx = itemView.getContext();
+                com.solosu.mtforum.util.InlineImageClicks.attach(tvContent, url -> {
+                    if (ctx == null || TextUtils.isEmpty(url)) return;
+                    try {
+                        android.content.Intent it = new android.content.Intent(
+                                ctx, com.solosu.mtforum.ui.detail.ImagePreviewActivity.class);
+                        it.putExtra("image_url", url);
+                        ctx.startActivity(it);
+                    } catch (Exception ignored) {
+                    }
+                });
                 llReplyImages.removeAllViews();
                 llReplyImages.setVisibility(View.GONE);
             } else {
@@ -573,20 +589,17 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
      * <p>注意：本方法本身仍在主线程被调用（见调用方的缓存逻辑），
      * 所以务必配合 {@link ReplyItem#getUpgradedHtml()} 缓存，别每次 bind 都算。
      */
+    /**
+     * build97: 委托 {@link PostImageHtml}，与主楼正文走同一套真图挑选 + 值校验。
+     *
+     * <p>原来这里是独立实现，只做 {@code ImageUrl.realUrl} + toAbsolute，比主楼少了两样：
+     * ① 没有 {@code isUsableImageValue} 那层过滤，站点 JS 拼出来的废值
+     *    （实测见过 {@code src="' + IMGDIR + '/imageloading.gif"}）会被当真实地址；
+     * ② 挑中废值后 img.attr("src") 被写坏，图直接不显示。
+     */
     private static String upgradeImageSources(String html) {
-        if (TextUtils.isEmpty(html)) return html;
-        try {
-            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html, HttpClient.BASE_URL);
-            for (org.jsoup.nodes.Element img : doc.select("img")) {
-                String real = ImageUrl.realUrl(img);
-                if (real == null) continue;
-                String full = ImageUrl.toAbsolute(real, HttpClient.BASE_URL);
-                if (!TextUtils.isEmpty(full)) img.attr("src", full);
-            }
-            return doc.body().html();
-        } catch (Throwable ignored) {
-            return html;
-        }
+        return com.solosu.mtforum.util.PostImageHtml
+                .upgradeThumbnailsToFull(html, HttpClient.BASE_URL);
     }
 
     /**

@@ -12,6 +12,48 @@ public final class McpPreferences {
     public static boolean lan(Context c) { return c.getSharedPreferences(PREF,0).getBoolean("lan",false); }
     public static boolean tunnel(Context c) { return c.getSharedPreferences(PREF,0).getBoolean("tunnel",false); }
     public static int port(Context c) { return c.getSharedPreferences(PREF,0).getInt("port",8765); }
+
+    // ═══ build97: 隧道可配项 ═══
+    // 原实现 protocol / edge-ip-version 全硬编码（http2 + "4"），且只有 quick
+    // tunnel 一条路。Cloudflare 对 quick tunnel 的匿名注册有速率限制，重连几次
+    // 就是 429 —— 用户报的「开启无效，429 / 错误1」主要就是这个。
+    // 永久隧道（named tunnel + Token）不走匿名注册，天然没有这个限制。
+
+    /** 隧道模式："quick"(临时，默认) 或 "token"(永久) */
+    public static String tunnelMode(Context c) {
+        return c.getSharedPreferences(PREF,0).getString("tunnel_mode","quick");
+    }
+    public static void setTunnelMode(Context c, String v) {
+        c.getSharedPreferences(PREF,0).edit()
+                .putString("tunnel_mode","token".equals(v)?"token":"quick").apply();
+    }
+    public static boolean isTokenTunnel(Context c) { return "token".equals(tunnelMode(c)); }
+
+    /** 永久隧道 Token（Cloudflare Dashboard -> Zero Trust -> Tunnels 给的） */
+    public static String tunnelToken(Context c) {
+        return c.getSharedPreferences(PREF,0).getString("tunnel_token","");
+    }
+    public static void setTunnelToken(Context c, String v) {
+        c.getSharedPreferences(PREF,0).edit().putString("tunnel_token", v==null?"":v.trim()).apply();
+    }
+
+    /** cloudflared 协议："http2"(默认) 或 "quic" */
+    public static String tunnelProtocol(Context c) {
+        return c.getSharedPreferences(PREF,0).getString("tunnel_protocol","http2");
+    }
+    public static void setTunnelProtocol(Context c, String v) {
+        c.getSharedPreferences(PREF,0).edit()
+                .putString("tunnel_protocol","quic".equals(v)?"quic":"http2").apply();
+    }
+
+    /** 边缘 IP 版本："4"(默认) / "6" / "auto" */
+    public static String edgeIpVersion(Context c) {
+        return c.getSharedPreferences(PREF,0).getString("edge_ip_version","4");
+    }
+    public static void setEdgeIpVersion(Context c, String v) {
+        String n = ("6".equals(v)||"auto".equals(v)) ? v : "4";
+        c.getSharedPreferences(PREF,0).edit().putString("edge_ip_version",n).apply();
+    }
     public static void setEnabled(Context c, boolean v) { c.getSharedPreferences(PREF,0).edit().putBoolean("enabled",v).apply(); }
     public static void setLan(Context c, boolean v) { c.getSharedPreferences(PREF,0).edit().putBoolean("lan",v).apply(); }
     public static void setTunnel(Context c, boolean v) { c.getSharedPreferences(PREF,0).edit().putBoolean("tunnel",v).apply(); }
