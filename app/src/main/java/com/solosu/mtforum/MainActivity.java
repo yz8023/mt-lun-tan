@@ -424,6 +424,43 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_web_render_row, swWebRender);
         }
 
+        // build95: 顶部 FPS 显示开关
+        SwitchMaterial swFps = findViewById(R.id.drawer_switch_fps);
+        if (swFps != null) {
+            swFps.setChecked(com.solosu.mtforum.ui.UiSettings.isShowFps(this));
+            swFps.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setShowFps(this, checked);
+                if (checked) com.solosu.mtforum.util.FpsOverlay.attach(this);
+                else com.solosu.mtforum.util.FpsOverlay.detach(this);
+                Toast.makeText(this, checked ? "已在顶部显示 FPS" : "已关闭 FPS 显示",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_fps_row, swFps);
+        }
+
+        // build95: 正文链接打开方式（应用内 / 系统浏览器）
+        SwitchMaterial swLink = findViewById(R.id.drawer_switch_link_open);
+        if (swLink != null) {
+            boolean internal = com.solosu.mtforum.ui.UiSettings.isLinksInternal(this);
+            swLink.setChecked(internal);
+            final android.widget.TextView linkDesc = findViewById(R.id.drawer_link_open_desc);
+            if (linkDesc != null) {
+                linkDesc.setText(internal ? "站内帖子走应用内，其余走浏览器"
+                        : "所有链接都交给系统浏览器");
+            }
+            swLink.setOnCheckedChangeListener((v, checked) -> {
+                com.solosu.mtforum.ui.UiSettings.setLinkOpenMode(this,
+                        checked ? "internal" : "external");
+                if (linkDesc != null) {
+                    linkDesc.setText(checked ? "站内帖子走应用内，其余走浏览器"
+                            : "所有链接都交给系统浏览器");
+                }
+                Toast.makeText(this, checked ? "正文链接将在应用内打开" : "正文链接将交给浏览器打开",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_link_open_row, swLink);
+        }
+
         // build67: 隐藏内容就地展开开关
         SwitchMaterial swHiddenInline = findViewById(R.id.drawer_switch_hidden_inline);
         if (swHiddenInline != null) {

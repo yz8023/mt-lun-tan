@@ -74,7 +74,14 @@ public class HomeFragment extends Fragment implements com.solosu.mtforum.ui.Refr
         binding.guideFilters.setOnCheckedStateChangeListener((group, checkedIds) -> {
             if (checkedIds.isEmpty()) return;
             int id=checkedIds.get(0);
-            guideView=id==R.id.chip_new?"new":id==R.id.chip_hot?"hot":id==R.id.chip_digest?"digest":"newthread";
+            // build95: 「热门」chip 已移除。站点 mobile 端的
+            // forum.php?mod=guide&view=hot 返回的不是帖子列表，而是导读首页
+            // （每日签到 / 精华推荐 / 积分商城 + 一条滚动文字栏），
+            // 实测 48887 字节里只有 15 个 thread 链接且全在 comiis_mh_kxtxt 里，
+            // 没有 mmlist_li_box / comiis_pyqlist 容器，解析器 0 条 -> 整页空白。
+            // 去掉 mobile=2、加 &type=hot、改 forumdisplay&filter=heat 全都试过，
+            // 站点 mobile 端就是没有热帖列表视图。留着它只会给用户一个空页面。
+            guideView=id==R.id.chip_new?"new":id==R.id.chip_digest?"digest":"newthread";
             refreshThreads();
         });
         // 顶栏操作保持与搜索按钮一致的主题、尺寸和毛玻璃符号样式。

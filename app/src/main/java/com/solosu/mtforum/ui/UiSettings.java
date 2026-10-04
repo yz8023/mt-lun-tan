@@ -38,6 +38,16 @@ public final class UiSettings {
      */
     private static final String KEY_WEB_RENDER = "post_web_render";
 
+    /**
+     * build95: 帖子正文里点链接怎么打开。
+     *
+     * <p>internal = 站内帖子链接走应用内详情页，其余链接（站外、站内非帖子页）
+     * 交给系统浏览器；external = 一律交给系统浏览器。
+     */
+    private static final String KEY_LINK_OPEN = "post_link_open";
+    /** build95: 是否在界面顶部显示 FPS */
+    private static final String KEY_SHOW_FPS = "show_fps";
+
     private UiSettings() {
     }
 
@@ -138,5 +148,27 @@ public final class UiSettings {
 
     public static void setWebRender(Context c, boolean v) {
         sp(c).edit().putBoolean(KEY_WEB_RENDER, v).apply();
+    }
+
+    /** build95: 链接打开方式，"internal"(默认) 或 "external" */
+    public static String linkOpenMode(Context c) {
+        return sp(c).getString(KEY_LINK_OPEN, "internal");
+    }
+
+    public static void setLinkOpenMode(Context c, String v) {
+        sp(c).edit().putString(KEY_LINK_OPEN, "external".equals(v) ? "external" : "internal").apply();
+    }
+
+    public static boolean isLinksInternal(Context c) {
+        return !"external".equals(linkOpenMode(c));
+    }
+
+    /** build95: 顶部 FPS 显示 */
+    public static boolean isShowFps(Context c) {
+        return sp(c).getBoolean(KEY_SHOW_FPS, false);
+    }
+
+    public static void setShowFps(Context c, boolean v) {
+        sp(c).edit().putBoolean(KEY_SHOW_FPS, v).apply();
     }
 }

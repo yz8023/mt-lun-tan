@@ -5152,9 +5152,18 @@ private void viewHiddenContent() {
             + "html,body{margin:0;padding:0;background:transparent;}"
             + "body{font-size:15px;line-height:1.7;color:#1a1a1a;"
             + "word-wrap:break-word;overflow-wrap:break-word;-webkit-text-size-adjust:100%;}"
-            + "*{max-width:100% !important;}"
-            + "img{max-width:100% !important;height:auto !important;display:block;"
+            + "*{box-sizing:border-box;}"
+            // build95: width:auto !important 是关键。站点 mobile 模板（以及作者
+            // 粘贴进来的内容）经常给 img 写死 style="width:120px" 或用 class 控制
+            // 成缩略图尺寸 —— 只限 max-width 的话那张 width 仍然生效，图就一直
+            // 是缩略图大小。用户报的就是「显示的是缩略图，不能像正常帖子那样显示」。
+            // 这里把 width/height/min-width 全部打回 auto，再由 max-width:100%
+            // 撑到容器宽，高度按图片真实比例走，绝不变形、也不留白。
+            + "img{width:auto !important;min-width:0 !important;max-width:100% !important;"
+            + "height:auto !important;max-height:none !important;display:block;"
             + "margin:8px auto;border-radius:6px;cursor:pointer;}"
+            // build95: 站点偶尔用 <a> 包图做「点击看大图」，把链接靶区也放开
+            + "a:has(img){display:block;}"
             + "a{color:#337ecc;text-decoration:none;word-break:break-all;}"
             + "a:active{opacity:.6;}"
             + "pre,.blk_code,.blockcode{background:#f4f5f7;padding:10px;border-radius:6px;"
@@ -5291,13 +5300,18 @@ private void viewHiddenContent() {
     /** build92: 给正文里所有 <img> 挂点击，点了走全屏预览 */
     private void bindPostWebImageClicks(android.webkit.WebView web) {
         if (web == null) return;
+        // build95: 用 addEventListener(捕获阶段) 而不是 e.onclick=。站点自己的
+        // 脚本后面会给 img 挂委托监听，直接覆盖掉 e.onclick，图就点不动了。
+        // 捕获阶段先跑，preventDefault + stopPropagation 之后站点再也收不到。
         String js = "(function(){try{var a=document.getElementsByTagName('img');"
                 + "for(var i=0;i<a.length;i++){(function(e){"
                 + "e.style.cursor='pointer';"
-                + "e.onclick=function(ev){ev.preventDefault();ev.stopPropagation();"
+                + "function go(ev){ev.preventDefault();ev.stopPropagation();"
                 + "var s=e.currentSrc||e.src||'';"
-                + "if(window.PostBody&&window.PostBody.openImage){PostBody.openImage(s);}"
-                + "};})(a[i]);}}catch(x){}})();";
+                + "if(window.PostBody&&window.PostBody.openImage){PostBody.openImage(s);}}"
+                + "e.addEventListener('click',go,true);"
+                + "e.addEventListener('touchend',go,true);"
+                + "})(a[i]);}}catch(x){}})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -5366,7 +5380,10 @@ private void viewHiddenContent() {
                     && !scheme.equalsIgnoreCase("https"))) {
                 return true;
             }
-            if (host == null || !host.endsWith("binmt.cc")) {
+            // build95: 跟随抽屉「链接打开方式」设置。选 external 时一律外开，
+            // 不再拦站内帖子链接 —— 用户要的就是「点链接直接跳浏览器」。
+            boolean linksInternal = com.solosu.mtforum.ui.UiSettings.isLinksInternal(this);
+            if (!linksInternal || host == null || !host.endsWith("binmt.cc")) {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 return true;
             }

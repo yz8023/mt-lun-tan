@@ -33,6 +33,23 @@ public final class McpService extends Service {
         boolean ok=McpServer.get().start(this);
         String detail=ok?(McpPreferences.tunnel(this)?"MCP 与公网隧道保持运行":"只读 MCP 正在运行"):("启动失败："+McpServer.get().error());
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,notification(detail));
+        // build95: 启动失败必须让用户知道卡在哪。原来通知只写「启动失败：」+ 一个
+        // 可能是空串的 error（用户看到的就是「开启无效」），现在失败时换一条带
+        // 可读原因的错误通知，并且不再挂着前台服务。
+        if(!ok){
+            String why=McpServer.get().error();
+            if(android.text.TextUtils.isEmpty(why))why="未知原因，请检查 MCP 设置里的端口是否被其它应用占用";
+            stopForeground(true);
+            android.app.Notification n=new androidx.core.app.NotificationCompat.Builder(this,CHANNEL)
+                    .setSmallIcon(android.R.drawable.stat_notify_error)
+                    .setContentTitle("MCP 启动失败")
+                    .setContentText(why)
+                    .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(why))
+                    .setOngoing(false).setAutoCancel(true).build();
+            androidx.core.app.NotificationManagerCompat.from(this).notify(NOTIFICATION_ID,n);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         return START_STICKY;
     }
     @Override public void onDestroy(){McpServer.get().stop();super.onDestroy();}

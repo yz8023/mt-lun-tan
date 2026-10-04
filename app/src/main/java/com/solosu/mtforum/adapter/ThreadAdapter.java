@@ -303,8 +303,15 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             for (int i = 0; i < count; i++) {
                 ImageView imageView = new ImageView(context);
                 int gap = dp(3);
+                // build95: GridLayout 的 columnSpec 权重在 width=0 时确实能均分列，
+                // 但权重测量的结果不会回灌给 ImageView 的 onMeasure ——
+                // adjustViewBounds 拿不到最终宽度，算出来的高度就是错的，
+                // 竖长图会被压扁。这里按容器实际宽度显式算死每张图的宽度。
+                int avail = holder.llThreadImages.getWidth() > 0
+                        ? holder.llThreadImages.getWidth() : screenWidth(context);
+                int colW = avail <= 0 ? 0 : (avail - gap) / 2;
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-                params.width = 0;
+                params.width = colW > 0 ? colW : 0;
                 // build84: 高度改成 WRAP_CONTENT + adjustViewBounds。
                 // 原来是硬编码 dp(104) 再配 CENTER_CROP —— 每张图都被压成同一个
                 // 104dp 高的方块，竖图被裁、宽图被拉，正是用户反馈「图片显示异常」的
@@ -332,11 +339,13 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             String thumbnailUrl = thread.getThumbnailUrl();
             if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) {
                 holder.ivThumbnail.setVisibility(View.VISIBLE);
+                // build95: centerCrop -> fitCenter。封面图原来是中心裁剪，
+                // 竖长图只剩中间一条。改成完整 fit，长图也能看全。
                 Glide.with(context)
                         .load(com.solosu.mtforum.util.ForumImageLoader.model(thumbnailUrl))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
-                        .centerCrop()
+                        .fitCenter()
                         .into(holder.ivThumbnail);
             }
         }
@@ -478,6 +487,22 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             followStateLoading = false;
             new android.os.Handler(android.os.Looper.getMainLooper()).post(this::notifyDataSetChanged);
         }).start();
+    }
+
+    /** build95: 取屏幕宽。Display.getDefaultDisplay() 在 API 36 已移除。 */
+    private static int screenWidth(android.content.Context c) {
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
+            if (wm != null) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    return wm.getCurrentWindowMetrics().getBounds().width();
+                }
+                return wm.getDefaultDisplay().getWidth();
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
     }
 
     private int dp(int value) {

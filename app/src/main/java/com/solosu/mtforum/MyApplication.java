@@ -46,6 +46,13 @@ public class MyApplication extends Application {
             @Override
             public void onActivityResumed(android.app.Activity a) {
                 com.solosu.mtforum.session.SiteAccessManager.onActivityResumed(a);
+                // build95: 抽屉里开了「显示 FPS」就在每个界面顶部挂上帧率。
+                // 用 ActivityLifecycleCallbacks 统一接，不用逐个 Activity 改。
+                if (com.solosu.mtforum.ui.UiSettings.isShowFps(a)) {
+                    com.solosu.mtforum.util.FpsOverlay.attach(a);
+                } else {
+                    com.solosu.mtforum.util.FpsOverlay.detach(a);
+                }
                 if (!com.solosu.mtforum.ui.theme.ThemeManager.isAccentCustomised(a)) return;
                 final android.view.View root = a.findViewById(android.R.id.content);
                 if (root == null) return;
@@ -60,7 +67,9 @@ public class MyApplication extends Application {
             }
             @Override public void onActivityStopped(android.app.Activity a) {}
             @Override public void onActivitySaveInstanceState(android.app.Activity a, android.os.Bundle b) {}
-            @Override public void onActivityDestroyed(android.app.Activity a) {}
+            @Override public void onActivityDestroyed(android.app.Activity a) {
+                com.solosu.mtforum.util.FpsOverlay.detach(a);
+            }
         });
 
         com.solosu.mtforum.session.PostCountsCache.attach(this);

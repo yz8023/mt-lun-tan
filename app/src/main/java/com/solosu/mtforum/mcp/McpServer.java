@@ -43,7 +43,15 @@ public final class McpServer {
         app=context.getApplicationContext();
         try {
             InetAddress bind=InetAddress.getByName(McpPreferences.lan(app)?"0.0.0.0":"127.0.0.1");
-            server=new ServerSocket(McpPreferences.port(app),16,bind);
+            try {
+                server=new ServerSocket(McpPreferences.port(app),16,bind);
+            } catch(java.net.BindException be) {
+                // build95: 原来这里直接把 be.getMessage() 抛给用户，而 BindException
+                // 的 message 常常是 "bind failed: EADDRINUSE" 甚至空/数字，
+                // 用户看到的就是一句没头没尾的「错误1」。给成人话。
+                error="端口 "+McpPreferences.port(app)+" 已被占用，请在 MCP 设置里换一个端口";
+                return false;
+            }
             pool=Executors.newFixedThreadPool(4);
             pool.execute(this::acceptLoop);
             error="";
@@ -116,8 +124,17 @@ public final class McpServer {
     private boolean isAllowedOrigin(String o){try{String h=android.net.Uri.parse(o).getHost();return isAllowedName(h);}catch(Exception e){return false;}}
     private boolean isAllowedHost(String value){try{if(TextUtils.isEmpty(value))return false;String h=android.net.Uri.parse("http://"+value).getHost();return isAllowedName(h);}catch(Exception e){return false;}}
     private boolean isAllowedName(String h){
+        if(TextUtils.isEmpty(h))return false;
         if("127.0.0.1".equals(h)||"localhost".equalsIgnoreCase(h)||"::1".equals(h)||"[::1]".equals(h))return true;
         if(McpPreferences.lan(app))return true;
+        // build95: 隧道域名一律放行。原实现只认 CloudflareTunnelManager.publicUrl()
+        // 当前值，而隧道注册是异步的（start() 里另起线程），publicUrl 在注册完成前
+        // 一直是空串 —— 于是「开了 MCP + 隧道」的请求照样被 403 打回来，
+        // 表现就是用户说的「开启无效」。这里按域名模式放行，不依赖注册时序。
+        String hl=h.toLowerCase(Locale.ROOT);
+        if(hl.endsWith(".trycloudflare.com"))return true;
+        if(hl.endsWith(".cfargotunnel.com"))return true;
+        if(hl.endsWith(".cloudflareaccess.com"))return true;
         try{String publicHost=android.net.Uri.parse(CloudflareTunnelManager.get().publicUrl()).getHost();return !TextUtils.isEmpty(publicHost)&&publicHost.equalsIgnoreCase(h);}catch(Exception ignored){return false;}
     }
     private boolean constantEquals(String a,String b){return MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8),b.getBytes(StandardCharsets.UTF_8));}

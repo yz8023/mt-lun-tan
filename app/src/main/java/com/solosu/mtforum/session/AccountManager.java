@@ -408,6 +408,27 @@ public class AccountManager {
                     .getSharedPreferences(COOKIE_PREF, Context.MODE_PRIVATE)
                     .edit().putString(COOKIE_KEY, target.cookies).apply();
 
+            // build94: 切号必须连「当前登录身份」一起换。
+            //
+            // 以前这里只写了 AccountManager 自己的 KEY_ACTIVE 和 cookie 快照，
+            // 没有同步 UserSessionManager 里的 session uid/username/avatar。
+            // 而 ThreadDetailActivity.onResume 判「账号有没有变」用的是
+            // likeFavScope() -> UserSessionManager.getUid() —— 它一直返回
+            // 上一个账号的 uid，于是「没变」-> 不刷新，界面还挂着旧身份。
+            // 用户报的就是「切换账号后打开帖子还是在用原身份阅读」。
+            // 点赞/收藏/关注态也按这个 uid 分桶，不同步就会串号。
+            try {
+                java.util.Map<String, String> info = new java.util.HashMap<>();
+                info.put("uid", uid);
+                info.put("username",
+                        TextUtils.isEmpty(target.username) ? uid : target.username);
+                if (!TextUtils.isEmpty(target.avatar)) info.put("avatarUrl", target.avatar);
+                if (!TextUtils.isEmpty(target.level)) info.put("level", target.level);
+                com.solosu.mtforum.session.UserSessionManager.getInstance()
+                        .saveLoginInfo(c.getApplicationContext(), info);
+            } catch (Exception ignored) {
+            }
+
             HttpClient client = HttpClient.getInstance();
             // build65: 必须先清去重缓存，否则新账号会复用上一个账号的页面结果
             client.clearPendingCache();

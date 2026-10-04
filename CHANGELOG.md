@@ -1,5 +1,140 @@
 # 更新日志
 
+## v5.12 (versionCode 47) — 切号身份同步 · 图片比例修复 · 8 项反馈逐条处理
+
+### 用户反馈（8 项）
+
+1. 帖子内链接自动设置超链接可直接点击打开（跟随设置内部打开或者外部打开）
+2. 可设置是否显示 FPS 在顶部
+3. 切换账号后打开帖子还是在用原身份阅读帖子，没有更新身份
+4. MCP 开启无效，要不是 429 要不是错误 1 直接结束
+5. MT 论坛有一个标签功能，发帖可以快捷设置标签以及快速搜索标签
+6. 顶部热门点开没有卡片详细信息显示，只有空白标题，完全看不到内容
+7. 主页显示部分图片被使用长图导致显示异常
+8. 主帖子正文没有正确显示图片（显示的是缩略图，不能像正常帖子那样正常显示）
+
+---
+
+## 一、逐项定位与修复
+
+### ③ 切号后还是原身份 —— UserSessionManager 没跟着换
+
+`AccountManager.switchTo()` 只写了自己的 `KEY_ACTIVE` 和 cookie 快照，
+**没有同步 `UserSessionManager` 里的 session uid**。而
+`ThreadDetailActivity.onResume()` 判「账号有没有变」用的是
+`likeFavScope() -> UserSessionManager.getUid()` —— 它一直返回上一个账号的
+uid，于是「没变」→ 不刷新，界面还挂着旧身份。点赞/收藏/关注态也按这个 uid
+分桶，不同步就会串号。
+
+**修法**：`switchTo()` 里补一段 `UserSessionManager.saveLoginInfo()`，
+把 uid / username / avatar / level 一起写过去。
+
+### ⑦ 主页长图显示异常 —— 封面图固定 160dp + centerCrop
+
+`item_thread.xml` 的 `iv_thumbnail` 是 `layout_height="160dp"` +
+`scaleType="centerCrop"`：竖长图被裁成中间一条，宽图被拉变形。
+
+另外首页多图的 `GridLayout` 用 `params.width = 0` + `columnSpec` 权重均分列，
+**权重测量的结果不会回灌给 ImageView 的 `onMeasure`** —— `adjustViewBounds`
+拿不到最终宽度，算出来的高度是错的，竖长图照样被压扁。
+
+**修法**：
+- `iv_thumbnail` 改 `wrap_content` + `adjustViewBounds` + `fitCenter` +
+  `maxHeight="320dp"`（兜住超长图，别把卡片撑到一屏）
+- `Glide.centerCrop()` 改 `fitCenter()`
+- `GridLayout` 按容器实际宽度**显式算死**每张图的列宽，不再依赖权重
+
+### ⑧ 正文图显示成缩略图 —— CSS 没覆盖站点写死的 width
+
+v5.11 的 `WEB_CONTENT_CSS` 只限了 `max-width:100%`，但站点 mobile 模板
+（以及作者粘贴进来的内容）经常给 img 写死 `style="width:120px"` 或用 class
+控成缩略图尺寸。**`max-width` 和 `width` 是两个属性，只限前者那张 `width`
+照样生效**，图就一直是缩略图大小。
+
+**修法**：
+```css
+img{width:auto !important; min-width:0 !important; max-width:100% !important;
+    height:auto !important; max-height:none !important; ...}
+```
+把 width / min-width / height / max-height 全部打回 auto，再由
+`max-width:100%` 撑到容器宽，高度按图片真实比例走。
+
+同时把图片点击从 `e.onclick = fn` 改成
+`addEventListener('click', fn, true)`（**捕获阶段**）：站点自己的脚本后面会给
+img 挂委托监听，直接覆盖掉 `e.onclick`，图就点不动了。捕获阶段先跑，
+`preventDefault + stopPropagation` 之后站点再也收不到。
+
+### ⑥ 顶部热门点开是空白 —— 站点 mobile 端没有热帖列表
+
+`forum.php?mod=guide&view=hot&mobile=2` 返回的**不是帖子列表，而是导读首页**
+（每日签到 / 精华推荐 / 积分商城 + 一条滚动文字栏）。实测 48887 字节里只有
+15 个 `thread-` 链接，且全在 `comiis_mh_kxtxt` 的 `<li><a>` 里，
+**没有 `mmlist_li_box` / `comiis_pyqlist` 容器**，解析器 0 条 → 整页空白。
+
+试过并确认无效的替代方案：去掉 `mobile=2`、加 `&type=hot`、
+`forum.php?mod=forumdisplay&filter=heat&orderby=lastpost`（21651 字节、0 帖子）。
+
+**修法**：移除「热门」chip。留着它只会给用户一个空页面。
+保留「新帖 / 最新回复 / 精华」三个都有真实列表的视图。
+
+### ④ MCP 开启无效 —— 隧道域名被自己 403 + 错误信息不可读
+
+两个问题叠在一起：
+
+1. `McpServer.isAllowedName()` 只放行 `localhost` / 开了 `lan` /
+   `CloudflareTunnelManager.publicUrl()` 当前值。而**隧道注册是异步的**
+   （`start()` 里另起线程），`publicUrl` 在注册完成前一直是空串 ——
+   于是「开了 MCP + 隧道」的请求照样被 403 打回来。
+   **修法**：按域名模式放行 `*.trycloudflare.com` / `*.cfargotunnel.com` /
+   `*.cloudflareaccess.com`，不依赖注册时序。
+2. `ServerSocket` 绑定失败时 `error = e.getMessage()`，而 `BindException` 的
+   message 常常是 `bind failed: EADDRINUSE` 甚至空/数字 —— 用户看到的就是
+   一句没头没尾的「错误1」。
+   **修法**：捕获 `BindException` 换成「端口 X 已被占用，请在 MCP 设置里换一个」；
+   启动失败时换一条带可读原因的**错误通知**，并 `stopForeground(true)` 不再挂前台。
+
+### ① 帖子内链接可点 + 内外打开设置
+
+v5.11 的 WebView 里链接已经是可点的（`WebViewClient` 自动处理 `<a>`），
+这一版把它接上设置：抽屉新增「**正文链接打开方式**」开关，
+`post_link_open` = `internal`(默认) / `external`。
+
+- `internal`：站内 `thread-X-Y-Z.html` 走应用内详情页，其余（站外、站内非帖子页）
+  交给系统浏览器 —— 避免正文 WebView 套娃
+- `external`：一律交给系统浏览器
+
+### ② 顶部 FPS 显示
+
+新增 `util/FpsOverlay.java`：用 `Choreographer` 统计每 500ms 的帧回调数求平均
+帧率，通过给 Activity 的 `DecorView` 加子 View 实现 —— **不占用
+WindowManager 类型窗口的权限**，也不会跨 Activity 残留
+（`onViewDetachedFromWindow` 时 `removeFrameCallback`）。
+
+在 `MyApplication` 的 `ActivityLifecycleCallbacks.onActivityResumed` 里统一挂载，
+抽屉开关「**顶部显示 FPS**」默认关。
+
+---
+
+## 二、⑤ 标签功能：这一版没做，需要你确认
+
+你说「MT 论坛有一个标签功能，发帖可以快捷设置标签以及快速搜索标签」。
+
+我没有实现它，原因是**抓不到站点的真实标签接口**。需要你补充：
+
+1. 站点发帖页的标签输入框，提交时是哪个字段？（`tags` / `tag` / `k_tags`…）
+2. 「快速搜索标签」是站点自带的联想接口，还是只是一个输入框？
+3. 你希望「快速搜索」搜的是**标签库**还是**带该标签的帖子**？
+
+这三个问题定了我再动手，避免又做一遍解析后位置不对的白工。
+
+---
+
+## 构建
+
+- versionCode **47** / versionName **5.12**
+- 单测 91/0/0
+- 签名 `9ce3aefa…15da`（不变，可覆盖升级）
+
 ## v5.11 (versionCode 46) — 原帖内容直接用 WebView 渲染 · 逐功能审查
 
 ### 用户反馈
