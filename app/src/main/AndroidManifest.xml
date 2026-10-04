@@ -62,6 +62,13 @@
             android:configChanges="orientation|screenSize"
             android:theme="@style/Theme.AppTheme.FullScreen" />
 
+        <!-- build96: 标签云 / 标签搜索 / 标签下帖子列表 -->
+        <activity
+             android:name=".ui.tag.TagActivity"
+             android:exported="false"
+             android:label="标签"
+             android:windowSoftInputMode="adjustResize" />
+
         <activity
              android:name=".ui.search.SearchActivity"
              android:exported="false"

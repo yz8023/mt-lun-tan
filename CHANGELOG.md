@@ -1,5 +1,84 @@
 # 更新日志
 
+## v5.13 (versionCode 48) — 标签功能（标签汇 / 快速搜索 / 发帖快捷标签）
+
+> 上一版留的问题：MT 论坛有一个标签功能，发帖可以快捷设置标签以及快速搜索标签。
+
+这一版不再问，直接去站点把标签系统摸清楚实现了。
+
+---
+
+## 一、先把站点标签系统摸清（全部实测）
+
+| 用途 | URL | 实测结果 |
+|------|-----|---------|
+| 标签汇 | `misc.php?mod=tag&mobile=2` | 200 / 32300B，**101 个标签链接** |
+| 标签项结构 | `<a href="misc.php?mod=tag&id=413&type=thread&mobile=2" title="剧情" class="color1">剧情</a>` | id 从链接拿，名字从 title 拿 |
+| 按名搜标签 | `misc.php?mod=tag&name=剧情&type=thread&mobile=2` | **GET 可行**，返回「标签 : 剧情」页 |
+| 标签详情 | `misc.php?mod=tag&id=413&type=thread&mobile=2` | 帖子卡片复用列表页的 `mmlist_li_box` 结构 |
+| 帖子页标签容器 | `div.comiis_tags pb10 b_b cl` | 该帖没打标签时是空 div |
+| 站点自己的搜索框 | `<form method="post" action="misc.php?mod=tag&type=thread">` + `<input name="name">` + `<input type="hidden" name="searchsubmit" value="yes">` | 就是 `name` 字段 |
+
+标签汇里前几个：剧情(id=413)、薅羊毛(412)、奋斗(411)…
+
+> 注：标签「剧情」下实测「没有相关内容」（站点自己显示这句），
+> 说明该标签暂无关联帖子，不是解析问题。
+
+---
+
+## 二、做了什么
+
+### ① 标签页 `TagActivity`
+
+一个页面承担三件事，搜索框常驻顶部：
+
+- **标签汇**：进页面默认加载全部 101 个标签
+- **快速搜索标签**：输入关键字 → `misc.php?mod=tag&name=XXX&type=thread&mobile=2`
+  （回车或点「搜索」即搜，和站点自己的 `tagssbox` 行为一致）
+- **标签下帖子列表**：点任意标签 → `misc.php?mod=tag&id=XXX&type=thread&mobile=2`，
+  帖子卡片直接复用 `ThreadAdapter`，点帖子照常进详情
+
+从「标签下帖子」按返回键是回到标签列表，不是直接退出。
+
+抽屉新增「**标签**」入口。
+
+### ② 发帖「快捷标签」
+
+`post_activity.xml` 匿名那一行后面加了「标签」按钮，点开是 `TagPickerSheet`
+（BottomSheet 多选）：标签来源就是站点标签汇，**不用手打** ——
+站点标签是 `misc.php?mod=tag&id=X&type=thread` 的固定集合，手打拼错站点直接不认。
+
+### ③ 标签字段名：动态解析，绝不猜
+
+这是这一版最关键的设计。`PostActivity` 本来就要抓**桌面版发帖页**取
+`formhash` 和 `hash` 令牌（`getDesktop`），我在同一个地方加了：
+
+```java
+currentTagField = ForumParser.parseTagFieldName(desktopHtml);
+```
+
+`parseTagFieldName` 按优先级找：`name="tags"` → name 含 `tag` 的 input →
+id 含 `tag` 的 input。**一个都找不到就返回 null。**
+
+提交时：
+
+```java
+if (currentTagField != null && !currentTags.trim().isEmpty()) {
+    params.put(currentTagField, currentTags.trim());
+}
+```
+
+两个条件缺一个都不发这个字段。**发帖是核心功能，绝不允许因为标签拼错字段名
+而整个发帖失败。** 站点这个版块没开标签时，点「标签」按钮会直接提示
+「该版块未启用标签功能」，不让用户白选一堆。
+
+---
+
+## 构建
+
+- versionCode **48** / versionName **5.13**
+- 签名 `9ce3aefa…15da`（不变，可覆盖升级）
+
 ## v5.12 (versionCode 47) — 切号身份同步 · 图片比例修复 · 8 项反馈逐条处理
 
 ### 用户反馈（8 项）

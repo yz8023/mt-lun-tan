@@ -77,6 +77,10 @@ public class PostActivity extends AppCompatActivity {
     private String selectedFid;
     private String selectedForumName;
     private String currentFormhash;
+    /** build96: 站点发帖页标签输入框的真实 name；null = 该版块没开标签 */
+    private String currentTagField;
+    /** build96: 用户已选标签（逗号分隔） */
+    private String currentTags = "";
     private String currentUid;
     private String currentHash;
     private long draftId;
@@ -149,6 +153,29 @@ public class PostActivity extends AppCompatActivity {
         setupToolbarButtons();
         setupPublishButton();
         // build73: 编辑模式优先于草稿恢复
+        // build96: 快捷标签选择
+        android.widget.TextView btnPickTags = findViewById(R.id.btn_pick_tags);
+        if (btnPickTags != null) {
+            btnPickTags.setOnClickListener(v -> {
+                // 站点这个版块没开标签时，字段名解析不出来。直接告诉用户，
+                // 别让 TA 选完一堆标签结果发出去什么都不带。
+                if (currentTagField == null) {
+                    android.widget.Toast.makeText(this,
+                            "该版块未启用标签功能", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new com.solosu.mtforum.ui.tag.TagPickerSheet(this, csv -> {
+                    currentTags = csv == null ? "" : csv;
+                    android.widget.TextView tv = findViewById(R.id.tv_picked_tags);
+                    if (tv != null) {
+                        tv.setText(currentTags.trim().isEmpty() ? "未选择" : currentTags);
+                        tv.setTextColor(currentTags.trim().isEmpty()
+                                ? getColor(R.color.text_hint) : getColor(R.color.primary));
+                    }
+                }).show();
+            });
+        }
+
         loadFormhashAndUserInfo();
         setupEditMode();
         if (!isEditMode()) {
@@ -899,6 +926,10 @@ private void uploadImages(List<Uri> uris) {
                 if (desktopHtml != null) {
                     if (currentFormhash == null) currentFormhash = ForumParser.parseFormhash(desktopHtml);
                     extractUidAndHash(desktopHtml);
+                    // build96: 顺便解析标签输入框的真实字段名。不猜 —— Discuz 核心
+                    // 标准名是 tags，但插件/二开可能改名，猜错的后果是发帖直接失败。
+                    // 解析不到就留空，发帖时跳过 tags 参数，退化成不带标签发帖。
+                    currentTagField = ForumParser.parseTagFieldName(desktopHtml);
                 }
             } catch (Exception ignored) {}
         }).start();
@@ -919,6 +950,7 @@ private void uploadImages(List<Uri> uris) {
             if (desktopHtml != null) {
                 if (currentFormhash == null) currentFormhash = ForumParser.parseFormhash(desktopHtml);
                 extractUidAndHash(desktopHtml);
+                currentTagField = ForumParser.parseTagFieldName(desktopHtml);
             }
         } catch (Exception ignored) {}
     }
@@ -1108,6 +1140,11 @@ private void uploadImages(List<Uri> uris) {
                 params.put("subject", title);
                 params.put("message", content);
                 params.put("allownoticeauthor", "1");
+                // build96: 标签。只在①站点解析出了标签字段名 ②用户确实选了标签
+                // 时才提交 —— 两个条件缺一个都不发，绝不让发帖因为标签失败。
+                if (currentTagField != null && !currentTags.trim().isEmpty()) {
+                    params.put(currentTagField, currentTags.trim());
+                }
 
                 // 上传接口返回的 aid 只是暂存附件，发帖时还必须提交 attachnew[aid][description]，
                 // Discuz! 才会把附件正式关联到新主题。

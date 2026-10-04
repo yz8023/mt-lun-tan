@@ -527,6 +527,33 @@
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
+            <!-- build96: 快捷标签。从站点标签云选，不用手打 —— 站点标签是
+                 misc.php?mod=tag&id=X&type=thread 的固定集合，手打拼错就不生效。 -->
+            <TextView
+                android:id="@+id/btn_pick_tags"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_drawer_item"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:text="标签"
+                android:textColor="@color/primary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tv_picked_tags"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="未选择"
+                android:textColor="@color/text_hint"
+                android:textSize="12sp"
+                android:visibility="visible" />
+
             <View
                 android:layout_width="0dp"
                 android:layout_height="0dp"

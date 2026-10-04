@@ -355,6 +355,13 @@ public class MainActivity extends AppCompatActivity {
             drawerLayout.closeDrawer(drawerPanel);
             showQuickJumpDialog();
         });
+        // build96: 标签汇（浏览/搜索站点标签，看标签下的帖子）
+        View tagsRow = findViewById(R.id.drawer_tags);
+        if (tagsRow != null) tagsRow.setOnClickListener(v -> {
+            drawerLayout.closeDrawer(drawerPanel);
+            startActivity(new Intent(this, com.solosu.mtforum.ui.tag.TagActivity.class));
+        });
+
         View offlinePosts = findViewById(R.id.drawer_offline_posts);
         if (offlinePosts != null) offlinePosts.setOnClickListener(v -> {
             drawerLayout.closeDrawer(drawerPanel);

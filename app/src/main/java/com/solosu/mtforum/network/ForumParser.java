@@ -2703,6 +2703,126 @@ detail.setTotalPages(maxPage);
     /**
      * 获取导读URL
      */
+
+    // ══════════════════════════════════════════════════════════════
+    // build96: 标签系统（misc.php?mod=tag）
+    //
+    // 站点实测结构（bbs.binmt.cc，克米 mobile 模板）：
+    //   标签云   misc.php?mod=tag&mobile=2
+    //            -> div.comiis_search_hot_a 里
+    //               <a href="misc.php?mod=tag&id=413&type=thread&mobile=2"
+    //                  title="剧情" class="color1">剧情</a>
+    //   标签搜索 misc.php?mod=tag&name=剧情&type=thread&mobile=2   （GET 可行）
+    //   标签详情 misc.php?mod=tag&id=413&type=thread&mobile=2
+    //            -> 帖子列表；该标签无帖子时正文是「没有相关内容」
+    //   帖子页标签容器 div.comiis_tags（该帖没打标签时是空 div）
+    // ══════════════════════════════════════════════════════════════
+
+    /** build96: 标签云入口 */
+    public static String getTagIndexUrl() {
+        return BASE_DOMAIN + "misc.php?mod=tag&mobile=2";
+    }
+
+    /** build96: 按标签名搜索标签 */
+    public static String getTagSearchUrl(String name) {
+        try {
+            return BASE_DOMAIN + "misc.php?mod=tag&type=thread&mobile=2&name="
+                    + java.net.URLEncoder.encode(name == null ? "" : name, "UTF-8");
+        } catch (Exception e) {
+            return getTagIndexUrl();
+        }
+    }
+
+    /** build96: 标签详情（该标签下的帖子） */
+    public static String getTagDetailUrl(String id) {
+        return BASE_DOMAIN + "misc.php?mod=tag&id=" + id + "&type=thread&mobile=2";
+    }
+
+    /** build96: 一个标签 */
+    public static class TagItem {
+        public String id;
+        public String name;
+        public TagItem(String id, String name) { this.id = id; this.name = name; }
+    }
+
+    /**
+     * build96: 解析标签云。
+     *
+     * <p>标签项是 {@code <a href="misc.php?mod=tag&id=413&type=thread&mobile=2"
+     * title="剧情" class="color1">剧情</a>}，id 从链接拿、名字从 title 或文本拿。
+     */
+    public static List<TagItem> parseTagList(String html) {
+        List<TagItem> out = new ArrayList<>();
+        if (TextUtils.isEmpty(html)) return out;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
+            for (org.jsoup.nodes.Element a : doc.select("a[href*=mod=tag]")) {
+                String href = a.attr("href");
+                if (href == null || !href.contains("id=")) continue;
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("[?&]id=(\\d+)").matcher(href);
+                if (!m.find()) continue;
+                String id = m.group(1);
+                String name = a.attr("title");
+                if (TextUtils.isEmpty(name)) name = a.text();
+                if (TextUtils.isEmpty(name)) continue;
+                name = name.trim();
+                boolean dup = false;
+                for (TagItem t : out) if (t.id.equals(id)) { dup = true; break; }
+                if (dup) continue;
+                out.add(new TagItem(id, name));
+            }
+        } catch (Throwable ignored) {}
+        return out;
+    }
+
+    /**
+     * build96: 标签详情页里的帖子列表。
+     *
+     * <p>标签页复用和列表页一样的卡片结构（mmlist_li_box / comiis_pyqlist），
+     * 所以直接喂给 parseThreadList。标签下没帖子时页面正文是「没有相关内容」，
+     * 解析结果自然为空列表。
+     */
+    public static List<com.solosu.mtforum.model.Thread> parseTagThreads(String html) {
+        return parseThreadList(html);
+    }
+
+    /**
+     * build96: 从发帖页解析标签输入框的**真实字段名**。
+     *
+     * <p>不猜。Discuz 核心的标准字段是 {@code tags}，但插件/二开可能改名，
+     * 而字段名猜错的后果是发帖直接失败 —— 这是最不能出的错。
+     * 所以这里从桌面版发帖页动态找：优先 name="tags" 的 input，
+     * 其次任何 name 含 tag 的 input。**一个都找不到就返回 null，
+     * 调用方据此跳过 tags 参数，退化成不带标签发帖，绝不影响发帖本身。**
+     */
+    public static String parseTagFieldName(String html) {
+        if (TextUtils.isEmpty(html)) return null;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
+            // 1) 标准名
+            for (org.jsoup.nodes.Element in : doc.select("input[name]")) {
+                if ("tags".equalsIgnoreCase(in.attr("name"))) return "tags";
+            }
+            // 2) name 含 tag 的 input（排除明显无关的）
+            for (org.jsoup.nodes.Element in : doc.select("input[name]")) {
+                String n = in.attr("name");
+                if (n == null) continue;
+                String ln = n.toLowerCase(java.util.Locale.ROOT);
+                if (ln.contains("tag") && !ln.contains("stage") && !ln.contains("vtag")) return n;
+            }
+            // 3) id 含 tag 的 input
+            for (org.jsoup.nodes.Element in : doc.select("input[id]")) {
+                String n = in.attr("id");
+                if (n != null && n.toLowerCase(java.util.Locale.ROOT).contains("tag")) {
+                    String name = in.attr("name");
+                    if (!TextUtils.isEmpty(name)) return name;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     public static String getGuideUrl(String view, int page) {
         return BASE_DOMAIN + "forum.php?mod=guide&view=" + view + "&page=" + page + "&mobile=2";
     }
