@@ -1,5 +1,68 @@
 # 更新日志
 
+## v5.9 (versionCode 44) — 原位显示不再被设备上的旧偏好覆盖
+
+### 用户反馈（与 v5.8 相同，原话重复）
+
+> 显示确实是成功了，但是图片不在正文排版处正常显示而是全部解析到正文底部
+
+v5.8 已经把默认值改成原位显示了，但反馈没变。这一版修一个**能让 v5.8 的改动
+完全失效**的隐患。
+
+### 一、`getBoolean` 的默认值不是「默认值」
+
+```java
+sp.getBoolean("post_images_inline", true)   // 默认 true
+```
+
+这个 `true` **只在这条偏好从来没被写过的时候生效**。而：
+
+- v5.5 / v5.6 / v5.7 三版的默认值是 `false`
+- v5.7 又把抽屉开关接上了，误触一下 `drawer_images_inline_row` 就会把
+  `false` 落盘（`bindSwitchRow` 整行可点）
+
+于是设备上很可能已经躺着一条 `post_images_inline=false`。v5.8 把代码里的
+默认值改成 `true`，对那些设备**一行都不会生效**——用户照旧看到帖子底部
+那个图廊。这就是「改了两版还是老样子」的原因。
+
+### 二、修法：加一条「用户是否显式设置过」的标记
+
+```java
+private static final String KEY_IMAGES_INLINE_SET = "post_images_inline_user_set";
+
+public static boolean isImagesInline(Context c) {
+    SharedPreferences sp = sp(c);
+    if (!sp.getBoolean(KEY_IMAGES_INLINE_SET, false)) return true;  // 没设置过 -> 新默认值
+    return sp.getBoolean(KEY_IMAGES_INLINE, true);                  // 设置过 -> 听用户的
+}
+
+public static void setImagesInline(Context c, boolean v) {
+    sp(c).edit().putBoolean(KEY_IMAGES_INLINE, v)
+            .putBoolean(KEY_IMAGES_INLINE_SET, true).apply();
+}
+```
+
+现在**只有用户本人在抽屉里拨过开关**才会用他选的值；否则一律原位显示。
+旧设备上那条残留的 `false` 会被这条标记无条件盖掉。
+
+### 三、本轮实证过的两个结论（排除法，供后续参考）
+
+1. **站点把附件放在正文之后是设计如此**：游客态 tid=173937 详情页里，
+   `div.comiis_a.comiis_message_table`（正文容器）在 15004 字符处结束，
+   登录墙块 `div.comiis_noatt_ico` + 「本帖子中包含更多精彩资源」+
+   「您需要 登录 才可以查看」在 16965 字符处，**在正文容器外面、之后**。
+   所以兜底图追加在正文末尾，与站点自己的排版一致。
+2. **正文里没有位置标记可用**：`[attachimg]` 在游客页只出现 1 次，
+   且在上传器的 JS（`comiis_upload_success`）里，不是帖子内容；
+   PC 模板对游客同样一张附件图都不下发（`mod=image` 4 次全在 JS 选择器串里）。
+   所以游客态拿不到「图原本插在哪」这个信息，只能按站点自己的位置排在文末。
+
+### 四、其它
+
+- `versionCode` 43 → **44**，`versionName` 5.8 → **5.9**。
+
+---
+
 ## v5.8 (versionCode 43) — 图片回到正文排版处显示（原位显示改为默认）
 
 ### 用户反馈

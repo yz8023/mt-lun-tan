@@ -12,6 +12,19 @@ public final class UiSettings {
     private static final String KEY_AI_SUMMARY = "show_ai_summary";
     private static final String KEY_HIDDEN_INLINE = "hidden_content_inline";
     private static final String KEY_IMAGES_INLINE = "post_images_inline";
+    /**
+     * build90/v5.9: 用户是否显式设置过「正文图片原位显示」。
+     *
+     * <p>{@code getBoolean(key, default)} 的默认值<b>只在这条偏好从来没被写过时</b>
+     * 生效。v5.5~v5.7 期间默认值是 {@code false}，设备上很可能已经躺着一条
+     * {@code post_images_inline=false}（误触一下抽屉开关就会落盘），
+     * 于是 v5.8 把默认值改成 {@code true} 对那些设备<b>永远不生效</b>，
+     * 用户会一直看到帖子底部那个图廊 —— 这正是「改了两版还是老样子」的原因。
+     *
+     * <p>加一条「是否显式设置过」的标记：没标记就一律用新默认值 {@code true}，
+     * 只有用户本人在抽屉里拨过开关才听他的。
+     */
+    private static final String KEY_IMAGES_INLINE_SET = "post_images_inline_user_set";
 
     private UiSettings() {
     }
@@ -91,10 +104,18 @@ public final class UiSettings {
      * build90 又让原位模式下也能把这些图补写进正文，所以两条路现在都有图。
      */
     public static boolean isImagesInline(Context c) {
-        return sp(c).getBoolean(KEY_IMAGES_INLINE, true);
+        SharedPreferences sp = sp(c);
+        if (!sp.getBoolean(KEY_IMAGES_INLINE_SET, false)) {
+            // 用户没显式设置过 -> 用当前版本的默认值（原位显示）
+            return true;
+        }
+        return sp.getBoolean(KEY_IMAGES_INLINE, true);
     }
 
     public static void setImagesInline(Context c, boolean v) {
-        sp(c).edit().putBoolean(KEY_IMAGES_INLINE, v).apply();
+        sp(c).edit()
+                .putBoolean(KEY_IMAGES_INLINE, v)
+                .putBoolean(KEY_IMAGES_INLINE_SET, true)
+                .apply();
     }
 }
