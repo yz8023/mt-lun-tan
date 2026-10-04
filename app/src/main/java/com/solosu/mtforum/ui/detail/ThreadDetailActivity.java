@@ -134,7 +134,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private Boolean lastImagesInline = null;
     private boolean onlyOpReplies = false;
     private boolean repliesDescending = true;
-    private List<ReplyItem> displayedReplies = new ArrayList();
+    /** 当前帖子解析到的全部回复，未应用本地隐藏规则。 */
+    private List<ReplyItem> allReplies = new ArrayList<>();
+    /** 应用作者黑名单、回复关键词及灌水规则后实际展示的回复。 */
+    private List<ReplyItem> displayedReplies = new ArrayList<>();
     private boolean isLiked = false;
     private int likeCount = 0;
     private LikeUsersAdapter likeUsersAdapter;
@@ -1049,16 +1052,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
         if (replies == null) {
             replies = new ArrayList();
         }
-        // 黑名单过滤:拉黑作者的回帖直接不展示
-        java.util.Set<String> bl = com.solosu.mtforum.session.BlacklistManager.uidSet(this);
-        if (!bl.isEmpty()) {
-            java.util.Iterator<ReplyItem> itr = replies.iterator();
-            while (itr.hasNext()) {
-                ReplyItem r = itr.next();
-                if (r != null && r.getAuthorUid() != null && bl.contains(r.getAuthorUid())) itr.remove();
-            }
-        }
-        this.displayedReplies = new ArrayList(replies);
+        // 保留解析出的原始列表；显示层统一应用用户黑名单、回复词条及灌水过滤，
+        // 这样加载更多和切换「只看楼主」时也会使用同一套规则。
+        this.allReplies = new ArrayList<>(replies);
+        this.displayedReplies = new ArrayList<>();
         updateReplyFilterAndOrder();
         int replyCount = postDetail.getReplyCount();
         if (replyCount > 0) {
@@ -1146,28 +1143,47 @@ public class ThreadDetailActivity extends AppCompatActivity {
     }
 
     private void updateReplyFilterAndOrder() {
-        List<ReplyItem> source = this.displayedReplies == null ? new ArrayList<>() : this.displayedReplies;
+        List<ReplyItem> source = this.allReplies == null ? new ArrayList<>() : this.allReplies;
         List<ReplyItem> result = new ArrayList<>();
+        java.util.Set<String> blockedAuthors =
+                com.solosu.mtforum.session.BlacklistManager.uidSet(this);
+        List<String> blockedText =
+                com.solosu.mtforum.session.ReplyFilterManager.getBlacklistTerms(this);
+        boolean fuzzyTextMatch =
+                com.solosu.mtforum.session.ReplyFilterManager.isFuzzyMatch(this);
+        boolean hideSpam =
+                com.solosu.mtforum.session.ReplyFilterManager.isHideSpamEnabled(this);
+        String threadTitle = this.postDetail != null ? this.postDetail.getTitle() : "";
         String opUid = this.postDetail != null ? this.postDetail.getAuthorUid() : "";
         String opName = this.postDetail != null ? this.postDetail.getAuthor() : "";
+
         for (ReplyItem item : source) {
-            if (item != null) {
-                if (this.onlyOpReplies) {
-                    boolean isOp = item.isOP();
-                    if (!isOp && !TextUtils.isEmpty(opUid)) {
-                        isOp = opUid.equals(item.getAuthorUid());
-                    }
-                    if (!isOp && !TextUtils.isEmpty(opName)) {
-                        isOp = opName.equals(item.getAuthor());
-                    }
-                    if (!isOp) {
-                        // build71: 之前这里是空块,过滤动作被挖空,导致"只看楼主"点了没效果
-                        continue;
-                    }
+            if (item == null) continue;
+
+            String authorUid = item.getAuthorUid();
+            if (!TextUtils.isEmpty(authorUid) && blockedAuthors.contains(authorUid)) continue;
+
+            String replyText = item.getContentText();
+            if (TextUtils.isEmpty(replyText)) replyText = item.getContentHtml();
+            if (com.solosu.mtforum.util.ReplyContentFilter.matchesBlacklist(
+                    replyText, blockedText, fuzzyTextMatch)) continue;
+            if (hideSpam && com.solosu.mtforum.util.ReplyContentFilter.isSpamReply(
+                    replyText, threadTitle)) continue;
+
+            if (this.onlyOpReplies) {
+                boolean isOp = item.isOP();
+                if (!isOp && !TextUtils.isEmpty(opUid)) {
+                    isOp = opUid.equals(authorUid);
                 }
-                result.add(item);
+                if (!isOp && !TextUtils.isEmpty(opName)) {
+                    isOp = opName.equals(item.getAuthor());
+                }
+                if (!isOp) continue;
             }
+            result.add(item);
         }
+
+        this.displayedReplies = result;
         this.replyAdapter.updateData(result);
         this.binding.btnOnlyOp.setText(this.onlyOpReplies ? R.string.reply_all_users : R.string.reply_only_op);
         this.binding.btnOnlyOp.setTextColor(getColor(this.onlyOpReplies ? R.color.primary : R.color.text_secondary));
@@ -1175,6 +1191,11 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.binding.btnReplyOrder.setTextColor(getColor(this.repliesDescending ? R.color.primary : R.color.text_secondary));
         if (result.isEmpty()) {
             this.binding.recyclerReplies.setVisibility(8);
+            if (source.isEmpty()) {
+                this.binding.tvEmptyReplies.setText(R.string.no_replies);
+            } else {
+                this.binding.tvEmptyReplies.setText("没有符合当前筛选条件的回复");
+            }
             this.binding.tvEmptyReplies.setVisibility(0);
         } else {
             this.binding.recyclerReplies.setVisibility(0);
@@ -2376,7 +2397,7 @@ private void viewHiddenContent() {
             List<ReplyItem> merged = new ArrayList<>(this.postDetail.getReplies());
             merged.addAll(allNewReplies);
             this.postDetail.setReplies(merged);
-            this.displayedReplies = new ArrayList(merged);
+            this.allReplies = new ArrayList<>(merged);
             updateReplyFilterAndOrder();
         } else {
             Toast.makeText(this, R.string.no_more_replies, 0).show();

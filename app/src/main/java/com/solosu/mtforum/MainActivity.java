@@ -31,6 +31,7 @@ import com.solosu.mtforum.network.NoticeBadgeManager;
 import com.solosu.mtforum.ui.MainPagerAdapter;
 import com.solosu.mtforum.ui.post.PostActivity;
 import com.solosu.mtforum.session.AutoSignInManager;
+import com.solosu.mtforum.session.ReplyFilterManager;
 import com.solosu.mtforum.session.UserSessionManager;
 import com.solosu.mtforum.ui.widget.FrostedGlassDrawable;
 
@@ -555,9 +556,102 @@ public class MainActivity extends AppCompatActivity {
         // 运行日志
         // build75: 旧的 drawer_log 绑定已移除，统一走上面的「记录中心」入口
 
+        setupReplyFilterControls();
         setupDrawerCollapse();
 
         refreshDrawerHeader();
+    }
+
+    // ==================== build100: 回复内容过滤设置 ====================
+
+    private void setupReplyFilterControls() {
+        android.widget.Spinner modeSpinner = findViewById(R.id.drawer_reply_blacklist_mode);
+        if (modeSpinner != null) {
+            java.util.List<String> modes = java.util.Arrays.asList("精准匹配", "模糊匹配");
+            android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
+                    this, android.R.layout.simple_spinner_item, modes);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            modeSpinner.setAdapter(adapter);
+            modeSpinner.setSelection(ReplyFilterManager.isFuzzyMatch(this) ? 1 : 0, false);
+            modeSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                           int position, long id) {
+                    ReplyFilterManager.setMatchMode(MainActivity.this,
+                            position == 1 ? ReplyFilterManager.MODE_FUZZY : ReplyFilterManager.MODE_EXACT);
+                }
+
+                @Override
+                public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                }
+            });
+        }
+
+        updateReplyBlacklistTermCount();
+        TextView manageTerms = findViewById(R.id.drawer_reply_blacklist_manage);
+        if (manageTerms != null) manageTerms.setOnClickListener(v -> showReplyBlacklistTermsDialog());
+
+        SwitchMaterial hideSpam = findViewById(R.id.drawer_switch_hide_spam);
+        if (hideSpam != null) {
+            hideSpam.setChecked(ReplyFilterManager.isHideSpamEnabled(this));
+            hideSpam.setOnCheckedChangeListener((button, checked) -> {
+                ReplyFilterManager.setHideSpamEnabled(this, checked);
+                Toast.makeText(this, checked ? "已开启灌水回复过滤" : "已关闭灌水回复过滤",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_hide_spam_row, hideSpam);
+        }
+    }
+
+    private void updateReplyBlacklistTermCount() {
+        TextView manageTerms = findViewById(R.id.drawer_reply_blacklist_manage);
+        if (manageTerms == null) return;
+        int count = ReplyFilterManager.getBlacklistTerms(this).size();
+        manageTerms.setText("词条 · " + count);
+    }
+
+    private void showReplyBlacklistTermsDialog() {
+        java.util.List<String> terms = ReplyFilterManager.getBlacklistTerms(this);
+        StringBuilder initial = new StringBuilder();
+        for (String term : terms) {
+            if (initial.length() > 0) initial.append('\n');
+            initial.append(term);
+        }
+
+        android.widget.EditText editor = new android.widget.EditText(this);
+        editor.setText(initial.toString());
+        editor.setHint("每行一条，例如：看看、感谢分享");
+        editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        editor.setSingleLine(false);
+        editor.setMinLines(5);
+        editor.setMaxLines(9);
+        editor.setVerticalScrollBarEnabled(true);
+        editor.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        int pad = (int) (14 * getResources().getDisplayMetrics().density);
+        editor.setPadding(pad, pad, pad, pad);
+
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("回复黑名单词条")
+                .setMessage("每行一条，空行会忽略。精准匹配要求回复全文相等；模糊匹配则命中词条即可隐藏。")
+                .setView(editor)
+                .setPositiveButton("保存", (d, which) -> {
+                    java.util.List<String> updated = new java.util.ArrayList<>();
+                    String[] lines = editor.getText().toString().split("\\r?\\n");
+                    for (String line : lines) updated.add(line);
+                    ReplyFilterManager.setBlacklistTerms(this, updated);
+                    updateReplyBlacklistTermCount();
+                    Toast.makeText(this, "回复黑名单词条已保存", Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("清空词条", (d, which) -> {
+                    ReplyFilterManager.setBlacklistTerms(this, java.util.Collections.emptyList());
+                    updateReplyBlacklistTermCount();
+                    Toast.makeText(this, "回复黑名单已清空", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
     }
 
     // ==================== build99: 侧边栏分区折叠 ====================

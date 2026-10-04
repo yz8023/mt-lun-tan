@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.16
+        default: v5.17
 
 permissions:
   contents: write
@@ -133,11 +133,9 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - **安装包从 20.8 MB 降到约 3.8 MB**：移除了只服务于 MCP 的 cloudflared 二进制（压缩后 17 MB，占整个包的 82%）。
-          - **移除 MCP 功能**：顶栏的 MCP 按钮、设置页的 MCP 入口、后台 MCP 服务与隧道下载一并删除，不再占体积、不再挂前台服务。
-          - **侧边栏分区折叠**：账号 / 自动化 / 显示 / 其它四个分区可折叠，状态记住；默认只展开「显示」（功能开关）。
-          - **首页图片改为固定尺寸裁切**：单帖最多显示 2 张（原来 3 张），统一 4:3 圆角裁切，列表不再被长图撑变形。
-          - **FPS 显示说明**：帧率上不去（锁 60）通常不是 App 限制，而是设备面板刷新率或系统对 WebView 合成限帧 —— 设置里新增实时诊断，会显示设备当前刷新率与上限。
+          - **回复黑名单匹配模式**：可逐行维护回复词条，选择精准匹配（全文相等）或模糊匹配（包含即命中）；默认精准，减少误屏蔽。
+          - **屏蔽灌水回复**：默认开启，隐藏纯填充词、客套模板，以及「帖子标题 + 客套回复」；保留含有实际信息的回复。
+          - 以上过滤仅影响帖子详情页回复列表，不删除论坛内容，也不影响原始回复数量。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -152,14 +150,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 安装包瘦身 20.8→3.8MB · 移除 MCP · 侧边栏折叠 · 首页图片固定尺寸" \
+              --title "MTForum v${VERSION} — 回复黑名单精准/模糊匹配 · 屏蔽模板灌水回复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 安装包瘦身 20.8→3.8MB · 移除 MCP · 侧边栏折叠 · 首页图片固定尺寸" \
+              --title "MTForum v${VERSION} — 回复黑名单精准/模糊匹配 · 屏蔽模板灌水回复" \
               --notes-file release-notes.md \
               --latest
           fi
