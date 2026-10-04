@@ -590,12 +590,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
      * 所以务必配合 {@link ReplyItem#getUpgradedHtml()} 缓存，别每次 bind 都算。
      */
     /**
-     * build97: 委托 {@link PostImageHtml}，与主楼正文走同一套真图挑选 + 值校验。
-     *
-     * <p>原来这里是独立实现，只做 {@code ImageUrl.realUrl} + toAbsolute，比主楼少了两样：
-     * ① 没有 {@code isUsableImageValue} 那层过滤，站点 JS 拼出来的废值
-     *    （实测见过 {@code src="' + IMGDIR + '/imageloading.gif"}）会被当真实地址；
-     * ② 挑中废值后 img.attr("src") 被写坏，图直接不显示。
+     * build97: 委托 {@link PostImageHtml}，与主楼正文共用真图挑选和地址校验。
+     * build101: helper 还会检查包图附件链接/签名 aid；不从缩略图裸数字猜附件 URL。
      */
     private static String upgradeImageSources(String html) {
         return com.solosu.mtforum.util.PostImageHtml

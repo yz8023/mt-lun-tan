@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.17
+        default: v5.18
 
 permissions:
   contents: write
@@ -135,6 +135,7 @@ jobs:
 
           - **回复黑名单匹配模式**：可逐行维护回复词条，选择精准匹配（全文相等）或模糊匹配（包含即命中）；默认精准，减少误屏蔽。
           - **屏蔽灌水回复**：默认开启，隐藏纯填充词、客套模板，以及「帖子标题 + 客套回复」；保留含有实际信息的回复。
+          - **评论区图片显示原图**：回复图片优先采用 HTML 中的原图属性/附件链接；Discuz 附件链接补充 `nothumb=yes`，按正文宽度等比显示。
           - 以上过滤仅影响帖子详情页回复列表，不删除论坛内容，也不影响原始回复数量。
 
           **APK 大小：** ${APK_SIZE}
@@ -150,14 +151,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 回复黑名单精准/模糊匹配 · 屏蔽模板灌水回复" \
+              --title "MTForum v${VERSION} — 评论区图片原图显示 · 回复过滤" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 回复黑名单精准/模糊匹配 · 屏蔽模板灌水回复" \
+              --title "MTForum v${VERSION} — 评论区图片原图显示 · 回复过滤" \
               --notes-file release-notes.md \
               --latest
           fi

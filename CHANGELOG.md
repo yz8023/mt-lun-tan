@@ -1,5 +1,32 @@
 # 更新日志
 
+## v5.18 (versionCode 53) — 评论区图片原图链接解析
+
+### 用户反馈（本轮）
+
+- 评论区图片显示的是缩略图，要求正常显示。
+
+---
+
+## 评论区图片：使用 HTML 中的原图链接，并请求原始附件
+
+`ForumParser` 保留回复正文的 HTML；`ReplyAdapter` 在渲染前调用共享的 `PostImageHtml`，再由 ImageGetter 按 TextView 可用宽度等比绘制。此前 helper 只看图片自身的 lazy-load 属性与 `src`，没有查看包住图片的直接附件链接；此外，Discuz 的 `mod=attachment` 需要签名 aid，不能把 `mod=image&aid=123` 的裸数字直接拼成附件地址。
+
+本版调整：
+
+- 原图属性优先；若图片位于直接附件链接内，改用该链接，并加 `nothumb=yes` 明确请求原始图片。
+- 只有 `<img>` 上的 aid 确实符合 Discuz 签名格式时，才允许据此构造原图附件链接；不会把未签名的缩略图 aid 猜成下载地址。
+- `size=500x480` 等较大 CDN 地址保持原样；若 HTML 确实只提供小尺寸缩略图且没有原图属性/链接，保留原地址而不构造已知无效的链接。
+
+新增 `PostImageHtmlTest` 覆盖附件外链、签名 aid、`nothumb=yes`、显式原图属性、无签名缩略图不伪造附件链接，以及保留正常 CDN 地址等情况。
+
+## 构建
+
+- versionCode **53** / versionName **5.18**（build101）
+- 签名不变，可直接覆盖升级
+
+---
+
 ## v5.17 (versionCode 52) — 回复黑名单匹配模式 · 屏蔽模板化灌水回复
 
 ### 用户反馈（本轮）
