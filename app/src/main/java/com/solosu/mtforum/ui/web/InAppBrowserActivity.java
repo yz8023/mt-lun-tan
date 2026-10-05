@@ -103,7 +103,8 @@ public class InAppBrowserActivity extends AppCompatActivity {
                 progress.setVisibility(View.VISIBLE);
             }
         });
-        web.setDownloadListener((url, ua, disposition, mime, length) -> download(url, disposition, mime));
+        web.setDownloadListener((url, ua, disposition, mime, length) ->
+                confirmDownload(url, ua, disposition, mime, length));
         String url = getIntent().getStringExtra(EXTRA_URL);
         if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
             finish(); return;
@@ -138,12 +139,47 @@ public class InAppBrowserActivity extends AppCompatActivity {
         return true;
     }
 
-    private void download(String url, String disposition, String mime) {
+    private void confirmDownload(String url, String userAgent, String disposition,
+                                 String mime, long contentLength) {
+        String name = com.solosu.mtforum.util.AttachmentFileName
+                .fromResponse(url, disposition, mime);
+        StringBuilder details = new StringBuilder()
+                .append("文件名：").append(name)
+                .append("\n\n保存到 Download 文件夹。论坛附件可能需要登录或消耗积分。");
+        if (contentLength > 0) {
+            details.append("\n文件大小：").append(android.text.format.Formatter
+                    .formatShortFileSize(this, contentLength));
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("下载前确认")
+                .setMessage(details.toString())
+                .setNeutralButton("复制直链", (dialog, which) -> copyDownloadUrl(url))
+                .setNegativeButton("取消", null)
+                .setPositiveButton("下载", (dialog, which) ->
+                        enqueueDownload(url, userAgent, mime, name))
+                .show();
+    }
+
+    private void copyDownloadUrl(String url) {
         try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) throw new IllegalStateException("剪贴板不可用");
+            cm.setPrimaryClip(ClipData.newPlainText("下载直链", url));
+            Toast.makeText(this, "直链已复制", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "复制失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void enqueueDownload(String url, String userAgent, String mime, String name) {
+        try {
+            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (manager == null) throw new IllegalStateException("无系统下载服务");
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-            String name = com.solosu.mtforum.util.AttachmentFileName
-                    .fromResponse(url, disposition, mime);
-            request.setTitle(name).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setTitle(name)
+                    .setDescription("MT 论坛附件")
+                    .setNotificationVisibility(
+                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             String downloadMime = name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")
                     ? "application/vnd.android.package-archive" : mime;
             if (downloadMime != null && !downloadMime.trim().isEmpty()) {
@@ -151,11 +187,13 @@ public class InAppBrowserActivity extends AppCompatActivity {
             }
             String cookies = CookieManager.getInstance().getCookie(url);
             if (cookies != null) request.addRequestHeader("Cookie", cookies);
-            request.addRequestHeader("User-Agent", web.getSettings().getUserAgentString());
-            request.addRequestHeader("Referer", web.getUrl());
+            String ua = userAgent == null || userAgent.trim().isEmpty()
+                    ? web.getSettings().getUserAgentString() : userAgent;
+            if (ua != null && !ua.trim().isEmpty()) request.addRequestHeader("User-Agent", ua);
+            if (web.getUrl() != null) request.addRequestHeader("Referer", web.getUrl());
             request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
-            ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
-            Toast.makeText(this, "已开始下载到 Download", Toast.LENGTH_LONG).show();
+            manager.enqueue(request);
+            Toast.makeText(this, "已开始下载到 Download：" + name, Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "下载失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
         }

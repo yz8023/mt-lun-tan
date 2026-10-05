@@ -5,7 +5,8 @@ import android.content.Intent;
 import android.net.Uri;
 import android.widget.Toast;
 
-import com.solosu.mtforum.ui.DownloadPreferences;
+import com.solosu.mtforum.ui.UiSettings;
+import com.solosu.mtforum.util.PlainTextUrlPattern;
 
 import java.util.Locale;
 
@@ -14,15 +15,19 @@ public final class LinkRouter {
     private LinkRouter() {}
 
     /**
-     * Normalize common plain-text URL forms (www.example.com and protocol-relative URLs),
-     * remove sentence punctuation accidentally captured by linkification, and reject unsafe schemes.
+     * Normalize http/https, protocol-relative, www and common bare-domain forms; remove trailing
+     * sentence punctuation accidentally captured by linkification, and reject unsafe schemes.
      */
     public static String normalizeWebUrl(String input) {
         if (input == null) return null;
         String url = trimTrailingSentencePunctuation(input.trim());
         if (url.isEmpty()) return null;
-        if (url.startsWith("//")) url = "https:" + url;
-        else if (url.regionMatches(true, 0, "www.", 0, 4)) url = "https://" + url;
+        if (url.startsWith("//")) {
+            url = "https:" + url;
+        } else if (!isHttpUrl(url)) {
+            if (!PlainTextUrlPattern.isBareWebAddress(url)) return null;
+            url = "https://" + url;
+        }
         try {
             Uri uri = Uri.parse(url);
             String scheme = uri.getScheme();
@@ -37,6 +42,11 @@ public final class LinkRouter {
         }
     }
 
+    private static boolean isHttpUrl(String value) {
+        return value.regionMatches(true, 0, "http://", 0, 7)
+                || value.regionMatches(true, 0, "https://", 0, 8);
+    }
+
     private static String trimTrailingSentencePunctuation(String value) {
         int end = value.length();
         boolean trimmed;
@@ -44,7 +54,7 @@ public final class LinkRouter {
             trimmed = false;
             if (end <= 0) break;
             char last = value.charAt(end - 1);
-            if (".,;:!?，。；：！？、\"'".indexOf(last) >= 0) {
+            if (".,;:!?，。；：！？、\"'“”‘’".indexOf(last) >= 0) {
                 end--;
                 trimmed = true;
                 continue;
@@ -88,7 +98,7 @@ public final class LinkRouter {
             Toast.makeText(context, "链接格式无效", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (DownloadPreferences.getMode(context) == DownloadPreferences.MODE_IN_APP) {
+        if (isInAppMode(context)) {
             InAppBrowserActivity.open(context, url);
             return;
         }
@@ -101,8 +111,8 @@ public final class LinkRouter {
         }
     }
 
-    /** Used by the reply renderer to keep native forum navigation only in in-app mode. */
+    /** Uses the same link-opening preference as the post body and drawer switch. */
     public static boolean isInAppMode(Context context) {
-        return context != null && DownloadPreferences.getMode(context) == DownloadPreferences.MODE_IN_APP;
+        return context != null && UiSettings.isLinksInternal(context);
     }
 }

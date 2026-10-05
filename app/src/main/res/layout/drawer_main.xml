@@ -463,7 +463,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="解锁回复内容"
+                            android:text="解锁随机回复"
                             android:textColor="@color/text_primary"
                             android:textSize="14sp" />
                         <TextView
@@ -471,7 +471,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="点击自定义回复模板"
+                            android:text="默认随机池（9 条，点击查看/编辑）"
                             android:textColor="@color/text_hint"
                             android:textSize="11sp" />
                     </LinearLayout>
@@ -988,7 +988,7 @@
                     android:focusable="false" />
             </LinearLayout>
 
-            <!-- build95: 正文链接打开方式：应用内 / 系统浏览器 -->
+            <!-- 帖子正文与回复链接：站内帖子/用户页走原生页面，其余按应用内/系统浏览器偏好打开。 -->
             <LinearLayout
                 android:id="@+id/drawer_link_open_row"
                 android:layout_width="match_parent"
@@ -1017,7 +1017,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="正文链接打开方式"
+                        android:text="链接打开方式"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp" />
 
@@ -1026,7 +1026,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="站内帖子走应用内，其余走浏览器"
+                        android:text="帖子/用户页走原生页面，其余链接用应用内浏览器"
                         android:textColor="@color/text_hint"
                         android:textSize="11sp" />
                 </LinearLayout>

@@ -39,10 +39,10 @@ public final class UiSettings {
     private static final String KEY_WEB_RENDER = "post_web_render";
 
     /**
-     * build95: 帖子正文里点链接怎么打开。
+     * 帖子正文和回复里的链接打开方式。
      *
-     * <p>internal = 站内帖子链接走应用内详情页，其余链接（站外、站内非帖子页）
-     * 交给系统浏览器；external = 一律交给系统浏览器。
+     * <p>internal = 帖子/用户页使用原生页面，其他 Web 链接交给应用内浏览器；
+     * external = 所有 Web 链接交给系统浏览器。
      */
     private static final String KEY_LINK_OPEN = "post_link_open";
     /** build95: 是否在界面顶部显示 FPS */

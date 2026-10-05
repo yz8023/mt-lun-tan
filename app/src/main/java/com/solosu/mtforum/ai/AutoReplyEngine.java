@@ -407,30 +407,24 @@ public final class AutoReplyEngine {
         kw = kw.replaceAll("[\\s\\p{Punct}（）【】「」《》，。！？、~·:：]", "");
         if (kw.length() > 10) kw = kw.substring(0, 10);
 
-        // 优先用用户自定义模板：{title} 替换为帖子标题关键词
-        String custom = AiConfigManager.getUnlockReplyTemplate(ctx);
-        if (!TextUtils.isEmpty(custom)) {
-            return custom.replace("{title}", kw);
+        List<String> configured = AiConfigManager.getUnlockReplyTemplates(ctx);
+        List<String> withTitle = new ArrayList<>();
+        List<String> generic = new ArrayList<>();
+        for (String template : configured) {
+            if (TextUtils.isEmpty(template)) continue;
+            if (template.contains("{title}")) withTitle.add(template);
+            else generic.add(template);
         }
 
-        String[] pool;
-        if (TextUtils.isEmpty(kw)) {
-            pool = new String[]{
-                    "感谢分享，内容看着不错，回复支持一下",
-                    "谢谢分享，正需要这个，先回复看看",
-                    "支持一下，感谢分享好资源",
-                    "感谢楼主分享，回复支持"
-            };
-        } else {
-            pool = new String[]{
-                    "感谢分享「" + kw + "」，正需要这个，回复支持一下",
-                    "「" + kw + "」看着不错，谢谢分享，下来试试",
-                    "支持「" + kw + "」，感谢分享，先回复看看",
-                    "感谢分享「" + kw + "」，正好用得上",
-                    "「" + kw + "」不错，感谢分享，先收下了"
-            };
+        // 保留原先的体验：有帖子标题时优先从含 {title} 的池随机选，标题缺失时优先用通用模板。
+        List<String> pool = !TextUtils.isEmpty(kw) && !withTitle.isEmpty()
+                ? withTitle : !generic.isEmpty() ? generic : configured;
+        if (pool.isEmpty()) pool = AiConfigManager.getDefaultUnlockReplyTemplates();
+        String text = pool.get((int) (Math.random() * pool.size())).replace("{title}", kw);
+        if (kw.isEmpty()) {
+            text = text.replace("「」", "").replace("『』", "").replace("《》", "");
         }
-        return pool[(int) (Math.random() * pool.length)];
+        return text;
     }
 
     /** 发出解锁回复，并回读确认 */

@@ -2708,7 +2708,7 @@ private void viewHiddenContent() {
             textView.setText(spannable, TextView.BufferType.SPANNABLE);
         }
         final int linkColor = getColor(R.color.link_color);
-        Pattern urlPattern = Pattern.compile("(?<!\\w)(?:https?://[^\\s<>\"\\x00-\\x1f\\x7f-\\xff]+|www\\.[^\\s<>\"\\x00-\\x1f\\x7f-\\xff]+)(?<![,.;:!?)>])", 34);
+        Pattern urlPattern = com.solosu.mtforum.util.PlainTextUrlPattern.WEB_URL;
         FixNestedScrollLinkMovementMethod.matcherLinkify(spannable, urlPattern, new Function<String, String>() {
             @Override // java.util.function.Function
             public final String apply(String obj) {
@@ -2747,76 +2747,18 @@ private void viewHiddenContent() {
 
     /* JADX INFO: Access modifiers changed from: private */
     public String lambda$setupClickableLinks$47(String url) {
-        if (TextUtils.isEmpty(url)) {
-            return url;
-        }
-        if (url.startsWith("//")) {
-            return "https:" + url;
-        }
-        if (url.startsWith("/")) {
-            return HttpClient.BASE_URL + url.substring(1);
-        }
-        if (url.startsWith("./")) {
-            return HttpClient.BASE_URL + url.substring(2);
-        }
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-            return url;
-        }
-        if (url.startsWith("www.")) {
-            return "http://" + url;
-        }
-        return HttpClient.BASE_URL + url;
+        if (TextUtils.isEmpty(url)) return url;
+        if (url.startsWith("//")) return "https:" + url;
+        if (url.startsWith("/")) return HttpClient.BASE_URL + url.substring(1);
+        if (url.startsWith("./")) return HttpClient.BASE_URL + url.substring(2);
+        String normalized = com.solosu.mtforum.ui.web.LinkRouter.normalizeWebUrl(url);
+        return !TextUtils.isEmpty(normalized) ? normalized : HttpClient.BASE_URL + url;
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void lambda$setupClickableLinks$48(String url) {
-        if (TextUtils.isEmpty(url)) {
-            return;
-        }
-        try {
-            String lower = url.toLowerCase(java.util.Locale.ROOT);
-            boolean isForumLink = lower.contains("bbs.binmt.cc");
-
-            if (isForumLink) {
-                // 论坛帖子链接: thread-{tid}-1-1.html 或 forum.php?mod=viewthread&tid={tid}
-                Matcher threadMatcher = Pattern.compile("thread[-=]?(\\d+)").matcher(lower);
-                if (threadMatcher.find()) {
-                    String tid = threadMatcher.group(1);
-                    NavigationHelper.openThread(this, tid);
-                    return;
-                }
-
-                // 论坛分区链接: forum-{fid}-1.html 或 forum.php?mod=forumdisplay&fid={fid}
-                Matcher forumMatcher = Pattern.compile("(?:forum-|(?<=[?&])fid=)(\\d+)").matcher(lower);
-                if (forumMatcher.find()) {
-                    com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
-                    return;
-                }
-
-                // 用户空间链接: space-uid-{uid}.html 或 home.php?mod=space&uid={uid} 或 space-username-{username}.html
-                Matcher uidMatcher = Pattern.compile("(?:uid[-=]|(?<=[?&])uid=)(\\d+)").matcher(lower);
-                if (uidMatcher.find()) {
-                    String uid = uidMatcher.group(1);
-                    Intent intent = new Intent(this, (Class<?>) UserProfileActivity.class);
-                    intent.putExtra("uid", uid);
-                    startActivity(intent);
-                    return;
-                }
-                Matcher usernameMatcher = Pattern.compile("space-username-([^./?&]+)").matcher(lower);
-                if (usernameMatcher.find()) {
-                    String username = usernameMatcher.group(1);
-                    Intent intent = new Intent(this, (Class<?>) UserProfileActivity.class);
-                    intent.putExtra("username", username);
-                    startActivity(intent);
-                    return;
-                }
-            }
-
-            // 非论坛链接或无法识别的论坛链接遵循“应用内下载/浏览器”偏好。
-            com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
-        } catch (Exception e) {
-            Toast.makeText(this, "没有可用的浏览器", Toast.LENGTH_SHORT).show();
-        }
+    private void lambda$setupClickableLinks$48(String url) {
+        if (TextUtils.isEmpty(url)) return;
+        handlePostWebLink(url);
     }
 
     private boolean isValidUploadUid(String uid) {
@@ -5832,45 +5774,59 @@ private void viewHiddenContent() {
     }
 
     /**
-     * build92: WebView 里点链接的处理。
-     * 站内帖子 -> 应用内跳转；站外 -> 交给系统浏览器。
-     * 一律返回 true：正文 WebView 永远不自己导航。
+     * WebView 里点链接的处理：遵循统一的应用内浏览器/系统浏览器设置；
+     * 站内帖子和用户页在应用内模式下优先打开原生页面。正文 WebView 不自行导航。
      */
-    private boolean handlePostWebLink(String url) {
-        if (android.text.TextUtils.isEmpty(url)) return true;
-        if (url.startsWith("about:blank")) return true;
+    private boolean handlePostWebLink(String rawUrl) {
+        if (TextUtils.isEmpty(rawUrl) || rawUrl.startsWith("about:blank")) return true;
+        String url = com.solosu.mtforum.ui.web.LinkRouter.normalizeWebUrl(rawUrl);
+        if (TextUtils.isEmpty(url)) return true;
         try {
             android.net.Uri uri = android.net.Uri.parse(url);
             String host = uri.getHost();
             String path = uri.getPath() == null ? "" : uri.getPath();
-            String scheme = uri.getScheme();
-            if (scheme == null || (!scheme.equalsIgnoreCase("http")
-                    && !scheme.equalsIgnoreCase("https"))) {
-                return true;
-            }
-            // build95: 跟随抽屉「链接打开方式」设置。选 external 时一律外开，
-            // 不再拦站内帖子链接 —— 用户要的就是「点链接直接跳浏览器」。
-            boolean linksInternal = com.solosu.mtforum.ui.UiSettings.isLinksInternal(this);
-            if (!linksInternal || host == null || !host.endsWith("binmt.cc")) {
-                startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                return true;
-            }
-            // 站内帖子伪静态地址：thread-173937-1-1.html
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("thread-(\\d+)-\\d+-\\d+\\.html").matcher(path);
-            if (m.find()) {
-                try {
-                    Intent it = new Intent(this, ThreadDetailActivity.class);
-                    it.putExtra("tid", m.group(1));
-                    startActivity(it);
-                } catch (Exception ignored) {
-                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            boolean inApp = com.solosu.mtforum.ui.web.LinkRouter.isInAppMode(this);
+            boolean forumHost = host != null && ("bbs.binmt.cc".equalsIgnoreCase(host)
+                    || host.toLowerCase(java.util.Locale.ROOT).endsWith(".binmt.cc"));
+
+            if (inApp && forumHost) {
+                // 站内帖子使用原生详情页，其他站内链接交给统一的应用内浏览器。
+                java.util.regex.Matcher threadPath = Pattern.compile(
+                        "thread-(\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+                boolean hasThreadPath = threadPath.find();
+                String tid = hasThreadPath ? threadPath.group(1) : uri.getQueryParameter("tid");
+                if (!TextUtils.isEmpty(tid)
+                        && (hasThreadPath || "viewthread".equalsIgnoreCase(
+                                uri.getQueryParameter("mod")))) {
+                    NavigationHelper.openThread(this, tid);
+                    return true;
                 }
-                return true;
+
+                java.util.regex.Matcher uidPath = Pattern.compile(
+                        "space-uid-(\\d+)", Pattern.CASE_INSENSITIVE).matcher(path);
+                String uid = uidPath.find() ? uidPath.group(1) : null;
+                if (TextUtils.isEmpty(uid) && "space".equalsIgnoreCase(
+                        uri.getQueryParameter("mod"))) {
+                    uid = uri.getQueryParameter("uid");
+                }
+                if (!TextUtils.isEmpty(uid)) {
+                    Intent intent = new Intent(this, UserProfileActivity.class);
+                    intent.putExtra("uid", uid);
+                    startActivity(intent);
+                    return true;
+                }
+                java.util.regex.Matcher usernamePath = Pattern.compile(
+                        "space-username-([^./?&]+)", Pattern.CASE_INSENSITIVE).matcher(path);
+                if (usernamePath.find()) {
+                    Intent intent = new Intent(this, UserProfileActivity.class);
+                    intent.putExtra("username", usernamePath.group(1));
+                    startActivity(intent);
+                    return true;
+                }
             }
-            // 站内其它地址（版块页、空间页等）一律外开，避免套娃 WebView
-            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
         } catch (Exception ignored) {
+            com.solosu.mtforum.ui.web.LinkRouter.open(this, url);
         }
         return true;
     }

@@ -10,7 +10,6 @@ import android.text.Html;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.TextUtils;
-import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.TextPaint;
 import android.text.style.URLSpan;
@@ -381,17 +380,8 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         // 强制重新获取 Spannable（确保是最新的）
         Spannable spannable = (Spannable) textView.getText();
         
-        // 使用自定义正则识别URL，点击时打开链接
-        Pattern urlPattern = Pattern.compile(
-            "(?<!\\w)" +  // 前面不是单词字符
-            "(?:" +
-                "https?://[^\\s<>\"\\x00-\\x1f\\x7f-\\xff]+" +  // http/https开头的URL
-                "|" +
-                "www\\.[^\\s<>\"\\x00-\\x1f\\x7f-\\xff]+" +      // www开头的URL
-            ")" +
-            "(?<![,.;:!?)>])",  // 后面不是标点符号
-            Pattern.CASE_INSENSITIVE | Pattern.DOTALL
-        );
+        // 与正文统一使用可识别 http/https、www、.cn 等常见裸域名的链接模式。
+        Pattern urlPattern = com.solosu.mtforum.util.PlainTextUrlPattern.WEB_URL;
         FixNestedScrollLinkMovementMethod.matcherLinkify(
             spannable, 
             urlPattern, 
@@ -403,15 +393,19 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         URLSpan[] urlSpans = spannable.getSpans(0, spannable.length(), URLSpan.class);
         for (URLSpan oldSpan : urlSpans) {
             String targetUrl = oldSpan.getURL();
-            // 补全相对路径；协议大小写与 www. 链接也统一处理。
-            String lowerTarget = targetUrl.toLowerCase(java.util.Locale.ROOT);
-            if (targetUrl.startsWith("//")) {
-                targetUrl = "https:" + targetUrl;
+            if (TextUtils.isEmpty(targetUrl)) {
+                spannable.removeSpan(oldSpan);
+                continue;
+            }
+            // 绝对链接先走统一规范化（包含大写 HTTP、www 和裸域名），相对 href 才拼本站域名。
+            String normalized = com.solosu.mtforum.ui.web.LinkRouter.normalizeWebUrl(targetUrl);
+            if (!TextUtils.isEmpty(normalized)) {
+                targetUrl = normalized;
             } else if (targetUrl.startsWith("/")) {
                 targetUrl = HttpClient.BASE_URL + targetUrl.substring(1);
-            } else if (lowerTarget.startsWith("www.")) {
-                targetUrl = "https://" + targetUrl;
-            } else if (!lowerTarget.startsWith("http://") && !lowerTarget.startsWith("https://")) {
+            } else if (targetUrl.startsWith("./")) {
+                targetUrl = HttpClient.BASE_URL + targetUrl.substring(2);
+            } else if (!targetUrl.matches("(?i)^[a-z][a-z0-9+.-]*:.*")) {
                 targetUrl = HttpClient.BASE_URL + targetUrl;
             }
             
@@ -436,7 +430,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         }
         
         // ★ 关键修复：不要再次调用 setText()，直接更新 movementMethod
-        textView.setMovementMethod(LinkMovementMethod.getInstance());
+        textView.setMovementMethod(new FixNestedScrollLinkMovementMethod());
         textView.setAutoLinkMask(0);
     }
     

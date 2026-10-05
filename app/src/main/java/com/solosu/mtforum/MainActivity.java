@@ -301,7 +301,7 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        // 解锁回复内容自定义：点击弹对话框编辑模板
+        // 解锁回复随机池：默认候选和自定义候选都逐行展示，便于查看与编辑
         View unlockTextRow = findViewById(R.id.drawer_unlock_text_row);
         if (unlockTextRow != null) {
             updateUnlockTextDesc();
@@ -474,24 +474,24 @@ public class MainActivity extends AppCompatActivity {
             bindSwitchRow(R.id.drawer_refresh_row, swRefresh);
         }
 
-        // build95: 正文链接打开方式（应用内 / 系统浏览器）
+        // 帖子正文与回复链接统一按「应用内浏览器 / 系统浏览器」偏好打开。
         SwitchMaterial swLink = findViewById(R.id.drawer_switch_link_open);
         if (swLink != null) {
             boolean internal = com.solosu.mtforum.ui.UiSettings.isLinksInternal(this);
             swLink.setChecked(internal);
             final android.widget.TextView linkDesc = findViewById(R.id.drawer_link_open_desc);
             if (linkDesc != null) {
-                linkDesc.setText(internal ? "站内帖子走应用内，其余走浏览器"
+                linkDesc.setText(internal ? "帖子/用户页走原生页面，其余链接用应用内浏览器"
                         : "所有链接都交给系统浏览器");
             }
             swLink.setOnCheckedChangeListener((v, checked) -> {
                 com.solosu.mtforum.ui.UiSettings.setLinkOpenMode(this,
                         checked ? "internal" : "external");
                 if (linkDesc != null) {
-                    linkDesc.setText(checked ? "站内帖子走应用内，其余走浏览器"
+                    linkDesc.setText(checked ? "帖子/用户页走原生页面，其余链接用应用内浏览器"
                             : "所有链接都交给系统浏览器");
                 }
-                Toast.makeText(this, checked ? "正文链接将在应用内打开" : "正文链接将交给浏览器打开",
+                Toast.makeText(this, checked ? "链接将在应用内打开" : "链接将交给系统浏览器打开",
                         Toast.LENGTH_SHORT).show();
             });
             bindSwitchRow(R.id.drawer_link_open_row, swLink);
@@ -754,36 +754,55 @@ public class MainActivity extends AppCompatActivity {
                 : "已关闭，不自动解锁");
     }
 
-    /** 侧边栏「解锁回复内容」副标题：显示当前是自定义还是默认模板 */
+    /** 侧边栏显示解锁随机池来源与条数，默认内容不再隐含在代码里。 */
     private void updateUnlockTextDesc() {
         TextView desc = findViewById(R.id.drawer_unlock_text_desc);
         if (desc == null) return;
-        String custom = AiConfigManager.getUnlockReplyTemplate(this);
-        desc.setText(android.text.TextUtils.isEmpty(custom)
-                ? "默认模板（点击自定义）"
-                : "自定义：" + (custom.length() > 20 ? custom.substring(0, 20) + "…" : custom));
+        boolean custom = !android.text.TextUtils.isEmpty(AiConfigManager.getUnlockReplyTemplate(this));
+        int count = AiConfigManager.getUnlockReplyTemplates(this).size();
+        desc.setText((custom ? "自定义随机池" : "默认随机池") + "（" + count + " 条，点击查看/编辑）");
     }
 
-    /** 弹出对话框编辑解锁回复模板，{title} 会被替换为帖子标题关键词 */
+    /** 每行是一条随机候选；所有默认内容都会直接显示在编辑器中供查看和修改。 */
     private void showUnlockTextDialog() {
+        java.util.List<String> templates = AiConfigManager.getUnlockReplyTemplates(this);
+        StringBuilder initial = new StringBuilder();
+        for (String template : templates) {
+            if (initial.length() > 0) initial.append('\n');
+            initial.append(template);
+        }
         android.widget.EditText et = new android.widget.EditText(this);
-        et.setText(AiConfigManager.getUnlockReplyTemplate(this));
-        et.setHint("例如：感谢分享「{title}」，正需要这个！");
-        et.setMinLines(2);
+        et.setText(initial.toString());
+        et.setHint("每行一条候选；可用 {title} 插入帖子标题关键词");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        et.setSingleLine(false);
+        et.setMinLines(7);
+        et.setMaxLines(12);
+        et.setVerticalScrollBarEnabled(true);
         et.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad, pad, pad);
 
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("解锁回复内容")
-                .setMessage("自定义自动解锁时发送的回复。\n留空则用内置模板池随机选一条。\n用 {title} 插入帖子标题关键词。")
+                .setTitle("解锁随机回复内容")
+                .setMessage("当前默认内容也会逐行列在下面，每次解锁从适用候选中随机选一条。可直接查看、编辑或删除；用 {title} 插入帖子标题关键词，保存为空则恢复默认随机池。")
                 .setView(et)
-                .setPositiveButton("保存", (d, w) -> {
-                    String v = et.getText().toString().trim();
-                    AiConfigManager.setUnlockReplyTemplate(this, v);
+                .setPositiveButton("保存随机内容", (d, w) -> {
+                    java.util.List<String> edited = new java.util.ArrayList<>();
+                    for (String line : et.getText().toString().split("\\r?\\n")) {
+                        if (!line.trim().isEmpty()) edited.add(line.trim());
+                    }
+                    AiConfigManager.setUnlockReplyTemplates(this, edited);
                     updateUnlockTextDesc();
-                    AiLog.i("drawer", "解锁回复模板已更新：" + (v.isEmpty() ? "（恢复默认）" : v));
-                    Toast.makeText(this, v.isEmpty() ? "已恢复默认模板" : "已保存自定义回复", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, edited.isEmpty() ? "已恢复默认解锁随机池" : "已保存解锁随机内容",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("恢复默认", (d, w) -> {
+                    AiConfigManager.setUnlockReplyTemplate(this, "");
+                    updateUnlockTextDesc();
+                    Toast.makeText(this, "已恢复默认解锁随机池", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("取消", null)
                 .show();

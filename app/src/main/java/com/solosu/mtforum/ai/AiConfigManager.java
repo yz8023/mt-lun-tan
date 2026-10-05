@@ -4,6 +4,11 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * AI 配置存储。
  * 统一管理大模型接入参数、自动回复参数、功能开关。
@@ -36,8 +41,20 @@ public final class AiConfigManager {
     private static final String KEY_AUTO_UNLOCK_HIDDEN = "auto_unlock_hidden";
     /** 进入帖子详情页时自动解锁 */
     private static final String KEY_UNLOCK_ON_VIEW = "unlock_on_view";
-    /** 自定义解锁回复模板（空则用内置模板池） */
+    /** 每行一个解锁随机回复模板，保留旧键名以兼容已保存的单条自定义模板。 */
     private static final String KEY_UNLOCK_REPLY_TEMPLATE = "unlock_reply_template";
+
+    private static final List<String> DEFAULT_UNLOCK_REPLY_TEMPLATES = Collections.unmodifiableList(
+            Arrays.asList(
+                    "感谢分享，内容看着不错，回复支持一下",
+                    "谢谢分享，正需要这个，先回复看看",
+                    "支持一下，感谢分享好资源",
+                    "感谢楼主分享，回复支持",
+                    "感谢分享「{title}」，正需要这个，回复支持一下",
+                    "「{title}」看着不错，谢谢分享，下来试试",
+                    "支持「{title}」，感谢分享，先回复看看",
+                    "感谢分享「{title}」，正好用得上",
+                    "「{title}」不错，感谢分享，先收下了"));
 
     // ---- 自动签到 ----
     private static final String KEY_AUTO_SIGN_IN = "auto_sign_in_enabled";
@@ -281,7 +298,37 @@ public final class AiConfigManager {
         sp(c).edit().putBoolean(KEY_UNLOCK_ON_VIEW, v).apply();
     }
 
-    /** 自定义解锁回复模板：{title} 会被替换为帖子标题关键词，空则用内置模板池 */
+    /** 默认解锁随机池；返回副本，供设置页查看、编辑或恢复。 */
+    public static List<String> getDefaultUnlockReplyTemplates() {
+        return new ArrayList<>(DEFAULT_UNLOCK_REPLY_TEMPLATES);
+    }
+
+    /** 每行一条可随机抽取的解锁回复。旧版保存的单条模板会自然作为单项兼容。 */
+    public static List<String> getUnlockReplyTemplates(Context c) {
+        String saved = getUnlockReplyTemplate(c);
+        if (TextUtils.isEmpty(saved)) return getDefaultUnlockReplyTemplates();
+        List<String> templates = new ArrayList<>();
+        for (String line : saved.split("\\r?\\n")) {
+            String template = line.trim();
+            if (!template.isEmpty()) templates.add(template);
+        }
+        return templates.isEmpty() ? getDefaultUnlockReplyTemplates() : templates;
+    }
+
+    /** 编辑器内容按每行一条保存，空值表示恢复公开可见的默认随机池。 */
+    public static void setUnlockReplyTemplates(Context c, List<String> templates) {
+        StringBuilder joined = new StringBuilder();
+        if (templates != null) {
+            for (String template : templates) {
+                if (template == null || template.trim().isEmpty()) continue;
+                if (joined.length() > 0) joined.append('\n');
+                joined.append(template.trim());
+            }
+        }
+        setUnlockReplyTemplate(c, joined.toString());
+    }
+
+    /** 兼容旧调用方；保存值现按每行一个随机模板解析。 */
     public static String getUnlockReplyTemplate(Context c) {
         return sp(c).getString(KEY_UNLOCK_REPLY_TEMPLATE, "");
     }
