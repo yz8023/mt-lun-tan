@@ -96,15 +96,19 @@ public class UserProfileActivity extends AppCompatActivity {
             String error = null;
             try {
                 httpClient.syncFromCookieManager();
-                String cacheBust = "&_ts=" + System.currentTimeMillis();
+                // URL 保持稳定，避免 _ts 每次变化造成重复请求；相同主页请求可由 HttpClient 去重。
                 String profileUrl = HttpClient.BASE_URL
-                        + "home.php?mod=space&uid=" + targetUid + "&mobile=2" + cacheBust;
+                        + "home.php?mod=space&uid=" + targetUid + "&mobile=2";
                 final long tPerfStart = System.currentTimeMillis();
-            com.solosu.mtforum.network.RequestThrottle.markForeground();
-                String html = httpClient.get(profileUrl);
+                String html;
+                com.solosu.mtforum.network.RequestThrottle.markForeground();
+                try {
+                    html = httpClient.get(profileUrl);
+                } finally {
+                    com.solosu.mtforum.network.RequestThrottle.clearForeground();
+                }
                 final long tPerfFetched = System.currentTimeMillis();
-                com.solosu.mtforum.network.RequestThrottle.clearForeground();
-            com.solosu.mtforum.util.PerfLog.record("用户主页",
+                com.solosu.mtforum.util.PerfLog.record("用户主页",
                         tPerfFetched - tPerfStart, 0, html == null ? 0 : html.length());
 
                 if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(html)) {
@@ -116,8 +120,14 @@ public class UserProfileActivity extends AppCompatActivity {
                     if (profile == null || profile.getUsername() == null) {
                         String altUrl = HttpClient.BASE_URL
                                 + "home.php?mod=space&uid=" + targetUid
-                                + "&do=profile&mobile=2" + cacheBust;
-                        String altHtml = httpClient.get(altUrl);
+                                + "&do=profile&mobile=2";
+                        String altHtml;
+                        com.solosu.mtforum.network.RequestThrottle.markForeground();
+                        try {
+                            altHtml = httpClient.get(altUrl);
+                        } finally {
+                            com.solosu.mtforum.network.RequestThrottle.clearForeground();
+                        }
                         if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(altHtml)) {
                             error = "站点触发人机验证，正在打开内置验证页";
                         } else if (ForumParser.isLoginPage(altHtml)) {
@@ -127,15 +137,8 @@ public class UserProfileActivity extends AppCompatActivity {
                         }
                     }
 
-                    if (error == null && profile != null) {
-                        int followState = isOwnProfile()
-                                ? -1 : FollowStateManager.queryServerFollowState(
-                                getApplicationContext(), targetUid);
-                        if (followState >= 0) {
-                            profile.setFollowed(followState == 1);
-                            profile.setFollowStateKnown(true);
-                        }
-                    }
+                    // 关注状态由当前资料页 HTML 中的 followmod 控件直接解析；不要再遍历
+                    // 当前账号完整关注列表（最多 50 页），否则只是打开主页就会排队等待大量请求。
                 }
             } catch (Exception e) {
                 error = "加载失败，请稍后重试";
@@ -326,7 +329,7 @@ public class UserProfileActivity extends AppCompatActivity {
             } else {
                 // 服务端没有明确状态时，禁止操作，也不能伪显示为“关注”。
                 binding.btnProfileFollow.setEnabled(false);
-                binding.btnProfileFollow.setText("状态同步中");
+                binding.btnProfileFollow.setText("状态未提供");
                 binding.btnProfileFollow.setOnClickListener(null);
             }
         } else {

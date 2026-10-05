@@ -562,43 +562,64 @@ public class MainActivity extends AppCompatActivity {
         refreshDrawerHeader();
     }
 
-    // ==================== build100: 回复内容过滤设置 ====================
+    // ==================== 回复灌水精准过滤 + 自定义关键词包含过滤 ====================
 
     private void setupReplyFilterControls() {
-        updateReplyBlacklistTermCount();
-        TextView manageTerms = findViewById(R.id.drawer_reply_blacklist_manage);
-        if (manageTerms != null) manageTerms.setOnClickListener(v -> showReplyBlacklistTermsDialog());
+        updateReplyFilterTermCounts();
+
+        TextView manageKeywords = findViewById(R.id.drawer_reply_blacklist_manage);
+        if (manageKeywords != null) {
+            manageKeywords.setOnClickListener(v -> showReplyKeywordTermsDialog());
+        }
+        TextView manageSpamTerms = findViewById(R.id.drawer_reply_spam_manage);
+        if (manageSpamTerms != null) {
+            manageSpamTerms.setOnClickListener(v -> showReplySpamTermsDialog());
+        }
+
+        SwitchMaterial keywordFilter = findViewById(R.id.drawer_switch_reply_keywords);
+        if (keywordFilter != null) {
+            keywordFilter.setChecked(ReplyFilterManager.isKeywordFilterEnabled(this));
+            keywordFilter.setOnCheckedChangeListener((button, checked) -> {
+                ReplyFilterManager.setKeywordFilterEnabled(this, checked);
+                Toast.makeText(this, checked ? "已开启回复关键词包含过滤" : "已关闭回复关键词过滤",
+                        Toast.LENGTH_SHORT).show();
+            });
+            bindSwitchRow(R.id.drawer_reply_blacklist_block, keywordFilter);
+        }
 
         SwitchMaterial hideSpam = findViewById(R.id.drawer_switch_hide_spam);
         if (hideSpam != null) {
             hideSpam.setChecked(ReplyFilterManager.isHideSpamEnabled(this));
             hideSpam.setOnCheckedChangeListener((button, checked) -> {
                 ReplyFilterManager.setHideSpamEnabled(this, checked);
-                Toast.makeText(this, checked ? "已开启回复关键词与模板过滤" : "已关闭回复内容过滤",
+                Toast.makeText(this, checked ? "已开启灌水回复精准过滤" : "已关闭灌水回复精准过滤",
                         Toast.LENGTH_SHORT).show();
             });
             bindSwitchRow(R.id.drawer_hide_spam_row, hideSpam);
         }
     }
 
-    private void updateReplyBlacklistTermCount() {
-        TextView manageTerms = findViewById(R.id.drawer_reply_blacklist_manage);
-        if (manageTerms == null) return;
-        int count = ReplyFilterManager.getBlacklistTerms(this).size();
-        manageTerms.setText("词条 · " + count);
+    private void updateReplyFilterTermCounts() {
+        TextView spamTerms = findViewById(R.id.drawer_reply_spam_manage);
+        if (spamTerms != null) {
+            spamTerms.setText("精准词条 · " + ReplyFilterManager.getSpamTerms(this).size());
+        }
+        TextView keywordTerms = findViewById(R.id.drawer_reply_blacklist_manage);
+        if (keywordTerms != null) {
+            keywordTerms.setText("关键词 · " + ReplyFilterManager.getKeywordTerms(this).size());
+        }
     }
 
-    private void showReplyBlacklistTermsDialog() {
-        java.util.List<String> terms = ReplyFilterManager.getBlacklistTerms(this);
+    private android.widget.EditText makeReplyFilterTermsEditor(
+            java.util.List<String> terms, String hint) {
         StringBuilder initial = new StringBuilder();
         for (String term : terms) {
             if (initial.length() > 0) initial.append('\n');
             initial.append(term);
         }
-
         android.widget.EditText editor = new android.widget.EditText(this);
         editor.setText(initial.toString());
-        editor.setHint("每行一个关键词，例如：看看隐藏、感谢分享");
+        editor.setHint(hint);
         editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -609,24 +630,54 @@ public class MainActivity extends AppCompatActivity {
         editor.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         int pad = (int) (14 * getResources().getDisplayMetrics().density);
         editor.setPadding(pad, pad, pad, pad);
+        return editor;
+    }
 
+    private java.util.List<String> replyFilterEditorLines(android.widget.EditText editor) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        String[] lines = editor.getText().toString().split("\\r?\\n");
+        for (String line : lines) result.add(line);
+        return result;
+    }
+
+    private void showReplyKeywordTermsDialog() {
+        android.widget.EditText editor = makeReplyFilterTermsEditor(
+                ReplyFilterManager.getKeywordTerms(this), "每行一个关键词，例如：测试步骤、广告词");
         android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("回复关键词词条")
-                .setMessage("每行一个词条，回复正文包含任一词条即隐藏（不再区分精准/模糊）。\n内置自动解锁模板也会识别，例如“感谢分享 + 帖子标题”“正需要这个”；可删除或添加自己的词条。")
+                .setTitle("回复关键词（包含匹配）")
+                .setMessage("关键词过滤与灌水精准过滤分开控制。开启后，回复正文只要包含任一词条就会隐藏；此列表新安装时默认留空。")
                 .setView(editor)
                 .setPositiveButton("保存", (d, which) -> {
-                    java.util.List<String> updated = new java.util.ArrayList<>();
-                    String[] lines = editor.getText().toString().split("\\r?\\n");
-                    for (String line : lines) updated.add(line);
-                    ReplyFilterManager.setBlacklistTerms(this, updated);
-                    updateReplyBlacklistTermCount();
+                    ReplyFilterManager.setKeywordTerms(this, replyFilterEditorLines(editor));
+                    updateReplyFilterTermCounts();
                     Toast.makeText(this, "回复关键词已保存", Toast.LENGTH_SHORT).show();
                 })
+                .setNeutralButton("清空关键词", (d, which) -> {
+                    ReplyFilterManager.setKeywordTerms(this, java.util.Collections.emptyList());
+                    updateReplyFilterTermCounts();
+                    Toast.makeText(this, "已清空自定义关键词", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
+    private void showReplySpamTermsDialog() {
+        android.widget.EditText editor = makeReplyFilterTermsEditor(
+                ReplyFilterManager.getSpamTerms(this), "每行一条完整灌水回复，例如：感谢分享");
+        android.app.Dialog dialog = new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("灌水回复（精准匹配）")
+                .setMessage("仅当整条回复与词条相等时才屏蔽（忽略空白和英文大小写，标点保留）。内置自动解锁完整模板也会精准识别，不会因长回复里出现这些字词就屏蔽。")
+                .setView(editor)
+                .setPositiveButton("保存", (d, which) -> {
+                    ReplyFilterManager.setSpamTerms(this, replyFilterEditorLines(editor));
+                    updateReplyFilterTermCounts();
+                    Toast.makeText(this, "灌水精准词条已保存", Toast.LENGTH_SHORT).show();
+                })
                 .setNeutralButton("恢复默认", (d, which) -> {
-                    ReplyFilterManager.setBlacklistTerms(
-                            this, ReplyFilterManager.getDefaultBlacklistTerms());
-                    updateReplyBlacklistTermCount();
-                    Toast.makeText(this, "已恢复默认回复关键词", Toast.LENGTH_SHORT).show();
+                    ReplyFilterManager.setSpamTerms(this, ReplyFilterManager.getDefaultSpamTerms());
+                    updateReplyFilterTermCounts();
+                    Toast.makeText(this, "已恢复默认灌水精准词条", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("取消", null)
                 .show();

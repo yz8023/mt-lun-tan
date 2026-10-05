@@ -19,8 +19,9 @@ import java.util.regex.Pattern;
 public final class PostImageHtml {
 
     private static final String[] REAL_ATTRS = {
-            "file", "comiis_loadimages", "zoomfile",
-            "data-original", "data-src", "data-file", "data-lazy-src"
+            "file", "comiis_loadimages", "zoomfile", "data-zoomfile",
+            "data-original", "data-original-src", "data-src", "data-file", "data-lazy-src",
+            "data-full", "data-full-src"
     };
     private static final Pattern SIZE_QUERY = Pattern.compile(
             "[?&]size=(\\d+)[xX](\\d+)", Pattern.CASE_INSENSITIVE);

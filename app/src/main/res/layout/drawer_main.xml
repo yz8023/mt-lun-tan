@@ -1137,7 +1137,7 @@
             </LinearLayout>
 
 
-            <!-- 回复内容关键词：固定采用包含匹配；词条由用户维护。 -->
+            <!-- 自定义关键词匹配：包含即屏蔽，与下方精准灌水过滤分开设置。 -->
             <LinearLayout
                 android:id="@+id/drawer_reply_blacklist_block"
                 android:layout_width="match_parent"
@@ -1157,7 +1157,7 @@
                     <ImageView
                         android:layout_width="20dp"
                         android:layout_height="20dp"
-                        android:contentDescription="回复关键词"
+                        android:contentDescription="关键词包含过滤"
                         android:src="@drawable/ic_block"
                         app:tint="@color/primary" />
 
@@ -1166,46 +1166,46 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
                         android:layout_weight="1"
-                        android:text="回复关键词词条"
+                        android:text="关键词匹配（包含）"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/drawer_switch_reply_keywords"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:clickable="false"
+                        android:focusable="false" />
                 </LinearLayout>
 
                 <TextView
-                    android:id="@+id/drawer_reply_blacklist_desc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="32dp"
                     android:layout_marginTop="4dp"
-                    android:text="关键词包含匹配：回复正文命中任一词条即隐藏。"
+                    android:text="回复正文只要包含任一自定义词条就会屏蔽；与灌水精准匹配分开控制。"
                     android:textColor="@color/text_hint"
                     android:textSize="11sp" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                <TextView
+                    android:id="@+id/drawer_reply_blacklist_manage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
                     android:layout_marginStart="32dp"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/drawer_reply_blacklist_manage"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:background="@drawable/rounded_btn_outline"
-                        android:clickable="true"
-                        android:contentDescription="编辑回复关键词词条"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:minWidth="96dp"
-                        android:paddingHorizontal="8dp"
-                        android:text="词条 · 0"
-                        android:textColor="@color/primary"
-                        android:textSize="12sp" />
-                </LinearLayout>
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/rounded_btn_outline"
+                    android:clickable="true"
+                    android:contentDescription="编辑包含匹配关键词"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:minWidth="96dp"
+                    android:paddingHorizontal="8dp"
+                    android:text="关键词 · 0"
+                    android:textColor="@color/primary"
+                    android:textSize="12sp" />
             </LinearLayout>
 
+            <!-- 灌水过滤：默认短语全文精准匹配，不按子串命中。 -->
             <LinearLayout
                 android:id="@+id/drawer_hide_spam_row"
                 android:layout_width="match_parent"
@@ -1220,7 +1220,7 @@
                 <ImageView
                     android:layout_width="20dp"
                     android:layout_height="20dp"
-                    android:contentDescription="灌水过滤"
+                    android:contentDescription="灌水精准过滤"
                     android:src="@drawable/ic_block"
                     app:tint="@color/primary" />
 
@@ -1234,7 +1234,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="屏蔽灌水回复"
+                        android:text="屏蔽灌水回复（精准）"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp" />
 
@@ -1242,10 +1242,26 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="启用上方关键词与内置自动解锁模板识别，如“感谢分享 + 帖子标题”“正需要这个”"
+                        android:text="仅整条回复等于灌水短语/内置解锁模板时屏蔽"
                         android:textColor="@color/text_hint"
                         android:textSize="11sp" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/drawer_reply_spam_manage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="4dp"
+                    android:background="@drawable/rounded_btn_outline"
+                    android:clickable="true"
+                    android:contentDescription="编辑精准灌水短语"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:minWidth="84dp"
+                    android:paddingHorizontal="6dp"
+                    android:text="精准词条 · 9"
+                    android:textColor="@color/primary"
+                    android:textSize="10sp" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/drawer_switch_hide_spam"

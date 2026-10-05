@@ -77,6 +77,15 @@ public class PostImageHtmlTest {
     }
 
     @Test
+    public void prefersDataZoomfileOriginalOverThumbnailSrc() {
+        String html = "<img src=\"/forum.php?mod=image&amp;aid=91&amp;size=300x300\""
+                + " data-zoomfile=\"/data/attachment/forum/202610/original.jpg\">";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/data/attachment/forum/202610/original.jpg",
+                firstImage(upgraded).attr("src"));
+    }
+
+    @Test
     public void explicitOriginalAttributeOutranksSignedAidRoute() throws Exception {
         String aid = signedAid(91);
         String html = "<img aid=\"" + aid + "\""

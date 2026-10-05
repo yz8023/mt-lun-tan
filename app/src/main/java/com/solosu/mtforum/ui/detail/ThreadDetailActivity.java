@@ -1147,9 +1147,13 @@ public class ThreadDetailActivity extends AppCompatActivity {
         List<ReplyItem> result = new ArrayList<>();
         java.util.Set<String> blockedAuthors =
                 com.solosu.mtforum.session.BlacklistManager.uidSet(this);
-        List<String> blockedText =
-                com.solosu.mtforum.session.ReplyFilterManager.getBlacklistTerms(this);
-        boolean filterReplyContent =
+        List<String> keywordTerms =
+                com.solosu.mtforum.session.ReplyFilterManager.getKeywordTerms(this);
+        boolean keywordFilterEnabled =
+                com.solosu.mtforum.session.ReplyFilterManager.isKeywordFilterEnabled(this);
+        List<String> spamTerms =
+                com.solosu.mtforum.session.ReplyFilterManager.getSpamTerms(this);
+        boolean spamFilterEnabled =
                 com.solosu.mtforum.session.ReplyFilterManager.isHideSpamEnabled(this);
         String threadTitle = this.postDetail != null ? this.postDetail.getTitle() : "";
         String opUid = this.postDetail != null ? this.postDetail.getAuthorUid() : "";
@@ -1163,8 +1167,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
 
             String replyText = item.getContentText();
             if (TextUtils.isEmpty(replyText)) replyText = item.getContentHtml();
-            if (filterReplyContent && (
-                    com.solosu.mtforum.util.ReplyContentFilter.matchesBlacklist(replyText, blockedText)
+            if (keywordFilterEnabled
+                    && com.solosu.mtforum.util.ReplyContentFilter.matchesKeyword(replyText, keywordTerms)) {
+                continue;
+            }
+            if (spamFilterEnabled && (
+                    com.solosu.mtforum.util.ReplyContentFilter.matchesExactPhrase(replyText, spamTerms)
                     || com.solosu.mtforum.util.ReplyContentFilter.isSpamReply(replyText, threadTitle))) {
                 continue;
             }
