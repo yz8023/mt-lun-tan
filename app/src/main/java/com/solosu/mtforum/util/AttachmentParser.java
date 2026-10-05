@@ -54,6 +54,15 @@ public final class AttachmentParser {
             return imageUrl != null && !imageUrl.isEmpty();
         }
 
+        /** APK 仍作为普通附件下载，但保留安装包扩展名供确认框展示。 */
+        public boolean isApk() {
+            return name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk");
+        }
+
+        public String downloadFileName() {
+            return AttachmentFileName.sanitize(name);
+        }
+
         /** 下载地址（点击才访问，避免误扣金币） */
         public String downloadUrl() {
             return BASE + "forum.php?mod=attachment&aid=" + aid;
@@ -113,11 +122,13 @@ public final class AttachmentParser {
                             a.uploadTime = t.text().replaceAll("上传\\s*$", "").trim();
                         }
                     }
-                    if (a.name.isEmpty()) {
-                        Element link = w.selectFirst("a[href*=mod=attachment]");
-                        if (link != null) a.name = link.text().trim();
+                    Element imageLink = w.selectFirst("a[href*=mod=attachment]");
+                    if (a.name.isEmpty() && imageLink != null) {
+                        a.name = attachmentName(imageLink);
                     }
-                    if (a.name.isEmpty()) a.name = "图片附件";
+                    a.name = AttachmentFileName.fromAttachmentMarkup(
+                            a.name.isEmpty() ? "图片附件" : a.name,
+                            imageLink == null ? "" : imageLink.attr("href"), a.aid);
                     if (!a.aid.isEmpty()) out.add(a);
                 }
 
@@ -130,8 +141,8 @@ public final class AttachmentParser {
                     if (contains(out, aid)) continue;      // 图片附件里已经收过
                     Attachment a = new Attachment();
                     a.aid = aid;
-                    a.name = link.text().trim();
-                    if (a.name.isEmpty()) a.name = "附件 " + aid;
+                    a.name = attachmentName(link);
+                    a.name = AttachmentFileName.fromAttachmentMarkup(a.name, href, aid);
                     Element em = link.parent() == null ? null
                             : link.parent().selectFirst("em.xg1");
                     if (em != null) fillSizeAndDownloads(a, em.text());
@@ -141,6 +152,24 @@ public final class AttachmentParser {
         } catch (Throwable ignored) {
         }
         return out;
+    }
+
+    private static String attachmentName(Element link) {
+        if (link == null) return "";
+        Element parent = link.parent();
+        String attributeName = firstNonEmpty(
+                link.attr("download"),
+                link.attr("data-filename"),
+                link.attr("data-name"),
+                parent == null ? "" : parent.attr("data-filename"),
+                parent == null ? "" : parent.attr("data-name"));
+        if (!attributeName.isEmpty()) return attributeName;
+
+        String visible = link.text().trim();
+        String title = link.attr("title").trim();
+        if (AttachmentFileName.hasExtension(visible)) return visible;
+        if (AttachmentFileName.hasExtension(title)) return title;
+        return firstNonEmpty(visible, title);
     }
 
     private static void fillSizeAndDownloads(Attachment a, String text) {

@@ -1149,9 +1149,7 @@ public class ThreadDetailActivity extends AppCompatActivity {
                 com.solosu.mtforum.session.BlacklistManager.uidSet(this);
         List<String> blockedText =
                 com.solosu.mtforum.session.ReplyFilterManager.getBlacklistTerms(this);
-        boolean fuzzyTextMatch =
-                com.solosu.mtforum.session.ReplyFilterManager.isFuzzyMatch(this);
-        boolean hideSpam =
+        boolean filterReplyContent =
                 com.solosu.mtforum.session.ReplyFilterManager.isHideSpamEnabled(this);
         String threadTitle = this.postDetail != null ? this.postDetail.getTitle() : "";
         String opUid = this.postDetail != null ? this.postDetail.getAuthorUid() : "";
@@ -1165,10 +1163,11 @@ public class ThreadDetailActivity extends AppCompatActivity {
 
             String replyText = item.getContentText();
             if (TextUtils.isEmpty(replyText)) replyText = item.getContentHtml();
-            if (com.solosu.mtforum.util.ReplyContentFilter.matchesBlacklist(
-                    replyText, blockedText, fuzzyTextMatch)) continue;
-            if (hideSpam && com.solosu.mtforum.util.ReplyContentFilter.isSpamReply(
-                    replyText, threadTitle)) continue;
+            if (filterReplyContent && (
+                    com.solosu.mtforum.util.ReplyContentFilter.matchesBlacklist(replyText, blockedText)
+                    || com.solosu.mtforum.util.ReplyContentFilter.isSpamReply(replyText, threadTitle))) {
+                continue;
+            }
 
             if (this.onlyOpReplies) {
                 boolean isOp = item.isOP();
@@ -5248,6 +5247,9 @@ private void viewHiddenContent() {
             col.addView(name);
 
             String sub = a.subtitle();
+            if (a.isApk()) {
+                sub = TextUtils.isEmpty(sub) ? "APK 安装包" : "APK 安装包 · " + sub;
+            }
             if (!TextUtils.isEmpty(sub)) {
                 TextView meta = new TextView(this);
                 meta.setText(sub);
@@ -5277,27 +5279,179 @@ private void viewHiddenContent() {
     }
 
     /**
-     * 下载附件前二次确认。
-     *
-     * <p>论坛的附件可能扣金币/积分，所以<b>绝不自动下载</b>，
-     * 必须用户点了按钮、再确认一次才真正发起。
+     * 下载附件前二次确认。论坛附件可能扣金币/积分，只有点右侧「下载」后才会发起请求。
+     * 弹窗同时展示将保存的文件名/扩展名，并提供左侧复制直链操作。
      */
     private void confirmDownloadAttachment(
             final com.solosu.mtforum.util.AttachmentParser.Attachment a) {
-        android.app.Dialog dlg = new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("下载附件")
-                .setMessage(a.name
-                        + (TextUtils.isEmpty(a.subtitle()) ? "" : "\n" + a.subtitle())
-                        + "\n\n论坛部分附件下载会扣除金币/积分，确定继续吗？")
-                .setPositiveButton("下载", (d2, w) -> startAttachmentDownload(a))
-                .setNegativeButton("取消", null)
-                .show();
-        com.solosu.mtforum.ui.widget.DialogHelper.applyToAlertDialog(dlg, this);
+        final String fileName = a.downloadFileName();
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpToPx(18), dpToPx(10), dpToPx(18), dpToPx(22));
+        root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+
+        View handle = new View(this);
+        android.graphics.drawable.GradientDrawable handleBg = new android.graphics.drawable.GradientDrawable();
+        handleBg.setColor(0x55888888);
+        handleBg.setCornerRadius(dpToPx(4));
+        handle.setBackground(handleBg);
+        LinearLayout.LayoutParams handleLp = new LinearLayout.LayoutParams(dpToPx(38), dpToPx(4));
+        handleLp.gravity = Gravity.CENTER_HORIZONTAL;
+        handleLp.bottomMargin = dpToPx(14);
+        root.addView(handle, handleLp);
+
+        MaterialCardView card = new MaterialCardView(this);
+        card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT);
+        card.setRadius(dpToPx(22));
+        card.setCardElevation(0f);
+        card.setUseCompatPadding(false);
+        LinearLayout cardContent = new LinearLayout(this);
+        cardContent.setOrientation(LinearLayout.VERTICAL);
+        cardContent.setPadding(dpToPx(18), dpToPx(18), dpToPx(18), dpToPx(18));
+        card.addView(cardContent);
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout iconCell = new LinearLayout(this);
+        iconCell.setGravity(Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable iconBg = new android.graphics.drawable.GradientDrawable();
+        iconBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        iconBg.setColor(0x222F80ED);
+        iconCell.setBackground(iconBg);
+        ImageView fileIcon = new ImageView(this);
+        fileIcon.setImageResource(R.drawable.ic_attach);
+        fileIcon.setImageTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.primary)));
+        iconCell.addView(fileIcon, new LinearLayout.LayoutParams(dpToPx(22), dpToPx(22)));
+        heading.addView(iconCell, new LinearLayout.LayoutParams(dpToPx(44), dpToPx(44)));
+
+        LinearLayout headingText = new LinearLayout(this);
+        headingText.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams headingTextLp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        headingTextLp.leftMargin = dpToPx(12);
+        headingText.setLayoutParams(headingTextLp);
+        TextView title = attachmentDialogText("下载前确认", 18f, getColor(R.color.text_primary), true);
+        headingText.addView(title);
+        TextView subtitle = attachmentDialogText(
+                a.isApk() ? "APK 安装包" : "论坛附件资源", 12f, getColor(R.color.text_hint), false);
+        LinearLayout.LayoutParams subtitleLp = new LinearLayout.LayoutParams(-1, -2);
+        subtitleLp.topMargin = dpToPx(3);
+        headingText.addView(subtitle, subtitleLp);
+        heading.addView(headingText);
+        cardContent.addView(heading);
+
+        TextView filenameLabel = attachmentDialogText("文件名", 12f, getColor(R.color.text_hint), false);
+        LinearLayout.LayoutParams filenameLabelLp = new LinearLayout.LayoutParams(-1, -2);
+        filenameLabelLp.topMargin = dpToPx(18);
+        cardContent.addView(filenameLabel, filenameLabelLp);
+
+        TextView filename = attachmentDialogText(fileName, 15f, getColor(R.color.text_primary), true);
+        filename.setMaxLines(2);
+        filename.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        android.graphics.drawable.GradientDrawable filenameBg = new android.graphics.drawable.GradientDrawable();
+        filenameBg.setColor(getColor(R.color.background_secondary));
+        filenameBg.setCornerRadius(dpToPx(14));
+        filename.setBackground(filenameBg);
+        filename.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+        LinearLayout.LayoutParams filenameLp = new LinearLayout.LayoutParams(-1, -2);
+        filenameLp.topMargin = dpToPx(7);
+        cardContent.addView(filename, filenameLp);
+
+        boolean browserMode = com.solosu.mtforum.ui.DownloadPreferences.getMode(this)
+                == com.solosu.mtforum.ui.DownloadPreferences.MODE_BROWSER;
+        TextView destination = attachmentDialogText(
+                browserMode ? "系统浏览器将接管下载，最终文件名由浏览器/服务器响应决定"
+                        : "保存到  Download/" + fileName,
+                12f, getColor(R.color.text_hint), false);
+        destination.setMaxLines(2);
+        LinearLayout.LayoutParams destinationLp = new LinearLayout.LayoutParams(-1, -2);
+        destinationLp.topMargin = dpToPx(9);
+        cardContent.addView(destination, destinationLp);
+
+        String metaText = a.subtitle();
+        if (!TextUtils.isEmpty(metaText)) {
+            TextView meta = attachmentDialogText(metaText, 11f, getColor(R.color.text_hint), false);
+            LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
+            metaLp.topMargin = dpToPx(5);
+            cardContent.addView(meta, metaLp);
+        }
+
+        TextView warning = attachmentDialogText(
+                "部分论坛附件可能需要登录，并可能扣除金币/积分。复制直链不会开始下载。",
+                11f, getColor(R.color.text_hint), false);
+        LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
+        warningLp.topMargin = dpToPx(14);
+        cardContent.addView(warning, warningLp);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1, -2);
+        actionsLp.topMargin = dpToPx(18);
+        cardContent.addView(actions, actionsLp);
+
+        MaterialButton copy = new MaterialButton(this);
+        copy.setText("复制直链");
+        copy.setTextColor(getColor(R.color.primary));
+        copy.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                getColor(R.color.background_secondary)));
+        copy.setStrokeColor(android.content.res.ColorStateList.valueOf(getColor(R.color.primary)));
+        copy.setStrokeWidth(dpToPx(1));
+        copy.setCornerRadius(dpToPx(15));
+        copy.setInsetTop(0);
+        copy.setInsetBottom(0);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, dpToPx(48), 1f);
+        actions.addView(copy, copyLp);
+
+        MaterialButton download = new MaterialButton(this);
+        download.setText("下载");
+        download.setTextColor(android.graphics.Color.WHITE);
+        download.setBackgroundTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.primary)));
+        download.setCornerRadius(dpToPx(15));
+        download.setInsetTop(0);
+        download.setInsetBottom(0);
+        LinearLayout.LayoutParams downloadLp = new LinearLayout.LayoutParams(0, dpToPx(48), 1f);
+        downloadLp.leftMargin = dpToPx(10);
+        actions.addView(download, downloadLp);
+
+        root.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        dialog.setContentView(root);
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
+        com.solosu.mtforum.ui.widget.DialogHelper.applyToBottomSheet(dialog, root, this);
+
+        copy.setOnClickListener(v -> {
+            try {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                        getSystemService(CLIPBOARD_SERVICE);
+                if (clipboard == null) throw new IllegalStateException("剪贴板不可用");
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("附件直链", a.downloadUrl()));
+                Toast.makeText(this, "附件直链已复制", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            } catch (Exception e) {
+                Toast.makeText(this, "复制失败", Toast.LENGTH_SHORT).show();
+            }
+        });
+        download.setOnClickListener(v -> {
+            dialog.dismiss();
+            startAttachmentDownload(a, fileName);
+        });
+        dialog.show();
+    }
+
+    private TextView attachmentDialogText(String text, float size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        return view;
     }
 
     /** 用系统下载器下载，带上当前登录 Cookie */
     private void startAttachmentDownload(
-            com.solosu.mtforum.util.AttachmentParser.Attachment a) {
+            com.solosu.mtforum.util.AttachmentParser.Attachment a, String fileName) {
         if (com.solosu.mtforum.ui.DownloadPreferences.getMode(this)
                 == com.solosu.mtforum.ui.DownloadPreferences.MODE_BROWSER) {
             try {
@@ -5319,14 +5473,16 @@ private void viewHiddenContent() {
             req.addRequestHeader("User-Agent", com.solosu.mtforum.network.HttpClient.USER_AGENT);
             req.addRequestHeader("Referer",
                     com.solosu.mtforum.network.HttpClient.BASE_URL);
-            req.setTitle(a.name);
-            req.setDescription("MT 论坛附件");
+            String safeFileName = com.solosu.mtforum.util.AttachmentFileName.sanitize(fileName);
+            req.setTitle(safeFileName);
+            req.setDescription(a.isApk() ? "MT 论坛 APK 安装包" : "MT 论坛附件");
+            if (a.isApk()) req.setMimeType("application/vnd.android.package-archive");
             req.setNotificationVisibility(
                     android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             req.setDestinationInExternalPublicDir(
-                    android.os.Environment.DIRECTORY_DOWNLOADS, sanitizeFileName(a.name));
+                    android.os.Environment.DIRECTORY_DOWNLOADS, safeFileName);
             dm.enqueue(req);
-            Toast.makeText(this, "已加入下载队列：" + a.name, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "已加入下载队列：" + safeFileName, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             // 退回浏览器，至少不至于卡死
             try {
@@ -5336,11 +5492,6 @@ private void viewHiddenContent() {
                 Toast.makeText(this, "下载失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
-    }
-
-    private static String sanitizeFileName(String name) {
-        if (TextUtils.isEmpty(name)) return "attachment";
-        return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
     }
 
     /**
@@ -5395,6 +5546,13 @@ private void viewHiddenContent() {
             + "img{width:auto !important;min-width:0 !important;max-width:100% !important;"
             + "height:auto !important;max-height:none !important;display:block;"
             + "margin:8px auto;border-radius:6px;cursor:pointer;}"
+            // 表情 GIF 属于行内小图，不走正文大图的 block/满宽样式，统一限为 24px。
+            + "img[src*='/static/image/smiley/'],img[src*='/smiley/'],"
+            + "img[src*='/emoticon/'],img[src*='static/image/common/smiley']{"
+            + "width:24px !important;height:24px !important;min-width:24px !important;"
+            + "max-width:24px !important;max-height:24px !important;display:inline-block !important;"
+            + "vertical-align:middle !important;margin:0 2px !important;"
+            + "border-radius:0 !important;object-fit:contain;}"
             // build95: 站点偶尔用 <a> 包图做「点击看大图」，把链接靶区也放开
             + "a:has(img){display:block;}"
             + "a{color:#337ecc;text-decoration:none;word-break:break-all;}"

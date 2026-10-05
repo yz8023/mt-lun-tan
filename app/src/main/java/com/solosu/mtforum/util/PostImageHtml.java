@@ -29,7 +29,7 @@ public final class PostImageHtml {
     private static final Pattern IMAGE_EXTENSION = Pattern.compile(
             "(?i).*\\.(?:jpe?g|png|gif|webp|bmp|avif)(?:[?#].*)?$");
     private static final Pattern NO_THUMB_PARAM = Pattern.compile(
-            "(?i)(?:[?&])nothumb(?:=|&|$)");
+            "(?i)([?&])nothumb(?:=([^&#]*))?");
     private static final Pattern SIGNED_AID_PAYLOAD = Pattern.compile(
             "^\\d+\\|[0-9a-fA-F]{8}\\|\\d+\\|\\d+\\|\\d+$");
 
@@ -68,38 +68,70 @@ public final class PostImageHtml {
     public static String pickRealImageUrl(org.jsoup.nodes.Element img) {
         if (img == null) return null;
 
-        String discuzImageCandidate = null;
+        String bestDiscuzVariant = null;
+        String directCandidate = null;
         for (String attr : REAL_ATTRS) {
             String value = usable(img.attr(attr));
             if (value == null) continue;
             if (isDiscuzImageRoute(value)) {
-                // 即便是 500x480 这类较大变体，也先给外层原图链接一次机会。
-                if (discuzImageCandidate == null) discuzImageCandidate = value;
+                bestDiscuzVariant = betterDiscuzVariant(bestDiscuzVariant, value);
                 continue;
             }
-            return ensureFullAttachmentUrl(value);
+            if (directCandidate == null) directCandidate = value;
         }
 
-        String linkedOriginal = linkedImageUrl(img);
-        if (linkedOriginal != null) return linkedOriginal;
+        // HTML 明确给出的 file / zoomfile 等原图地址优先，不被签名 aid 生成的路由覆盖。
+        if (directCandidate != null) return ensureFullAttachmentUrl(directCandidate);
+
+        // 明确包裹图片的附件链接也优先于所有 mod=image 派生尺寸。
+        String linkedAttachment = linkedAttachmentUrl(img);
+        if (linkedAttachment != null) return linkedAttachment;
 
         String src = usable(img.attr("src"));
-        if (src != null) {
-            if (isGeneratedThumbnail(src)) {
-                String attachment = originalAttachmentUrl(img, src);
-                if (attachment != null) return attachment;
-            }
-            return ensureFullAttachmentUrl(src);
+        if (src != null && isDiscuzImageRoute(src)) {
+            bestDiscuzVariant = betterDiscuzVariant(bestDiscuzVariant, src);
+        }
+        String linkedImage = linkedImageUrl(img);
+        if (linkedImage != null && isDiscuzImageRoute(linkedImage)) {
+            bestDiscuzVariant = betterDiscuzVariant(bestDiscuzVariant, linkedImage);
         }
 
-        if (discuzImageCandidate != null) {
-            if (isGeneratedThumbnail(discuzImageCandidate)) {
-                String attachment = originalAttachmentUrl(img, discuzImageCandidate);
-                if (attachment != null) return attachment;
-            }
-            return discuzImageCandidate;
+        // 非 mod=image 的 <img src> 或图片外层直链也是 HTML 明确给出的原图候选，
+        // 优先于基于签名 aid 构造的路由。
+        if (linkedImage != null && !isDiscuzImageRoute(linkedImage)) {
+            return ensureFullAttachmentUrl(linkedImage);
         }
-        return null;
+        if (src != null && !isDiscuzImageRoute(src)) return ensureFullAttachmentUrl(src);
+
+        // 即便候选地址标成 500x480 等大图，只要元素/祖先上确实有 Discuz 签名 aid，
+        // 仍可安全地请求 nothumb 原图；aid 仅为数字时绝不构造附件 URL。
+        if (bestDiscuzVariant != null) {
+            String attachment = originalAttachmentUrl(img, bestDiscuzVariant);
+            if (attachment != null) return attachment;
+        }
+
+        return bestDiscuzVariant;
+    }
+
+    /** 同一图片有多个 mod=image 尺寸时，保留 HTML 已提供的最大尺寸版本。 */
+    private static String betterDiscuzVariant(String current, String candidate) {
+        if (isEmpty(candidate)) return current;
+        if (isEmpty(current) || discuzVariantArea(candidate) > discuzVariantArea(current)) return candidate;
+        return current;
+    }
+
+    private static long discuzVariantArea(String url) {
+        Matcher m = SIZE_QUERY.matcher(url == null ? "" : url);
+        if (!m.find()) return 0L;
+        try {
+            long width = Long.parseLong(m.group(1));
+            long height = Long.parseLong(m.group(2));
+            if (width <= 0) width = height;
+            if (height <= 0) height = width;
+            return width * height;
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private static String usable(String value) {
@@ -109,7 +141,25 @@ public final class PostImageHtml {
         return v;
     }
 
-    /** 找包住图片的直接原图 / 附件链接，忽略一般帖子链接和缩略图链接。 */
+    /** 使用 HTML 明确包裹图片的 mod=attachment 链接；不会由缩略图 aid 推测该链接。 */
+    private static String linkedAttachmentUrl(org.jsoup.nodes.Element img) {
+        org.jsoup.nodes.Element parent = img.parent();
+        while (parent != null) {
+            if ("a".equalsIgnoreCase(parent.normalName()) && parent.hasAttr("href")) {
+                String href = parent.absUrl("href");
+                if (isEmpty(href)) href = parent.attr("href").trim();
+                if (!isEmpty(href)
+                        && href.toLowerCase(Locale.ROOT).contains("mod=attachment")
+                        && usable(href) != null) {
+                    return ensureFullAttachmentUrl(href);
+                }
+            }
+            parent = parent.parent();
+        }
+        return null;
+    }
+
+    /** 找包住图片的直接图片链接，忽略一般帖子链接。 */
     private static String linkedImageUrl(org.jsoup.nodes.Element img) {
         String src = img.attr("src").trim();
         org.jsoup.nodes.Element parent = img.parent();
@@ -120,7 +170,6 @@ public final class PostImageHtml {
                 if (!isEmpty(href) && !href.equals(src)
                         && !href.toLowerCase(Locale.ROOT).startsWith("javascript:")
                         && usable(href) != null
-                        && !isGeneratedThumbnail(href)
                         && isDirectImageLink(href)) {
                     return ensureFullAttachmentUrl(href);
                 }
@@ -132,8 +181,8 @@ public final class PostImageHtml {
 
     private static boolean isDirectImageLink(String url) {
         String low = url.toLowerCase(Locale.ROOT);
-        return low.contains("mod=attachment") || low.contains("mod=image")
-                || IMAGE_EXTENSION.matcher(url).matches();
+        return (low.contains("mod=attachment") && hasSignedAidQuery(url))
+                || low.contains("mod=image") || IMAGE_EXTENSION.matcher(url).matches();
     }
 
     private static boolean isDiscuzImageRoute(String url) {
@@ -141,29 +190,12 @@ public final class PostImageHtml {
                 && SIZE_QUERY.matcher(url).find();
     }
 
-    /** Discuz mod=image 的小尺寸派生图；较大的 500x480 路由可能已经返回原图。 */
-    private static boolean isGeneratedThumbnail(String url) {
-        if (!isDiscuzImageRoute(url)) return false;
-        Matcher m = SIZE_QUERY.matcher(url);
-        if (!m.find()) return false;
-        try {
-            int width = Integer.parseInt(m.group(1));
-            int height = Integer.parseInt(m.group(2));
-            return (width > 0 || height > 0)
-                    && (width == 0 || width <= 400)
-                    && (height == 0 || height <= 400);
-        } catch (NumberFormatException ignored) {
-            return false;
-        }
-    }
-
     /**
      * 只在 HTML 元素提供 Discuz 标准签名 aid 时才构造原图附件 URL；裸数字 aid
      * 只是 mod=image 的缩略图参数，不等同于 mod=attachment 所需的签名 aid。
      */
     private static String originalAttachmentUrl(org.jsoup.nodes.Element img, String imageUrl) {
-        String aid = img.attr("aid").trim();
-        if (isEmpty(aid)) aid = img.attr("data-aid").trim();
+        String aid = signedAidOnElementOrAncestors(img);
         if (!isDiscuzSignedAid(aid)) {
             Matcher m = AID_QUERY.matcher(imageUrl == null ? "" : imageUrl);
             aid = m.find() ? m.group(1).trim() : "";
@@ -171,6 +203,23 @@ public final class PostImageHtml {
         String encodedAid = encodeDiscuzSignedAid(aid);
         if (encodedAid == null) return null;
         return "forum.php?mod=attachment&aid=" + encodedAid + "&nothumb=yes";
+    }
+
+    private static String signedAidOnElementOrAncestors(org.jsoup.nodes.Element element) {
+        org.jsoup.nodes.Element current = element;
+        while (current != null) {
+            String aid = current.attr("aid").trim();
+            if (isDiscuzSignedAid(aid)) return aid;
+            aid = current.attr("data-aid").trim();
+            if (isDiscuzSignedAid(aid)) return aid;
+            current = current.parent();
+        }
+        return "";
+    }
+
+    private static boolean hasSignedAidQuery(String url) {
+        Matcher m = AID_QUERY.matcher(url == null ? "" : url);
+        return m.find() && isDiscuzSignedAid(m.group(1));
     }
 
     private static boolean isDiscuzSignedAid(String candidate) {
@@ -204,9 +253,15 @@ public final class PostImageHtml {
 
     /** 图片附件 URL 默认可能返回缩略图；加 nothumb=yes 明确请求原始图片。 */
     private static String ensureFullAttachmentUrl(String url) {
-        if (isEmpty(url) || !url.toLowerCase(Locale.ROOT).contains("mod=attachment")
-                || NO_THUMB_PARAM.matcher(url).find()) {
-            return url;
+        if (isEmpty(url) || !url.toLowerCase(Locale.ROOT).contains("mod=attachment")) return url;
+        Matcher existingNoThumb = NO_THUMB_PARAM.matcher(url);
+        if (existingNoThumb.find()) {
+            String value = existingNoThumb.group(2);
+            if (value == null || value.isEmpty() || "yes".equalsIgnoreCase(value)
+                    || "1".equals(value)) return url;
+            return url.substring(0, existingNoThumb.start())
+                    + existingNoThumb.group(1) + "nothumb=yes"
+                    + url.substring(existingNoThumb.end());
         }
         int fragmentAt = url.indexOf('#');
         String fragment = fragmentAt >= 0 ? url.substring(fragmentAt) : "";

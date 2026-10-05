@@ -12,7 +12,6 @@ import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.View;
 import android.webkit.CookieManager;
-import android.webkit.URLUtil;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -142,8 +141,14 @@ public class InAppBrowserActivity extends AppCompatActivity {
     private void download(String url, String disposition, String mime) {
         try {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-            String name = URLUtil.guessFileName(url, disposition, mime);
+            String name = com.solosu.mtforum.util.AttachmentFileName
+                    .fromResponse(url, disposition, mime);
             request.setTitle(name).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            String downloadMime = name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")
+                    ? "application/vnd.android.package-archive" : mime;
+            if (downloadMime != null && !downloadMime.trim().isEmpty()) {
+                request.setMimeType(downloadMime.split(";")[0].trim());
+            }
             String cookies = CookieManager.getInstance().getCookie(url);
             if (cookies != null) request.addRequestHeader("Cookie", cookies);
             request.addRequestHeader("User-Agent", web.getSettings().getUserAgentString());

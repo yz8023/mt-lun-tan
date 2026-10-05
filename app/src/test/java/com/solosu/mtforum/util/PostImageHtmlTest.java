@@ -77,6 +77,26 @@ public class PostImageHtmlTest {
     }
 
     @Test
+    public void explicitOriginalAttributeOutranksSignedAidRoute() throws Exception {
+        String aid = signedAid(91);
+        String html = "<img aid=\"" + aid + "\""
+                + " file=\"/data/attachment/forum/202610/original.jpg\""
+                + " src=\"/forum.php?mod=image&amp;aid=91&amp;size=300x300\">";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/data/attachment/forum/202610/original.jpg",
+                firstImage(upgraded).attr("src"));
+    }
+
+    @Test
+    public void explicitAttachmentLinkIsUsedEvenWithoutConstructingFromThumbnailAid() {
+        String html = "<a href=\"/forum.php?mod=attachment&amp;aid=91\">"
+                + "<img src=\"/forum.php?mod=image&amp;aid=91&amp;size=300x300&amp;key=x\"></a>";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/forum.php?mod=attachment&aid=91&nothumb=yes",
+                firstImage(upgraded).attr("src"));
+    }
+
+    @Test
     public void directAttachmentSrcExplicitlyRequestsOriginal() throws Exception {
         String aid = signedAid(91);
         String html = "<img src=\"/forum.php?mod=attachment&amp;aid=" + aid + "\">";
@@ -91,6 +111,35 @@ public class PostImageHtmlTest {
         String upgraded = PostImageHtml.upgradeThumbnailsToFull(
                 "<img src=\"" + original + "\">", BASE);
         assertEquals(original, firstImage(upgraded).attr("src"));
+    }
+
+    @Test
+    public void signedAidUpgradesMediumThumbnailEvenWhenParentLinksToMediumVariant() throws Exception {
+        String aid = signedAid(8123);
+        String html = "<a href=\"/forum.php?mod=image&amp;aid=8123&amp;size=500x480&amp;key=x\">"
+                + "<img aid=\"" + aid + "\" src=\"/forum.php?mod=image&amp;aid=8123&amp;size=300x300&amp;key=x\"></a>";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/forum.php?mod=attachment&aid=" + aid + "&nothumb=yes",
+                firstImage(upgraded).attr("src"));
+    }
+
+    @Test
+    public void signedAidOnAncestorCanUpgradeDiscuzImageVariant() throws Exception {
+        String aid = signedAid(8124);
+        String html = "<div data-aid=\"" + aid + "\"><img src=\"/forum.php?mod=image"
+                + "&amp;aid=8124&amp;size=500x480&amp;key=x\"></div>";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/forum.php?mod=attachment&aid=" + aid + "&nothumb=yes",
+                firstImage(upgraded).attr("src"));
+    }
+
+    @Test
+    public void overridesExplicitNoThumbFalseOnDirectAttachmentLink() {
+        String html = "<a href=\"/forum.php?mod=attachment&amp;aid=91&amp;nothumb=no&amp;foo=1\">"
+                + "<img src=\"/forum.php?mod=image&amp;aid=91&amp;size=300x300\"></a>";
+        String upgraded = PostImageHtml.upgradeThumbnailsToFull(html, BASE);
+        assertEquals("https://bbs.binmt.cc/forum.php?mod=attachment&aid=91&nothumb=yes&foo=1",
+                firstImage(upgraded).attr("src"));
     }
 
     @Test

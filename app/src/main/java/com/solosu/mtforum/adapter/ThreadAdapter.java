@@ -161,6 +161,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
         if (headerView != null && position == 0) return;
         int dataPos = headerView != null ? position - 1 : position;
         Thread thread = threadList.get(dataPos);
+        holder.boundThread = thread;
         holder.tvTitle.setText(thread.getTitle());
         holder.tvAuthor.setText(thread.getAuthor());
         holder.tvTime.setText(thread.getPublishTime());
@@ -298,48 +299,71 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
 
         List<String> imageUrls = thread.getImageUrls();
         if (imageUrls != null && !imageUrls.isEmpty()) {
-            // build86: 4 → 2。原来是最多四张（2x2 满格），用户要求预览最多两张。
-            int count = Math.min(2, imageUrls.size());
-            holder.llThreadImages.setVisibility(View.VISIBLE);
-            for (int i = 0; i < count; i++) {
-                ImageView imageView = new ImageView(context);
-                int gap = dp(3);
-                // build95: GridLayout 的 columnSpec 权重在 width=0 时确实能均分列，
-                // 但权重测量的结果不会回灌给 ImageView 的 onMeasure ——
-                // adjustViewBounds 拿不到最终宽度，算出来的高度就是错的，
-                // 竖长图会被压扁。这里按容器实际宽度显式算死每张图的宽度。
-                int avail = holder.llThreadImages.getWidth() > 0
-                        ? holder.llThreadImages.getWidth() : screenWidth(context);
-                int colW = avail <= 0 ? 0 : (avail - gap) / 2;
-                GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-                params.width = colW > 0 ? colW : 0;
-                // build99: 固定尺寸裁切（用户明确要求）。
-                // 高度 = 列宽 × 3/4（≈4:3），两张图永远一样大、每张卡片图文区高度
-                // 也永远一样 —— 列表整齐，长截图不会再撑出一屏。图片本身用
-                // CENTER_CROP 居中裁切，宁可裁掉边缘也不拉伸变形。
-                params.height = colW > 0 ? Math.round(colW * 0.75f) : dp(110);
-                params.columnSpec = GridLayout.spec(i % 2, 1f);
-                params.rowSpec = GridLayout.spec(0);
-                params.setMargins(i % 2 == 0 ? 0 : gap, 0, i % 2 == 1 ? 0 : gap, 0);
-                imageView.setLayoutParams(params);
-                imageView.setAdjustViewBounds(false);
-                imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                imageView.setBackgroundResource(R.drawable.thread_image_bg);
-                imageView.setClipToOutline(true);
+            if (imageUrls.size() == 1) {
+                // 单图不能占双列网格的一半：用完整卡片宽度显示，避免只看到一小块画面。
+                holder.ivThumbnail.setVisibility(View.VISIBLE);
                 Glide.with(context)
-                        .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(i)))
+                        .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(0)))
                         .placeholder(R.drawable.ic_image_placeholder)
                         .error(R.drawable.ic_image_error)
                         .centerCrop()
-                        .into(imageView);
-                holder.llThreadImages.addView(imageView);
+                        .into(holder.ivThumbnail);
+            } else {
+                // 首页最多两张；每张图在固定比例容器里居中裁切，保持列表几何尺寸一致。
+                int count = Math.min(2, imageUrls.size());
+                int gap = dp(3);
+                int avail = holder.llThreadImages.getWidth();
+                if (avail <= 0) {
+                    int itemWidth = holder.itemView.getWidth();
+                    if (itemWidth <= 0) itemWidth = Math.max(0, screenWidth(context) - dp(18));
+                    // item_thread 外边距 9dp × 2、thread_card 内边距 10dp × 2。
+                    avail = Math.max(0, itemWidth - dp(20));
+                }
+                int colW = avail > 0 ? Math.max(1, (avail - gap) / 2) : dp(150);
+                holder.llThreadImages.setVisibility(View.VISIBLE);
+                for (int i = 0; i < count; i++) {
+                    ImageView imageView = new ImageView(context);
+                    GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+                    params.width = colW;
+                    // 固定约 4:3 的双列预览；长图不会把整张帖子卡片撑高。
+                    params.height = Math.round(colW * 0.75f);
+                    params.columnSpec = GridLayout.spec(i, 1f);
+                    params.rowSpec = GridLayout.spec(0);
+                    params.setMargins(i == 0 ? 0 : gap, 0, 0, 0);
+                    imageView.setLayoutParams(params);
+                    imageView.setAdjustViewBounds(false);
+                    imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    imageView.setBackgroundResource(R.drawable.thread_image_bg);
+                    imageView.setClipToOutline(true);
+                    Glide.with(context)
+                            .load(com.solosu.mtforum.util.ForumImageLoader.model(imageUrls.get(i)))
+                            .placeholder(R.drawable.ic_image_placeholder)
+                            .error(R.drawable.ic_image_error)
+                            .centerCrop()
+                            .into(imageView);
+                    holder.llThreadImages.addView(imageView);
+                }
+                // 首次 bind 时容器宽度可能尚未测量；下一帧用真实宽度校准，避免第二张只露出边角。
+                holder.llThreadImages.post(() -> {
+                    if (holder.boundThread != thread) return;
+                    int measuredWidth = holder.llThreadImages.getWidth();
+                    if (measuredWidth <= 0) return;
+                    int measuredCol = Math.max(1, (measuredWidth - gap) / 2);
+                    for (int i = 0; i < holder.llThreadImages.getChildCount(); i++) {
+                        View child = holder.llThreadImages.getChildAt(i);
+                        GridLayout.LayoutParams lp = (GridLayout.LayoutParams) child.getLayoutParams();
+                        lp.width = measuredCol;
+                        lp.height = Math.round(measuredCol * 0.75f);
+                        lp.setMargins(i == 0 ? 0 : gap, 0, 0, 0);
+                        child.setLayoutParams(lp);
+                    }
+                });
             }
         } else {
             String thumbnailUrl = thread.getThumbnailUrl();
             if (thumbnailUrl != null && !thumbnailUrl.isEmpty()) {
                 holder.ivThumbnail.setVisibility(View.VISIBLE);
-                // build99: 单图封面也固定尺寸居中裁切，和两图网格保持同一视觉规则
-                // （布局里已写死 150dp 高 + centerCrop）
+                // 单图封面固定为完整卡片宽度 + 固定高度，居中裁切保持主体可辨认。
                 Glide.with(context)
                         .load(com.solosu.mtforum.util.ForumImageLoader.model(thumbnailUrl))
                         .placeholder(R.drawable.ic_image_placeholder)
@@ -424,6 +448,7 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
+        Thread boundThread;
         View cardView;
         ImageView ivAvatar;
         ImageView ivThumbnail;

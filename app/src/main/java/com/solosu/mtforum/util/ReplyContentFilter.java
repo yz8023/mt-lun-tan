@@ -9,9 +9,17 @@ import java.util.List;
  */
 public final class ReplyContentFilter {
 
-    /** 只包含常见、独立成句的填充/客套用语；不对含有实际信息的整段回复做模糊判定。 */
+    /**
+     * 软件内置自动解锁模板中的填充片段，以及常见独立客套语。
+     * 只在回复全文都能由这些片段拼成时才由模板识别器隐藏，避免误伤带有实质内容的回复。
+     */
     private static final String[] FILLER_PHRASES = {
-            "感谢楼主分享", "谢谢楼主分享", "多谢楼主分享", "感谢分享", "谢谢分享", "多谢分享",
+            "感谢分享，内容看着不错，回复支持一下", "谢谢分享，正需要这个，先回复看看",
+            "支持一下，感谢分享好资源", "感谢楼主分享，回复支持",
+            "感谢分享", "谢谢分享", "多谢分享", "感谢分享好资源",
+            "内容看着不错", "看着不错", "正需要这个", "正好用得上",
+            "回复支持一下", "先回复看看", "回复支持", "下来试试", "先收下了", "好资源",
+            "感谢楼主分享", "谢谢楼主分享", "多谢楼主分享",
             "感谢楼主", "谢谢楼主", "支持楼主", "楼主辛苦", "前来学习", "路过看看",
             "支持一下", "顶一下", "帮顶", "留个名", "收藏了", "mark一下",
             "看看", "来看看", "围观", "路过", "支持", "顶", "学习了", "收藏",
@@ -23,24 +31,22 @@ public final class ReplyContentFilter {
     }
 
     /**
-     * 判断回复是否命中用户维护的黑名单词条。
-     *
-     * @param fuzzy false 时全文相等才命中；true 时正文包含词条即命中
+     * 判断回复是否命中用户维护的黑名单词条。固定为关键词/包含匹配：正文包含任一词条即命中。
+     * 匹配时忽略空白与零宽格式符、统一英文大小写，但保留标点。
      */
-    public static boolean matchesBlacklist(String replyText, List<String> terms, boolean fuzzy) {
+    public static boolean matchesBlacklist(String replyText, List<String> terms) {
         String body = normalize(replyText);
         if (body.isEmpty() || terms == null || terms.isEmpty()) return false;
         for (String term : terms) {
             String needle = normalize(term);
-            if (needle.isEmpty()) continue;
-            if (fuzzy ? body.contains(needle) : body.equals(needle)) return true;
+            if (!needle.isEmpty() && body.contains(needle)) return true;
         }
         return false;
     }
 
     /**
-     * 判断是否为模板化灌水回复：只隐藏纯填充/客套语，或「帖子标题 + 客套语」；
-     * 含有其他实质内容时不隐藏。
+     * 判断是否为模板化灌水回复：纯填充/客套语，或「帖子标题关键词 + 客套模板」。
+     * 对带有其它实质文字的回复保持不过滤。
      */
     public static boolean isSpamReply(String replyText, String threadTitle) {
         String body = normalizeForTemplate(replyText);
@@ -48,22 +54,29 @@ public final class ReplyContentFilter {
         if (isFillerOnly(body)) return true;
 
         String title = normalizeForTemplate(threadTitle);
-        if (title.length() < 2 || !body.contains(title)) return false;
+        if (title.length() < 2) return false;
 
-        // 标题可出现在客套语前、后或中间；删除一次标题后，剩余部分必须仍然
-        // 完全由填充/客套短语组成，避免误伤有实际观点、说明或问题的回复。
-        int from = 0;
-        while (from <= body.length() - title.length()) {
-            int at = body.indexOf(title, from);
-            if (at < 0) break;
-            String remainder = body.substring(0, at) + body.substring(at + title.length());
-            if (!remainder.isEmpty() && isFillerOnly(remainder)) return true;
-            from = at + 1;
+        // 自动解锁模板与 AutoReplyEngine 一致：标题去掉标点后最长只取前 10 个字符。
+        // 同时兼容较早模板中插入完整帖子标题的情况。
+        List<String> titleCandidates = new ArrayList<>();
+        titleCandidates.add(title);
+        String keyword = firstCodePoints(title, 10);
+        if (!keyword.equals(title) && keyword.length() >= 2) titleCandidates.add(keyword);
+
+        for (String candidate : titleCandidates) {
+            int from = 0;
+            while (from <= body.length() - candidate.length()) {
+                int at = body.indexOf(candidate, from);
+                if (at < 0) break;
+                String remainder = body.substring(0, at) + body.substring(at + candidate.length());
+                if (!remainder.isEmpty() && isFillerOnly(remainder)) return true;
+                from = at + 1;
+            }
         }
         return false;
     }
 
-    /** 精准/模糊匹配用：忽略空白与零宽格式符，统一英文大小写，但保留标点。 */
+    /** 关键词匹配用：忽略空白与零宽格式符，统一英文大小写，但保留标点。 */
     public static String normalize(String value) {
         if (value == null || value.isEmpty()) return "";
         StringBuilder out = new StringBuilder(value.length());
@@ -97,6 +110,12 @@ public final class ReplyContentFilter {
         return out.toString();
     }
 
+    private static String firstCodePoints(String value, int limit) {
+        if (value == null || value.isEmpty()) return "";
+        int end = value.offsetByCodePoints(0, Math.min(limit, value.codePointCount(0, value.length())));
+        return value.substring(0, end);
+    }
+
     private static boolean isFillerOnly(String normalized) {
         if (normalized == null || normalized.isEmpty()) return false;
         String rest = normalized;
@@ -114,11 +133,11 @@ public final class ReplyContentFilter {
         return true;
     }
 
-    /** 归一化并按长度降序，先匹配「感谢楼主分享」这类较长短语。 */
+    /** 归一化并按长度降序，优先识别完整的自动解锁模板片段。 */
     private static List<String> buildFillerPhrases() {
         List<String> phrases = new ArrayList<>(FILLER_PHRASES.length);
         for (String phrase : FILLER_PHRASES) {
-            String normalized = normalize(phrase);
+            String normalized = normalizeForTemplate(phrase);
             if (!normalized.isEmpty() && !phrases.contains(normalized)) phrases.add(normalized);
         }
         Collections.sort(phrases, (a, b) -> Integer.compare(b.length(), a.length()));

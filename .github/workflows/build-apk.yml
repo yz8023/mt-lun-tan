@@ -18,7 +18,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.18
+        default: v5.19
 
 permissions:
   contents: write
@@ -133,10 +133,12 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - **回复黑名单匹配模式**：可逐行维护回复词条，选择精准匹配（全文相等）或模糊匹配（包含即命中）；默认精准，减少误屏蔽。
-          - **屏蔽灌水回复**：默认开启，隐藏纯填充词、客套模板，以及「帖子标题 + 客套回复」；保留含有实际信息的回复。
-          - **评论区图片显示原图**：回复图片优先采用 HTML 中的原图属性/附件链接；Discuz 附件链接补充 `nothumb=yes`，按正文宽度等比显示。
-          - 以上过滤仅影响帖子详情页回复列表，不删除论坛内容，也不影响原始回复数量。
+          - **回复关键词过滤**：移除精准/模糊选择，默认关键词改为包含匹配并可逐行自定义；保留「感谢分享 + 帖子标题」和自动解锁模板识别，含有实质内容的回复不按模板误判。
+          - **评论区图片**：进一步处理 Discuz 中尺寸缩略图；只有确认签名 aid 或 HTML 原图链接后才切换到原始附件，不从裸数字 aid 猜地址。
+          - **首页图片预览**：单张图片铺满卡片预览；双图根据实际容器宽度计算固定尺寸并居中裁切，避免只显示边角。
+          - **附件下载**：解码常见乱码/百分号编码文件名，确认弹窗展示保存名与扩展名，支持复制直链；APK 作为安装包类型下载。
+          - **链接与表情**：回复链接跟随应用内/系统浏览器设置；Discuz 表情保持小尺寸行内显示，不再套用正文大图样式。
+          - 回复过滤只调整本地显示，不删除论坛内容，也不影响服务器回复数量。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -151,14 +153,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 评论区图片原图显示 · 回复过滤" \
+              --title "MTForum v${VERSION} — 回复过滤 · 图片 · 附件下载" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 评论区图片原图显示 · 回复过滤" \
+              --title "MTForum v${VERSION} — 回复过滤 · 图片 · 附件下载" \
               --notes-file release-notes.md \
               --latest
           fi

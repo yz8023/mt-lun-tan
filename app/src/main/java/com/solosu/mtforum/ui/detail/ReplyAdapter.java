@@ -403,12 +403,15 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         URLSpan[] urlSpans = spannable.getSpans(0, spannable.length(), URLSpan.class);
         for (URLSpan oldSpan : urlSpans) {
             String targetUrl = oldSpan.getURL();
-            // 补全相对路径
+            // 补全相对路径；协议大小写与 www. 链接也统一处理。
+            String lowerTarget = targetUrl.toLowerCase(java.util.Locale.ROOT);
             if (targetUrl.startsWith("//")) {
                 targetUrl = "https:" + targetUrl;
             } else if (targetUrl.startsWith("/")) {
                 targetUrl = HttpClient.BASE_URL + targetUrl.substring(1);
-            } else if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+            } else if (lowerTarget.startsWith("www.")) {
+                targetUrl = "https://" + targetUrl;
+            } else if (!lowerTarget.startsWith("http://") && !lowerTarget.startsWith("https://")) {
                 targetUrl = HttpClient.BASE_URL + targetUrl;
             }
             
@@ -438,41 +441,57 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     }
     
     /**
-     * 打开链接：直接交给系统默认浏览器处理，不再进入应用内 WebView。
+     * 回复里的纯文本 URL 与 HTML 超链接统一按「链接与文件打开方式」路由。
+     * 应用内模式下，论坛帖子/用户页仍使用原生页面；浏览器模式下不再绕过设置。
      */
-    private static void openContentLink(String url, Context context) {
-        if (TextUtils.isEmpty(url) || context == null) return;
+    private static void openContentLink(String rawUrl, Context context) {
+        if (TextUtils.isEmpty(rawUrl) || context == null) return;
+        String url = com.solosu.mtforum.ui.web.LinkRouter.normalizeWebUrl(rawUrl);
+        if (TextUtils.isEmpty(url)) return;
         try {
-            String lower = url.toLowerCase(java.util.Locale.ROOT);
-            boolean isForumLink = lower.contains("bbs.binmt.cc");
-
-            if (isForumLink) {
-                // 论坛帖子链接
-                Matcher threadMatcher = Pattern.compile("thread[-=]?(\\d+)").matcher(lower);
+            android.net.Uri uri = android.net.Uri.parse(url);
+            String host = uri.getHost();
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            if (com.solosu.mtforum.ui.web.LinkRouter.isInAppMode(context)
+                    && "bbs.binmt.cc".equalsIgnoreCase(host)) {
+                Matcher threadMatcher = Pattern.compile("thread-(\\d+)", Pattern.CASE_INSENSITIVE)
+                        .matcher(path);
                 if (threadMatcher.find()) {
                     NavigationHelper.openThread(context, threadMatcher.group(1));
                     return;
                 }
-                // 用户空间链接
-                Matcher uidMatcher = Pattern.compile("(?:uid[-=]|(?<=[?&])uid=)(\\d+)").matcher(lower);
-                if (uidMatcher.find()) {
-                    Intent intent = new Intent(context, (Class<?>) UserProfileActivity.class);
-                    intent.putExtra("uid", uidMatcher.group(1));
-                    context.startActivity(intent);
+                String tid = uri.getQueryParameter("tid");
+                if ("viewthread".equalsIgnoreCase(uri.getQueryParameter("mod"))
+                        && !TextUtils.isEmpty(tid)) {
+                    NavigationHelper.openThread(context, tid);
                     return;
                 }
-                Matcher usernameMatcher = Pattern.compile("space-username-([^./?&]+)").matcher(lower);
+
+                Matcher uidInPath = Pattern.compile("space-uid-(\\d+)", Pattern.CASE_INSENSITIVE)
+                        .matcher(path);
+                String uid = uidInPath.find() ? uidInPath.group(1) : uri.getQueryParameter("uid");
+                if (!TextUtils.isEmpty(uid)) {
+                    openUserProfile(context, uid, null);
+                    return;
+                }
+                Matcher usernameMatcher = Pattern.compile("space-username-([^./?&]+)",
+                        Pattern.CASE_INSENSITIVE).matcher(path);
                 if (usernameMatcher.find()) {
-                    Intent intent = new Intent(context, (Class<?>) UserProfileActivity.class);
-                    intent.putExtra("username", usernameMatcher.group(1));
-                    context.startActivity(intent);
+                    openUserProfile(context, null, usernameMatcher.group(1));
                     return;
                 }
             }
-            // 外部链接遵循“应用内下载/浏览器”偏好。
             com.solosu.mtforum.ui.web.LinkRouter.open(context, url);
         } catch (Exception ignored) {
         }
+    }
+
+    private static void openUserProfile(Context context, String uid, String username) {
+        Intent intent = new Intent(context, UserProfileActivity.class);
+        if (!TextUtils.isEmpty(uid)) intent.putExtra("uid", uid);
+        if (!TextUtils.isEmpty(username)) intent.putExtra("username", username);
+        if (!(context instanceof android.app.Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
     }
 
     /**
