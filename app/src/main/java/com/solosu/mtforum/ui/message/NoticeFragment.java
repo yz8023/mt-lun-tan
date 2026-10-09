@@ -28,6 +28,7 @@ import com.solosu.mtforum.ui.space.FriendListActivity;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 消息页(ViewPager 页)。
@@ -46,6 +47,7 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
     private HttpClient httpClient;
     private Handler mainHandler;
     private ExecutorService executor;
+    private int badgeLoadGeneration;
 
     @Nullable
     @Override
@@ -73,10 +75,7 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
     @Override
     public void onResume() {
         super.onResume();
-        // 从详情页返回或重新回到本页时,重新同步全部六类服务器数据。
-        if (mainHandler != null) {
-            mainHandler.removeCallbacksAndMessages(null);
-        }
+        // 从详情页返回或重新回到本页时,按节流周期同步全部六类服务器数据。
         long now = System.currentTimeMillis();
         if (now - lastBadgeLoadAt < BADGE_RESUME_THROTTLE_MS) return;
         lastBadgeLoadAt = now;
@@ -147,36 +146,65 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
     }
 
     private void loadAllBadgeCounts() {
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=pm&mobile=2", badgeMessages, "pm");
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=follow&do=follower&uid=" + getUid() + "&mobile=2", badgeFans, "follower");
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=mypost", badgePosts, "mypost");
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=interactive", badgeInteractive, "interactive");
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=system", badgeSystem, "system");
-        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=app", badgeApp, "app");
+        if (executor == null || executor.isShutdown() || !isAdded()) return;
+        lastBadgeLoadAt = System.currentTimeMillis();
+        final int generation = ++badgeLoadGeneration;
+        final android.content.Context app = requireContext().getApplicationContext();
+        final String accountUid = NoticeBadgeManager.activeAccountUid(app);
+        final int readEpoch = NoticeBadgeManager.getReadEpochForAccount(app, accountUid);
+        String followerUid = TextUtils.isEmpty(accountUid) ? "0" : accountUid;
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=pm&mobile=2", badgeMessages, "pm", app, accountUid, generation, readEpoch);
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=follow&do=follower&uid=" + followerUid + "&mobile=2", badgeFans, "follower", app, accountUid, generation, readEpoch);
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=mypost", badgePosts, "mypost", app, accountUid, generation, readEpoch);
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=interactive", badgeInteractive, "interactive", app, accountUid, generation, readEpoch);
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=system", badgeSystem, "system", app, accountUid, generation, readEpoch);
+        loadCountBySnapshot(HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=app", badgeApp, "app", app, accountUid, generation, readEpoch);
     }
 
     /**
-     * 通过当前列表内容和本地已查看快照计算角标,不依赖网页 unread class。
+     * 通过当前列表内容和本地已查看快照计算角标，不依赖网页 unread class。
      */
-    private void loadCountBySnapshot(String url, TextView badgeView, String viewType) {
-        if (badgeView == null) return;
-        executor.execute(() -> {
-            try {
-                httpClient.syncFromCookieManager();
-                String html = ("pm".equals(viewType) || "follower".equals(viewType))
-                        ? httpClient.get(url) : httpClient.getDesktop(url);
-                if (TextUtils.isEmpty(html) || ForumParser.isLoginPage(html)) {
-                    mainHandler.post(() -> updateBadge(badgeView, 0));
-                    return;
+    private void loadCountBySnapshot(String url, TextView badgeView, String viewType,
+                                     android.content.Context app, String accountUid,
+                                     int generation, int readEpoch) {
+        if (badgeView == null || executor == null) return;
+        try {
+            executor.execute(() -> {
+                try {
+                    httpClient.syncFromCookieManager();
+                    String html = ("pm".equals(viewType) || "follower".equals(viewType))
+                            ? httpClient.get(url) : httpClient.getDesktop(url);
+                    if (!isCurrentBadgeRequest(generation, accountUid, app)) return;
+                    if (TextUtils.isEmpty(html) || ForumParser.isLoginPage(html)) {
+                        mainHandler.post(() -> {
+                            if (isCurrentBadgeRequest(generation, accountUid, app)) updateBadge(badgeView, 0);
+                        });
+                        return;
+                    }
+                    String snapshot = NoticeBadgeManager.buildSnapshot(viewType, html, httpClient);
+                    NoticeBadgeManager.saveCurrentAndGetNewCountForAccount(
+                            app, accountUid, viewType, snapshot, readEpoch);
+                    mainHandler.post(() -> {
+                        if (isCurrentBadgeRequest(generation, accountUid, app)) {
+                            updateBadge(badgeView, NoticeBadgeManager.getNewCountForAccount(
+                                    app, accountUid, viewType));
+                        }
+                    });
+                } catch (Exception ignored) {
+                    mainHandler.post(() -> {
+                        if (isCurrentBadgeRequest(generation, accountUid, app)) updateBadge(badgeView, 0);
+                    });
                 }
-                String snapshot = NoticeBadgeManager.buildSnapshot(viewType, html, httpClient);
-                int count = NoticeBadgeManager.saveCurrentAndGetNewCount(
-                        requireContext(), viewType, snapshot);
-                mainHandler.post(() -> updateBadge(badgeView, count));
-            } catch (Exception ignored) {
-                mainHandler.post(() -> updateBadge(badgeView, 0));
-            }
-        });
+            });
+        } catch (RejectedExecutionException ignored) {
+            // 视图销毁时，关闭中的执行器可能拒绝任务。
+        }
+    }
+
+    private boolean isCurrentBadgeRequest(int generation, String accountUid,
+                                          android.content.Context app) {
+        return generation == badgeLoadGeneration && isAdded() && binding != null
+                && TextUtils.equals(accountUid, NoticeBadgeManager.activeAccountUid(app));
     }
 
     private void updateBadge(TextView badgeView, int count) {
@@ -193,6 +221,7 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
     }
 
     private void clearAllBadges() {
+        badgeLoadGeneration++;
         hideAllBadges();
         NoticeBadgeManager.markAllViewed(requireContext());
     }
@@ -214,8 +243,10 @@ public class NoticeFragment extends Fragment implements com.solosu.mtforum.ui.Re
 
     @Override
     public void onDestroyView() {
-        super.onDestroyView();
+        badgeLoadGeneration++;
+        if (mainHandler != null) mainHandler.removeCallbacksAndMessages(null);
         if (executor != null) executor.shutdownNow();
+        super.onDestroyView();
         executor = null;
         binding = null;
     }

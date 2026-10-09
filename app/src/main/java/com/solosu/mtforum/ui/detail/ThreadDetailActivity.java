@@ -114,6 +114,8 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private PostDetail postDetail;
     private ReplyAdapter replyAdapter;
     private String tid;
+    private String targetPid = "";
+    private boolean targetPidJumpInProgress = false;
     /** build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时兜底用 */
     private java.util.List<String> listImageFallback = new java.util.ArrayList<>();
     /**
@@ -184,6 +186,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
         if (this.tid == null) {
             finish();
             return;
+        }
+        String requestedPid = getIntent().getStringExtra("pid");
+        if (requestedPid != null && requestedPid.matches("[0-9]{1,20}")) {
+            this.targetPid = requestedPid;
         }
         // build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时用它兜底。
         // 先看 Intent extra（列表页直达），没有再查 tid 登记表（搜索、日志中心、
@@ -1089,9 +1095,142 @@ public class ThreadDetailActivity extends AppCompatActivity {
         } else {
             this.binding.layoutRewardReviewStats.setVisibility(8);
         }
-        if (z) {
+        if (z && TextUtils.isEmpty(this.targetPid)) {
             this.binding.nestedScroll.scrollTo(0, 0);
         }
+        if (!TextUtils.isEmpty(this.targetPid)) {
+            beginTargetPidJump();
+        }
+    }
+
+    /** 通知携带 pid 时，先定位当前页；跨页时通过 Discuz findpost 重定向解析目标页。 */
+    private void beginTargetPidJump() {
+        if (TextUtils.isEmpty(targetPid) || isFinishing() || isDestroyed()) return;
+        int visiblePosition = findReplyPositionByPid(displayedReplies, targetPid);
+        if (visiblePosition >= 0) {
+            replyAdapter.setHighlightedPid(targetPid);
+            scrollToReplyPosition(visiblePosition);
+            return;
+        }
+        if (findReplyPositionByPid(allReplies, targetPid) >= 0) {
+            Toast.makeText(this, "目标回复被当前筛选条件隐藏", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (targetPidJumpInProgress || postDetail == null) return;
+
+        targetPidJumpInProgress = true;
+        final String requestTid = tid;
+        final String requestPid = targetPid;
+        final String replyOrder = getReplyOrder();
+        final int knownTotalPages = Math.max(1, postDetail.getTotalPages());
+        new java.lang.Thread(() -> {
+            PostDetail foundDetail = null;
+            int foundPage = -1;
+            try {
+                String ascendingPage = httpClient.resolveFindPostPage(requestTid, requestPid);
+                int asc = -1;
+                try { if (!TextUtils.isEmpty(ascendingPage)) asc = Integer.parseInt(ascendingPage); }
+                catch (NumberFormatException ignored) { }
+
+                java.util.LinkedHashSet<Integer> candidates = new java.util.LinkedHashSet<>();
+                if (asc >= 1 && asc <= knownTotalPages) {
+                    int mapped = "desc".equalsIgnoreCase(replyOrder)
+                            ? knownTotalPages - asc + 1 : asc;
+                    if (mapped >= 1 && mapped <= knownTotalPages) candidates.add(mapped);
+                    if (mapped - 1 >= 1) candidates.add(mapped - 1);
+                    if (mapped + 1 <= knownTotalPages) candidates.add(mapped + 1);
+                } else {
+                    // findpost 服务不可用时，先尝试两个边界页，避免无界扫描整个长帖。
+                    candidates.add(1);
+                    candidates.add(knownTotalPages);
+                    if (knownTotalPages > 2) {
+                        candidates.add(2);
+                        candidates.add(knownTotalPages - 1);
+                    }
+                }
+
+                for (Integer page : candidates) {
+                    if (page == null || page < 1 || page > knownTotalPages) continue;
+                    String pageUrl = ForumParser.getThreadDetailUrl(requestTid, page, replyOrder);
+                    String html = httpClient.get(pageUrl);
+                    PostDetail candidate = ForumParser.parseThreadDetail(html);
+                    if (candidate != null
+                            && findReplyPositionByPid(candidate.getReplies(), requestPid) >= 0) {
+                        foundDetail = candidate;
+                        foundPage = page;
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            final PostDetail result = foundDetail;
+            final int resultPage = foundPage;
+            runOnUiThread(() -> {
+                targetPidJumpInProgress = false;
+                if (isFinishing() || isDestroyed()) return;
+                if (result == null || resultPage < 1) {
+                    Toast.makeText(this, "未能定位到该回复楼层", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                applyTargetReplyPage(result, resultPage, knownTotalPages);
+            });
+        }, "reply-pid-jump").start();
+    }
+
+    private void applyTargetReplyPage(PostDetail pageDetail, int page, int totalPages) {
+        if (pageDetail == null || isFinishing() || isDestroyed()) return;
+        List<ReplyItem> replies = pageDetail.getReplies();
+        if (replies == null) replies = new ArrayList<>();
+        if (findReplyPositionByPid(replies, targetPid) < 0) return;
+
+        this.allReplies = new ArrayList<>(replies);
+        if (this.postDetail != null) {
+            this.postDetail.setReplies(new ArrayList<>(replies));
+            this.postDetail.setCurrentPage(page);
+            this.postDetail.setTotalPages(Math.max(totalPages, pageDetail.getTotalPages()));
+        }
+        updateReplyFilterAndOrder();
+        this.replyAdapter.setHighlightedPid(targetPid);
+        int total = this.postDetail != null ? this.postDetail.getTotalPages() : totalPages;
+        this.binding.btnLoadMore.setVisibility(page < total ? View.VISIBLE : View.GONE);
+        this.binding.btnLoadMore.setEnabled(true);
+        this.binding.btnLoadMore.setText(R.string.load_more_replies);
+
+        int position = findReplyPositionByPid(displayedReplies, targetPid);
+        if (position >= 0) {
+            scrollToReplyPosition(position);
+        } else {
+            Toast.makeText(this, "目标回复被当前筛选条件隐藏", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private int findReplyPositionByPid(List<ReplyItem> replies, String pid) {
+        if (replies == null || TextUtils.isEmpty(pid)) return -1;
+        for (int i = 0; i < replies.size(); i++) {
+            ReplyItem reply = replies.get(i);
+            if (reply != null && pid.equals(reply.getPid())) return i;
+        }
+        return -1;
+    }
+
+    private void scrollToReplyPosition(int position) {
+        if (position < 0 || binding == null) return;
+        binding.recyclerReplies.post(() -> {
+            if (binding == null || isFinishing() || isDestroyed()) return;
+            androidx.recyclerview.widget.RecyclerView.LayoutManager manager =
+                    binding.recyclerReplies.getLayoutManager();
+            if (!(manager instanceof LinearLayoutManager)) return;
+            LinearLayoutManager layoutManager = (LinearLayoutManager) manager;
+            layoutManager.scrollToPositionWithOffset(position, 0);
+            binding.recyclerReplies.post(() -> {
+                if (binding == null || isFinishing() || isDestroyed()) return;
+                View replyView = layoutManager.findViewByPosition(position);
+                int y = binding.recyclerReplies.getTop();
+                if (replyView != null) y += replyView.getTop();
+                binding.nestedScroll.smoothScrollTo(0, Math.max(0, y));
+            });
+        });
     }
 
     private void lambda$bindData$23(String authorUid, PostDetail detail, View v) {
@@ -1158,22 +1297,28 @@ public class ThreadDetailActivity extends AppCompatActivity {
         String threadTitle = this.postDetail != null ? this.postDetail.getTitle() : "";
         String opUid = this.postDetail != null ? this.postDetail.getAuthorUid() : "";
         String opName = this.postDetail != null ? this.postDetail.getAuthor() : "";
+        int filteredByRules = 0;
 
         for (ReplyItem item : source) {
             if (item == null) continue;
 
             String authorUid = item.getAuthorUid();
-            if (!TextUtils.isEmpty(authorUid) && blockedAuthors.contains(authorUid)) continue;
+            if (!TextUtils.isEmpty(authorUid) && blockedAuthors.contains(authorUid)) {
+                filteredByRules++;
+                continue;
+            }
 
             String replyText = item.getContentText();
             if (TextUtils.isEmpty(replyText)) replyText = item.getContentHtml();
             if (keywordFilterEnabled
                     && com.solosu.mtforum.util.ReplyContentFilter.matchesKeyword(replyText, keywordTerms)) {
+                filteredByRules++;
                 continue;
             }
             if (spamFilterEnabled && (
                     com.solosu.mtforum.util.ReplyContentFilter.matchesExactPhrase(replyText, spamTerms)
                     || com.solosu.mtforum.util.ReplyContentFilter.isSpamReply(replyText, threadTitle))) {
+                filteredByRules++;
                 continue;
             }
 
@@ -1191,6 +1336,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
         }
 
         this.displayedReplies = result;
+        this.binding.tvReplyFilterCount.setVisibility(filteredByRules > 0 ? View.VISIBLE : View.GONE);
+        if (filteredByRules > 0) {
+            this.binding.tvReplyFilterCount.setText("过滤 " + filteredByRules);
+            this.binding.tvReplyFilterCount.setContentDescription(
+                    "当前已加载回复中按内容或作者规则过滤 " + filteredByRules + " 条");
+        }
         this.replyAdapter.updateData(result);
         this.binding.btnOnlyOp.setText(this.onlyOpReplies ? R.string.reply_all_users : R.string.reply_only_op);
         this.binding.btnOnlyOp.setTextColor(getColor(this.onlyOpReplies ? R.color.primary : R.color.text_secondary));
@@ -5110,11 +5261,16 @@ private void viewHiddenContent() {
                                   final com.google.android.material.textfield.TextInputEditText input) {
         final android.widget.LinearLayout bar = dialogView.findViewById(R.id.ll_bbcode_tools);
         final View btnPreview = dialogView.findViewById(R.id.btn_preview_bbcode);
+        final View btnMarkdown = dialogView.findViewById(R.id.btn_markdown_import);
         final View previewBox = dialogView.findViewById(R.id.sv_bbcode_preview);
         final TextView previewText = dialogView.findViewById(R.id.tv_bbcode_preview);
         if (bar == null || input == null) return;
 
         com.solosu.mtforum.ui.widget.BBCodeEditor.buildToolbar(this, bar, input, true);
+        if (btnMarkdown != null) {
+            btnMarkdown.setOnClickListener(v -> com.solosu.mtforum.util.MarkdownImportHelper
+                    .show(this, input, null));
+        }
 
         if (previewBox != null && previewText != null) {
             // build71: 改成实时预览，默认就展开 —— 之前要来回点「预览/编辑」切换，

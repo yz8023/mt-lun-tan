@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - 'arena/**'
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -18,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.21
+        default: v5.22
 
 permissions:
   contents: write
@@ -60,10 +62,33 @@ jobs:
           unzip -q gradle.zip -d "$HOME/gradle-dist"
           echo "$HOME/gradle-dist/gradle-8.13/bin" >> "$GITHUB_PATH"
 
-      # build99: 不再往安装包里塞 cloudflared。
-      # 它压缩后就有 17 MB，占整个 APK 的 82%（实测 20.81 MB 里 17.02 MB 是它），
-      # 而它只服务于「公网 MCP 隧道」这一个功能 —— 该功能用户判定无效，
-      # 本轮已整体移除。去掉后 APK 约 3.8 MB。
+      # 签名优先由 Actions Secrets 注入；Secrets 未配置时回退到仓库内置的演示
+      # keystore（口令与 v2.0~v5.21 公开历史相同）。发布源码压缩包通过
+      # .gitattributes export-ignore 永久排除 keystore 与 signing.properties。
+      - name: Configure release signing when CI secrets are available
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] \
+            && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/keystore.jks
+            chmod 600 app/keystore.jks
+            echo "Release signing keystore restored from Actions Secrets."
+          elif [ -s app/keystore.jks ]; then
+            # 回退：仓库内置演示 keystore + 本地 signing.properties（已被 .gitignore 忽略）。
+            # 配置 Actions Secrets 后自动改走上面的注入路径，届时应移除该回退文件。
+            printf 'storeFile=app/keystore.jks\nstorePassword=mtforum123\nkeyAlias=mtforum\nkeyPassword=mtforum123\n' > app/signing.properties
+            chmod 600 app/signing.properties
+            echo "Release signing secrets are unavailable; falling back to the repo-bundled demo keystore."
+          else
+            echo "Release signing secrets are unavailable and no fallback keystore exists; CI will validate an unsigned release build."
+          fi
+
+      # cloudflared 隧道已移除；本机只读 MCP 不需要内置 native tunnel binary。
       - name: Report APK size budget
         run: |
           du -sh app/src/main/res app/src/main/java 2>/dev/null || true
@@ -71,7 +96,29 @@ jobs:
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --no-daemon
 
+      - name: Require signing for published releases
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release) || ((github.event_name == 'push' && startsWith(github.ref_name, 'arena/') && contains(github.event.head_commit.message, '[release]')) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))) }}
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -s app/keystore.jks || { echo "Release signing keystore is unavailable; refusing to publish an unsigned APK."; exit 1; }
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Signing material from Actions Secrets verified."
+          elif [ -f app/signing.properties ]; then
+            echo "Actions Secrets unavailable; using the repo-bundled fallback signing configuration."
+          else
+            echo "Release signing secrets are incomplete and no fallback exists; refusing to publish an unsigned APK."
+            exit 1
+          fi
+
       - name: Build optimized release APK
+        env:
+          ANDROID_KEYSTORE_PATH: app/keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle :app:assembleRelease --no-daemon
 
       - name: Prepare release artifact
@@ -118,10 +165,10 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release) || (github.event_name == 'push' && startsWith(github.ref_name, 'arena/') && contains(github.event.head_commit.message, '[release]')) }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release) || ((github.event_name == 'push' && startsWith(github.ref_name, 'arena/') && contains(github.event.head_commit.message, '[release]')) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))) }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || format('v{0}', steps.artifact.outputs.version) }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name) || format('v{0}', steps.artifact.outputs.version) }}
           APK: ${{ steps.artifact.outputs.path }}
           SOURCE: ${{ steps.artifact.outputs.source_path }}
           VERSION: ${{ steps.artifact.outputs.version }}
@@ -133,13 +180,12 @@ jobs:
           cat > release-notes.md <<EOF
           ## MTForum v${VERSION}
 
-          - **链接打开修正**：帖子正文和回复统一使用同一开关；应用内模式下普通网页进应用内浏览器，站内帖子/用户页优先原生打开；识别 http、https、www 与常见裸域名（含 .cn）。
-          - **下载确认**：应用内浏览器拦截到文件下载时先展示文件名/大小，可复制直链、取消或确认下载，不再直接入队。
-          - **解锁随机回复池**：默认候选逐行展示在编辑器里，可检查、修改或恢复；每次按帖子标题挑选适用模板随机发送，{title} 会替换为标题关键词。
-          - **他人主页与回复图片**：主页去掉最多 50 页关注列表的串行遍历；图片加载后重排 ImageSpan 并识别 `data-zoomfile` 等原图属性。
-          - **回复过滤**：「屏蔽灌水回复」整条精准匹配；自定义「关键词匹配」独立按包含关系屏蔽，作者黑名单仍独立。
-          - **附件下载与表情**：确认弹窗展示保存名、支持复制直链；APK 作为安装包类型下载；Discuz 表情保持小尺寸行内显示。
-          - 回复过滤只调整本地显示，不删除论坛内容，也不影响服务器回复数量。
+          - **Markdown 导入**：发帖、编辑和回复支持 Markdown 转 Discuz BBCode；可预览、复制、插入光标或替换正文，不改变原有 BBCode 实时预览。
+          - **用户留言板**：可查看分页留言、发布留言，并按论坛页面提供的权限编辑、删除和回复；列表保留引用内容与作者操作。
+          - **本机 MCP**：恢复默认关闭的只读 MCP，绑定 127.0.0.1，Bearer Token 鉴权，提供论坛查询工具；不含公网隧道、Cookie 输出或写入工具。
+          - **消息与账号隔离**：按通知逐条更新未读角标，防止账号切换时旧请求覆盖新账号数据；同帖通知可选批量标记已读。
+          - **搜索与跳转**：本地搜索历史可单项删除或清空；快速跳转接受纯数字 ID 与有效帖子/用户链接。
+          - 保留首页图片固定尺寸裁剪与既有回复过滤/作者黑名单语义。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -148,20 +194,20 @@ jobs:
           SHA256  ${SOURCE}  ${SOURCE_SHA256}
           \`\`\`
 
-          与 v2.0 起版本使用相同签名，可直接覆盖升级。
+          签名配置优先由 CI Secrets 注入；发布源码压缩包通过 export-ignore 排除 keystore 与签名属性。
           EOF
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 链接修复 · 解锁回复随机池" \
+              --title "MTForum v${VERSION} — Markdown 导入 · 留言板 · 本机 MCP" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 链接修复 · 解锁回复随机池" \
+              --title "MTForum v${VERSION} — Markdown 导入 · 留言板 · 本机 MCP" \
               --notes-file release-notes.md \
               --latest
           fi

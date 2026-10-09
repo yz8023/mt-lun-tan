@@ -458,6 +458,20 @@
                 android:textSize="12sp" />
 
             <TextView
+                android:id="@+id/btn_markdown"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:contentDescription="导入 Markdown 并转换为 BBCode"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingHorizontal="2dp"
+                android:text="Markdown"
+                android:textColor="@color/text_primary"
+                android:textSize="10sp" />
+
+            <TextView
                 android:id="@+id/btn_image"
                 android:layout_width="0dp"
                 android:layout_height="40dp"

@@ -194,6 +194,16 @@ public class UserProfileActivity extends AppCompatActivity {
         binding.btnProfilePoke.setOnClickListener(v -> showPokeDialog());
         binding.btnProfileMessage.setOnClickListener(v -> openChat());
         binding.btnProfileBlock.setOnClickListener(v -> showBlockDialog());
+        binding.btnProfileWall.setOnClickListener(v -> openWall());
+    }
+
+    private void openWall() {
+        Intent intent = new Intent(this, UserWallActivity.class);
+        intent.putExtra(UserWallActivity.EXTRA_UID, targetUid);
+        String username = binding.tvUsername.getText() == null
+                ? "" : binding.tvUsername.getText().toString();
+        intent.putExtra(UserWallActivity.EXTRA_USERNAME, username);
+        startActivity(intent);
     }
 
     /** 打开与当前资料用户的原生聊天页面，不再弹出“发私信”输入框。 */
@@ -388,6 +398,20 @@ public class UserProfileActivity extends AppCompatActivity {
         binding.layoutThreads.setOnClickListener(v -> {
             Intent intent = new Intent(this, SpaceThreadListActivity.class);
             intent.putExtra("mode", "uid_threads");
+            intent.putExtra("uid", targetUid);
+            intent.putExtra("username", binding.tvUsername.getText().toString());
+            startActivity(intent);
+        });
+        binding.layoutReplies.setOnClickListener(v -> {
+            Intent intent = new Intent(this, SpaceThreadListActivity.class);
+            intent.putExtra("mode", "uid_replies");
+            intent.putExtra("uid", targetUid);
+            intent.putExtra("username", binding.tvUsername.getText().toString());
+            startActivity(intent);
+        });
+        binding.layoutFollowers.setOnClickListener(v -> {
+            Intent intent = new Intent(this, FriendListActivity.class);
+            intent.putExtra("mode", "followers");
             intent.putExtra("uid", targetUid);
             intent.putExtra("username", binding.tvUsername.getText().toString());
             startActivity(intent);

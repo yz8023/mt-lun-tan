@@ -181,9 +181,21 @@ public final class MultiSignInManager {
         }
         summary.total = accounts.size();
         int intervalSec = SignInSettings.getIntervalSeconds(app);
+        boolean previousAccountAttemptedNetwork = false;
 
         for (int i = 0; i < accounts.size(); i++) {
             AccountManager.Account account = accounts.get(i);
+            // 已在本地记录今日完成的账号无需为了它消耗一次网络节流间隔。
+            if (i > 0 && previousAccountAttemptedNetwork
+                    && (force || !account.isSignedToday()) && intervalSec > 0) {
+                try {
+                    Thread.sleep(intervalSec * 1000L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                previousAccountAttemptedNetwork = false;
+            }
             final int index = i + 1;
             if (callback != null) {
                 MAIN.post(() -> callback.onProgress(index, accounts.size(), account.displayName()));
@@ -199,15 +211,8 @@ public final class MultiSignInManager {
             // 把运行日志冲得没法看。跳过的不再逐条记，只在真正动作时记。
             if (!item.skipped) AiLog.i("sign-in", item.line());
 
-            // 账号之间歇一会儿，论坛挂了 ESA，连发必吃 403
-            if (i < accounts.size() - 1 && intervalSec > 0) {
-                try {
-                    Thread.sleep(intervalSec * 1000L);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
+            // 只在刚执行过网络签到后才为下一个未签到账号节流；本地跳过不再空等。
+            if (!item.skipped) previousAccountAttemptedNetwork = true;
         }
 
         SignInSettings.saveLastRun(app, summary.shortText());

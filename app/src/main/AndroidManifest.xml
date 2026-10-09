@@ -115,6 +115,11 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".ui.space.UserWallActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 原生编辑资料表单（完全原生化，无 WebView 套壳） -->
         <activity
             android:name=".ui.space.NativeProfileFormActivity"

@@ -1,0 +1,4 @@
+# git archive（发布源码压缩包）排除项：签名材料与历史参考存档不进入发布包
+app/keystore.jks export-ignore
+app/signing.properties export-ignore
+MT论坛源码1.08.zip export-ignore

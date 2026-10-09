@@ -72,9 +72,10 @@ public final class AutoSignInManager {
 
     private static void run(Context context, boolean force, Callback callback) {
         final Context app = context.getApplicationContext();
-        // build67: 账号库里有记录就一律走多账号链路 —— 它会解析并记录
-        // 签到时间/排名/奖励，单账号旧链路只能记个文案，侧边栏就显示不出金币数。
-        if (!AccountManager.enabledList(app).isEmpty()) {
+        // 按“全部账号签到”设置选择范围；关闭时仅对当前会话账号执行旧链路。
+        // 不再因为账号库里恰好有多条记录而无条件串行等待所有账号。
+        if (!AccountManager.enabledList(app).isEmpty()
+                && SignInSettings.isAllAccounts(app)) {
             runMulti(app, force, callback);
             return;
         }

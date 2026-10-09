@@ -3,13 +3,26 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// ==================== 关于 cloudflared（v5.16 起已移除）====================
-// v4.4~v5.15 期间这里会下载官方 arm64 cloudflared 打进 jniLibs，用于「公网 MCP 隧道」。
-// 该功能用户判定无效，v5.16 已整体移除；这个任务一并删掉 —— 它压缩后 17 MB，
-// 占整个 APK 的 82%（实测 20.81 MB 里 17.02 MB 是它），是「安装包体积过大」的直接原因。
-// 顺带一提：正因为它是构建时下载的，GitHub Actions 的源码包从来不含它，
-// 而 release 工作流会把它塞进 APK —— 于是「源码构建出的包」和「发布包」体积差 5 倍。
-// 现在两边一致，都不再包含任何 native 二进制。
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('app/signing.properties')
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+def signingValue = { String environmentName, String propertyName ->
+    System.getenv(environmentName) ?: signingProperties.getProperty(propertyName)
+}
+def releaseStorePath = signingValue('ANDROID_KEYSTORE_PATH', 'storeFile')
+def releaseStoreFile = releaseStorePath ? rootProject.file(releaseStorePath) : null
+def releaseStorePassword = signingValue('ANDROID_KEYSTORE_PASSWORD', 'storePassword')
+def releaseKeyAlias = signingValue('ANDROID_KEY_ALIAS', 'keyAlias')
+def releaseKeyPassword = signingValue('ANDROID_KEY_PASSWORD', 'keyPassword')
+def releaseSigningReady = releaseStoreFile != null && releaseStoreFile.isFile()
+        && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
+
+// cloudflared 公网隧道已移除；当前恢复的 MCP 只绑定本机回环，无需 native tunnel binary。
+// 旧版 17 MB cloudflared 是此前 APK 体积过大的主因；源码构建与 CI APK 均不再拉取或打包它。
+
 
 android {
     namespace 'com.solosu.mtforum'
@@ -19,8 +32,8 @@ android {
         applicationId 'com.solosu.mtforum'
         minSdk 29
         targetSdk 34
-        versionCode 56
-        versionName "5.21"
+        versionCode 57
+        versionName "5.22"
         // 应用界面只有中/英文资源，去掉依赖库中不会使用的几十套翻译。
         resourceConfigurations += ['zh', 'en']
 
@@ -28,16 +41,19 @@ android {
     }
 
     signingConfigs {
-        release {
-            storeFile file('keystore.jks')
-            storePassword 'mtforum123'
-            keyAlias 'mtforum'
-            keyPassword 'mtforum123'
+        if (releaseSigningReady) {
+            release {
+                storeFile releaseStoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (releaseSigningReady) signingConfig signingConfigs.release
+            // 未配置本地/CI 签名材料时允许构建未签名 release 供 CI 编译验证；正式发布由工作流强制要求签名。
             // Release 使用 R8 删除未使用代码/资源并优化字节码，显著减小 APK。
             minifyEnabled true
             shrinkResources true

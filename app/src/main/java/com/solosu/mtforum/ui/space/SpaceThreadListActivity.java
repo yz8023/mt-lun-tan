@@ -336,6 +336,17 @@ public class SpaceThreadListActivity extends AppCompatActivity {
                             + "&do=thread&view=me&mobile=2";
                 }
                 break;
+            case "uid_replies":
+                String repliesUser = getIntent().getStringExtra("username");
+                title = (repliesUser == null || repliesUser.isEmpty()) ? "用户的回复" : repliesUser + "的回复";
+                if (targetUid == null || targetUid.isEmpty()) {
+                    title = "用户的回复";
+                    listUrl = HttpClient.BASE_URL + "home.php?mod=space&do=thread&view=me&mobile=2&type=reply";
+                } else {
+                    listUrl = HttpClient.BASE_URL + "home.php?mod=space&uid=" + targetUid
+                            + "&do=thread&view=me&mobile=2&type=reply";
+                }
+                break;
             case "my_replies":
                 title = "我的回复";
                 listUrl = HttpClient.BASE_URL + "home.php?mod=space&do=thread&view=me&mobile=2&type=reply";

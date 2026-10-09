@@ -159,8 +159,9 @@ public final class PostCodeRender {
     private static Element buildCard(String code, String lang) {
         Element card = new Element("div").addClass(MARK);
         Element hd = new Element("div").addClass(MARK_HD);
+        String language = lang == null ? "" : lang.trim();
         hd.appendChild(new Element("span").addClass("mt-code-lang")
-                .text(lang == null || lang.isEmpty() ? "代码" : lang));
+                .text(language.isEmpty() ? "代码内容" : "代码内容 · " + language));
         hd.appendChild(new Element("span").addClass(MARK_BTN).text("复制"));
         card.appendChild(hd);
         // 用 .text() 落文本：< > & 会被自动转义，代码里再怪的字符也不会破坏 HTML
