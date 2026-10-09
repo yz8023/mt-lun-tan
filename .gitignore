@@ -20,9 +20,11 @@ local.properties
 .cxx/
 .externalNativeBuild/
 
-# 签名(默认忽略,防止误传私钥;本项目为演示 keystore 已附,正式分发请自换)
-# *.jks
-# *.keystore
+# Signing material must stay local and must never enter source archives.
+app/keystore.jks
+app/signing.properties
+*.jks
+*.keystore
 
 # 系统垃圾
 .DS_Store

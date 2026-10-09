@@ -14,6 +14,8 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -22,11 +24,14 @@ import com.solosu.mtforum.adapter.ThreadAdapter;
 import com.solosu.mtforum.model.Thread;
 import com.solosu.mtforum.network.ForumParser;
 import com.solosu.mtforum.network.HttpClient;
+import com.solosu.mtforum.session.SearchHistoryStore;
 import com.solosu.mtforum.ui.detail.ThreadDetailActivity;
 import com.solosu.mtforum.ui.space.UserProfileActivity;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 搜索结果页。
@@ -58,11 +63,16 @@ public class SearchActivity extends AppCompatActivity {
 
     // ==================== build63: 按需分页 ====================
     private ProgressBar progressLoadMore;
+    private LinearLayout layoutSearchHistory;
+    private ChipGroup chipSearchHistory;
+    private TextView btnClearSearchHistory;
     private String searchId = null;
     private int totalPages = 1;
     private int loadedPage = 0;
     private boolean loading = false;
     private boolean exhausted = false;
+    private volatile int searchGeneration = 0;
+    private final ExecutorService searchExecutor = Executors.newSingleThreadExecutor();
     /** 上一次请求的时刻，用于给相邻两页之间强制留间隔，避免被风控 */
     private long lastRequestAt = 0L;
     /** 相邻两页之间的最小间隔（毫秒） */
@@ -112,6 +122,11 @@ public class SearchActivity extends AppCompatActivity {
         recyclerView.setLayoutManager(layoutManager);
         recyclerView.setAdapter(threadAdapter);
         progressLoadMore = findViewById(R.id.progress_load_more);
+        layoutSearchHistory = findViewById(R.id.layout_search_history);
+        chipSearchHistory = findViewById(R.id.chip_search_history);
+        btnClearSearchHistory = findViewById(R.id.btn_clear_search_history);
+        btnClearSearchHistory.setOnClickListener(v -> confirmClearSearchHistory());
+        renderSearchHistory();
 
         // build63: 滚到底再取下一页，而不是开搜就把所有页并发抓完
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -193,23 +208,74 @@ public class SearchActivity extends AppCompatActivity {
         currentSortBy = DEFAULT_SORT;
         updateSortChips();
         layoutSortBar.setVisibility(View.VISIBLE);
+        SearchHistoryStore.add(this, keyword);
+        renderSearchHistory();
         startSearch(keyword);
+    }
+
+    /** 显示最近搜索；点选重搜，点芯片上的叉号删除单项。 */
+    private void renderSearchHistory() {
+        if (chipSearchHistory == null || layoutSearchHistory == null) return;
+        List<String> history = SearchHistoryStore.list(this);
+        chipSearchHistory.removeAllViews();
+        layoutSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
+        if (btnClearSearchHistory != null) {
+            btnClearSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        for (String term : history) {
+            Chip chip = new Chip(this);
+            chip.setText(term);
+            chip.setCheckable(false);
+            chip.setClickable(true);
+            chip.setCloseIconVisible(true);
+            chip.setCloseIconResource(android.R.drawable.ic_menu_close_clear_cancel);
+            chip.setCloseIconContentDescription("删除搜索词 " + term);
+            chip.setOnClickListener(v -> {
+                etSearch.setText(term);
+                etSearch.setSelection(term.length());
+                performSearch();
+            });
+            chip.setOnCloseIconClickListener(v -> {
+                SearchHistoryStore.remove(this, term);
+                renderSearchHistory();
+            });
+            chipSearchHistory.addView(chip);
+        }
+    }
+
+    private void confirmClearSearchHistory() {
+        if (SearchHistoryStore.list(this).isEmpty()) return;
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("清空搜索历史")
+                .setMessage("删除本机保存的全部搜索词？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (dialog, which) -> {
+                    SearchHistoryStore.clear(this);
+                    renderSearchHistory();
+                })
+                .show();
     }
 
     /** 重置分页状态并拉第一页 */
     private void startSearch(String keyword) {
         pendingKeyword = keyword;
-        if (!HttpClient.getInstance().isLoggedIn()) {
-            tvError.setText(R.string.search_login_required);
-            tvError.setVisibility(View.VISIBLE);
-            return;
-        }
+        searchGeneration++;
+        loading = false;
         allResults.clear();
         threadAdapter.setThreadList(null);
         searchId = null;
         totalPages = 1;
         loadedPage = 0;
         exhausted = false;
+
+        if (!HttpClient.getInstance().isLoggedIn()) {
+            progressBar.setVisibility(View.GONE);
+            recyclerView.setVisibility(View.GONE);
+            tvEmpty.setVisibility(View.GONE);
+            tvError.setText(R.string.search_login_required);
+            tvError.setVisibility(View.VISIBLE);
+            return;
+        }
 
         progressBar.setVisibility(View.VISIBLE);
         recyclerView.setVisibility(View.GONE);
@@ -236,41 +302,61 @@ public class SearchActivity extends AppCompatActivity {
             return;
         }
         loading = true;
+        final int generation = searchGeneration;
         final int page = loadedPage + 1;
         final String keyword = pendingKeyword;
         final String orderby = currentSortBy;
+        final String pageSearchId = searchId;
         if (page > 1) progressLoadMore.setVisibility(View.VISIBLE);
 
-        new java.lang.Thread(() -> {
+        // 单线程队列保证不同关键词的查询也不会并发撞论坛；generation 让旧结果完全失效。
+        searchExecutor.execute(() -> {
             String failure = null;
             List<Thread> pageResults = null;
+            String nextSearchId = pageSearchId;
+            int nextTotalPages = totalPages;
             try {
-                // 强制间隔：相邻两页之间至少隔 PAGE_INTERVAL_MS
                 long wait = PAGE_INTERVAL_MS - (System.currentTimeMillis() - lastRequestAt);
-                if (page > 1 && wait > 0) java.lang.Thread.sleep(wait);
+                if (lastRequestAt > 0 && wait > 0) java.lang.Thread.sleep(wait);
+                if (generation != searchGeneration) return;
                 lastRequestAt = System.currentTimeMillis();
 
-                String url = (page == 1 || searchId == null)
-                        ? ForumParser.getSearchUrl(keyword, 1, orderby)
-                        : ForumParser.getSearchPageUrl(searchId, page, orderby);
-                String html = HttpClient.getInstance().get(url);
-
-                if (isBlocked(html)) {
-                    failure = "被论坛防护拦截（403），请求太密集了。歇一会儿再搜，或换个更具体的关键词。";
+                String url;
+                if (page == 1) {
+                    url = ForumParser.getSearchUrl(keyword, 1, orderby);
+                } else if (!TextUtils.isEmpty(pageSearchId)) {
+                    url = ForumParser.getSearchPageUrl(pageSearchId, page, orderby);
                 } else {
-                    pageResults = ForumParser.parseSearchResults(html);
-                    if (page == 1) {
-                        searchId = ForumParser.extractSearchId(html);
-                        totalPages = Math.max(1, ForumParser.parseSearchTotalPages(html));
+                    failure = "论坛没有返回分页标识，无法安全加载后续结果";
+                    url = null;
+                }
+                if (url != null) {
+                    String html = HttpClient.getInstance().get(url);
+                    if (isBlocked(html)) {
+                        failure = "被论坛防护拦截（403），请求太密集了。歇一会儿再搜，或换个更具体的关键词。";
+                    } else {
+                        pageResults = ForumParser.parseSearchResults(html);
+                        if (pageResults == null) pageResults = new ArrayList<>();
+                        if (page == 1) {
+                            nextSearchId = ForumParser.extractSearchId(html);
+                            nextTotalPages = Math.max(1, ForumParser.parseSearchTotalPages(html));
+                        }
                     }
                 }
+            } catch (InterruptedException e) {
+                java.lang.Thread.currentThread().interrupt();
+                return;
             } catch (Exception e) {
                 failure = "网络错误：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
             }
 
             final String fFailure = failure;
             final List<Thread> fResults = pageResults;
+            final String fSearchId = nextSearchId;
+            final int fTotalPages = nextTotalPages;
             runOnUiThread(() -> {
+                if (generation != searchGeneration || isFinishing()
+                        || (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
                 loading = false;
                 progressBar.setVisibility(View.GONE);
                 progressLoadMore.setVisibility(View.GONE);
@@ -283,30 +369,36 @@ public class SearchActivity extends AppCompatActivity {
                         android.widget.Toast.makeText(this, fFailure,
                                 android.widget.Toast.LENGTH_LONG).show();
                     }
-                    exhausted = true;   // 出错就别继续翻页，免得雪上加霜
+                    exhausted = true;
                     return;
                 }
 
+                if (page == 1) {
+                    searchId = fSearchId;
+                    totalPages = fTotalPages;
+                }
                 loadedPage = page;
                 int added = mergeResults(fResults);
-                if (loadedPage >= totalPages || (added == 0 && page > 1)) {
-                    exhausted = true;
-                }
+                if (loadedPage >= totalPages || (added == 0 && page > 1)) exhausted = true;
 
                 if (allResults.isEmpty()) {
                     tvEmpty.setText(R.string.search_no_results);
                     tvEmpty.setVisibility(View.VISIBLE);
                     recyclerView.setVisibility(View.GONE);
                 } else {
+                    tvEmpty.setVisibility(View.GONE);
                     recyclerView.setVisibility(View.VISIBLE);
-                    if (page == 1) {
-                        threadAdapter.setThreadList(new ArrayList<>(allResults));
-                    } else {
-                        threadAdapter.setThreadList(new ArrayList<>(allResults));
-                    }
+                    threadAdapter.setThreadList(new ArrayList<>(allResults));
                 }
             });
-        }).start();
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        searchGeneration++;
+        searchExecutor.shutdownNow();
+        super.onDestroy();
     }
 
     /** 合并去重，返回新增条数 */

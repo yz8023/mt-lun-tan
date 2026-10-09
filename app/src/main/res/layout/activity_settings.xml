@@ -36,6 +36,23 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <TextView style="@style/SettingsSection" android:text="消息与通知" />
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout style="@style/SettingsRow">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                        <TextView style="@style/SettingsTitle" android:text="同帖通知批量已读" />
+                        <TextView style="@style/SettingsSummary" android:text="点开一条通知时，同时标记当前列表中同一帖子的通知；默认关闭" />
+                    </LinearLayout>
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switch_same_thread_read"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:contentDescription="同帖通知批量已读开关"
+                        app:thumbTint="@color/switch_thumb_tint"
+                        app:trackTint="@color/switch_track_tint" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <TextView style="@style/SettingsSection" android:text="外观与阅读" />
             <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
@@ -84,6 +101,48 @@
             </com.google.android.material.card.MaterialCardView>
             <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
                 <Button android:id="@+id/btn_clear_cache" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="清除图片与页面缓存" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView style="@style/SettingsSection" android:text="高级工具与集成" />
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                    <LinearLayout style="@style/SettingsRow">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                            <TextView style="@style/SettingsTitle" android:text="本机只读 MCP" />
+                            <TextView android:id="@+id/tv_mcp_summary" style="@style/SettingsSummary" android:text="默认关闭；仅本机回环访问，不含公网隧道" />
+                        </LinearLayout>
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/switch_mcp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="本机只读 MCP 服务开关"
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/tv_mcp_endpoint" style="@style/SettingsSummary"
+                        android:layout_width="match_parent" android:text=""
+                        android:visibility="gone" />
+                    <LinearLayout android:id="@+id/layout_mcp_token" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                        android:gravity="center_vertical" android:orientation="horizontal" android:visibility="gone">
+                        <TextView style="@style/SettingsItemText" android:text="访问令牌" />
+                        <TextView android:id="@+id/tv_mcp_token_value" android:layout_width="0dp"
+                            android:layout_height="wrap_content" android:layout_marginStart="10dp"
+                            android:layout_weight="1" android:ellipsize="middle" android:fontFamily="monospace"
+                            android:maxLines="1" android:text="••••••" android:textColor="@color/text_secondary"
+                            android:textIsSelectable="true" android:textSize="12sp" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/tv_mcp_connection_note" style="@style/SettingsSummary"
+                        android:layout_width="match_parent"
+                        android:text="电脑端可通过 USB 调试执行 adb forward tcp:9797 tcp:9797，再连接本机端点。"
+                        android:visibility="gone" />
+                    <Button android:id="@+id/btn_mcp_copy_config" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                        android:text="复制连接配置" android:visibility="gone" />
+                    <Button android:id="@+id/btn_mcp_regenerate_token" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:text="重新生成访问令牌"
+                        android:visibility="gone" />
+                </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <TextView style="@style/SettingsSection" android:text="关于与更新" />

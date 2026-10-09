@@ -137,12 +137,13 @@ public class MainActivity extends AppCompatActivity {
                 com.solosu.mtforum.ui.theme.ThemeManager.applyAccent(
                         findViewById(android.R.id.content), this));
 
-        // build83(分支): 进入某个消息分类后本地即时清红点，零额外请求
+        // 消息逐条标为已读后用本地分类计数更新角标，不额外发请求，也不把整类未点开的通知清掉。
         com.solosu.mtforum.network.NoticeBadgeManager.setOnViewedListener(viewType -> {
             if (mainHandler == null) return;
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
-                if (tvMessageBadge != null) tvMessageBadge.setVisibility(View.GONE);
+                updateBadgeDisplay(com.solosu.mtforum.network.NoticeBadgeManager
+                        .getTotalNewCount(MainActivity.this));
             });
         });
     }
@@ -1682,6 +1683,8 @@ public class MainActivity extends AppCompatActivity {
         }
         // 防止上一次网络刷新尚未结束时重复提交任务。
         if (!badgeRefreshInFlight.compareAndSet(false, true)) return;
+        final String badgeAccountUid = NoticeBadgeManager.activeAccountUid(this);
+        final int badgeReadEpoch = NoticeBadgeManager.getReadEpochForAccount(this, badgeAccountUid);
         if (executor == null || executor.isShutdown() || executor.isTerminated()) {
             badgeRefreshInFlight.set(false);
             scheduleNextBadgeRefresh();
@@ -1704,14 +1707,16 @@ public class MainActivity extends AppCompatActivity {
                             url = HttpClient.BASE_URL + "home.php?mod=space&do=pm&mobile=2";
                         } else if ("follower".equals(viewType)) {
                             url = HttpClient.BASE_URL + "home.php?mod=follow&do=follower&uid="
-                                    + getCurrentUid() + "&mobile=2";
+                                    + (android.text.TextUtils.isEmpty(badgeAccountUid) ? "0" : badgeAccountUid)
+                                    + "&mobile=2";
                         } else {
                             url = HttpClient.BASE_URL + "home.php?mod=space&do=notice&view=" + viewType;
                         }
                         try {
                             executor.execute(() -> {
                                 try {
-                                    putUnreadData(counts, fingerprints, viewType, url);
+                                    putUnreadData(counts, fingerprints, viewType, url,
+                                            badgeAccountUid, badgeReadEpoch);
                                 } finally {
                                     latch.countDown();
                                 }
@@ -1724,6 +1729,12 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         badgeRefreshInFlight.set(false);
                         if (isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                        if (!android.text.TextUtils.equals(badgeAccountUid,
+                                NoticeBadgeManager.activeAccountUid(MainActivity.this))) {
+                            lastBadgeRefreshAt = 0L;
+                            scheduleNextBadgeRefresh();
+                            return;
+                        }
                         applyUnreadCounts(counts, fingerprints);
                     });
                 } catch (InterruptedException ignored) {
@@ -1773,7 +1784,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void putUnreadData(java.util.Map<String, Integer> counts,
                                  java.util.Map<String, String> fingerprints,
-                                 String viewType, String url) {
+                                 String viewType, String url, String accountUid, int readEpoch) {
         try {
             String html = ("pm".equals(viewType) || "follower".equals(viewType))
                     ? HttpClient.getInstance().get(url)
@@ -1784,11 +1795,15 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
+            // 账号切换期间，旧请求响应不再保存或覆盖新账号角标。
+            if (!android.text.TextUtils.equals(accountUid,
+                    NoticeBadgeManager.activeAccountUid(MainActivity.this))) return;
+
             // 与 NoticeFragment 使用同一套“当前列表 - 已查看快照”算法。
             String snapshot = NoticeBadgeManager.buildSnapshot(
                     viewType, html, HttpClient.getInstance());
-            int count = NoticeBadgeManager.saveCurrentAndGetNewCount(
-                    MainActivity.this, viewType, snapshot);
+            int count = NoticeBadgeManager.saveCurrentAndGetNewCountForAccount(
+                    MainActivity.this, accountUid, viewType, snapshot, readEpoch);
             counts.put(viewType, count);
             fingerprints.put(viewType, snapshot);
         } catch (Exception ignored) {
@@ -1872,11 +1887,14 @@ public class MainActivity extends AppCompatActivity {
         // build60: 老用户/首次登录可能还没入账号库，补一次，多账号签到才有数据
         AutoSignInManager.syncCurrentSessionToAccounts(this);
         AutoSignInManager.checkAndSignIn(this, (success, performed, message) -> {
+            if (isFinishing() || isDestroyed()) return;
+            // 自动任务在 onStart 后台完成；只靠 onResume 刷新会早于签到结果，侧栏会陈旧。
+            refreshDrawerHeader();
             if (success || "今日已签到".equals(message)) {
                 // 通知社区页刷新签到按钮状态
                 com.solosu.mtforum.ui.community.CommunityFragment.refreshSignIn();
             }
-            if (performed && success && !isFinishing()) {
+            if (performed && success) {
                 Toast.makeText(this, "自动签到成功", Toast.LENGTH_SHORT).show();
             } else if (!performed && !isFinishing() && "请先登录".equals(message)) {
                 // 未登录时静默等待,不弹 Toast 打扰用户
@@ -1955,11 +1973,21 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("跳转", null).setNegativeButton("取消", null).create();
         dialog.setOnShowListener(x -> ((androidx.appcompat.app.AlertDialog)dialog).getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String raw = input.getText() == null ? "" : input.getText().toString().trim();
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:tid=|thread-)?(\\d+)").matcher(raw);
-            if (!m.find()) { input.setError("请输入有效数字 ID"); return; }
-            String id = m.group(1); dialog.dismiss();
-            if (types.getCheckedRadioButtonId() == user.getId()) {
-                Intent it = new Intent(this, com.solosu.mtforum.ui.space.UserProfileActivity.class); it.putExtra("uid", id); startActivity(it);
+            boolean isUserId = types.getCheckedRadioButtonId() == user.getId();
+            String id = isUserId
+                    ? com.solosu.mtforum.util.ForumIdParser.parseUid(raw)
+                    : com.solosu.mtforum.util.ForumIdParser.parseTid(raw);
+            if (id == null) {
+                input.setError(isUserId
+                        ? "请输入 UID，或粘贴包含 uid= 的用户主页链接"
+                        : "请输入 TID，或粘贴包含 tid= / thread-数字 的帖子链接");
+                return;
+            }
+            dialog.dismiss();
+            if (isUserId) {
+                Intent it = new Intent(this, com.solosu.mtforum.ui.space.UserProfileActivity.class);
+                it.putExtra("uid", id);
+                startActivity(it);
             } else {
                 com.solosu.mtforum.util.NavigationHelper.openThread(this, id);
             }

@@ -15,6 +15,8 @@ import com.solosu.mtforum.util.ImageUrl;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Node;
+import org.jsoup.nodes.TextNode;
 import org.jsoup.select.Elements;
 
 import java.io.UnsupportedEncodingException;
@@ -1026,11 +1028,18 @@ public class ForumParser {
                 notice.setTitle(fullText);
 
                 if (titleLink != null) {
-                    Matcher tidMatcher = Pattern.compile("(?:ptid=|thread-)(\\d+)").matcher(titleLink.attr("href"));
+                    String titleHref = titleLink.attr("href");
+                    Matcher tidMatcher = Pattern.compile("(?:ptid=|thread-)(\\d+)").matcher(titleHref);
                     if (tidMatcher.find()) {
                         String summary = notice.getSummary();
                         notice.setSummary((summary == null ? "" : summary) + " tid=" + tidMatcher.group(1));
                     }
+                }
+                Element postLink = body.select("a[href*=findpost], a[href*=pid=]").first();
+                if (postLink != null) {
+                    Matcher pidMatcher = Pattern.compile("(?:[?&]pid=|pid=)(\\d+)")
+                            .matcher(postLink.attr("href"));
+                    if (pidMatcher.find()) notice.setPid(pidMatcher.group(1));
                 }
 
                 Element time = item.select("h2.f_d").first();
@@ -1182,6 +1191,8 @@ public class ForumParser {
                     if (m.find()) {
                         notice.setSummary((notice.getSummary() != null ? notice.getSummary() + " " : "") + "tid=" + m.group(1));
                     }
+                    Matcher pidMatcher = Pattern.compile("(?:[?&]pid=|pid=)(\\d+)").matcher(href);
+                    if (pidMatcher.find()) notice.setPid(pidMatcher.group(1));
                 }
 
                 // ★ 判断通知类型
@@ -2222,6 +2233,180 @@ detail.setTotalPages(maxPage);
         }
     }
 
+
+    /** 解析 Discuz/Comiis 用户留言板条目。 */
+    private static boolean isWallEmpty(String value) {
+        return value == null || value.length() == 0;
+    }
+
+    public static List<Message> parseWallMessages(String html) {
+        List<Message> messages = new ArrayList<>();
+        if (isWallEmpty(html)) return messages;
+        try {
+            Document document = Jsoup.parse(html, BASE_DOMAIN);
+            Elements items = document.select("dl[id^=comment_]");
+            if (items.isEmpty()) {
+                items = document.select("div[id^=comment_], li[id^=comment_]");
+            }
+            for (Element item : items) {
+                Message message = parseWallEntry(item);
+                if (message != null) messages.add(message);
+            }
+        } catch (RuntimeException ignored) {
+            // Keep the rest of the page usable when a malformed third-party entry is encountered.
+        }
+        return messages;
+    }
+
+    private static Message parseWallEntry(Element item) {
+        Message message = new Message();
+        message.setType(0);
+        message.setPmid(extractWallId(item));
+
+        Element header = item.selectFirst("dt");
+        if (header == null) header = item;
+        extractWallMetadata(header, message);
+
+        Element body = item.selectFirst("dd.pm_c, dd.plface, dd");
+        if (body == null) body = item.selectFirst(".pm_c, .plface");
+        if (body != null) {
+            Element quote = body.selectFirst(".comiis_quote, .quote, blockquote, [class*=quote]");
+            if (quote != null) {
+                Element quoteClone = quote.clone();
+                quoteClone.select("img, dt, .top_time, .f_d, .xg1, [class*=time], a.top_user, a.xw1, a.b_b")
+                        .remove();
+                message.setQuotedContent(quoteClone.text().trim());
+            }
+
+            Element clone = body.clone();
+            clone.select(".comiis_quote, .quote, blockquote, [class*=quote], "
+                    + "[id^=comment_reply_], [id^=reply_], .reply, .comment_reply, "
+                    + "a[id$=_edit], a[id$=_delete], a[id$=_reply]").remove();
+            clone.select("a.xw1, a.b_b, a.top_user, a[href*=space-uid], a[href*=uid=], "
+                    + "a[href*=touid], span.xg1, span.xi2, span[title], img").remove();
+            message.setSummary(wallText(clone).trim());
+        }
+
+        if (isWallEmpty(message.getAuthor())) extractWallMetadata(item, message);
+        extractWallActions(item, message);
+        if (isWallEmpty(message.getSummary()) && isWallEmpty(message.getAuthor())) return null;
+        return message;
+    }
+
+    private static void extractWallMetadata(Element source, Message message) {
+        if (source == null || message == null) return;
+        if (isWallEmpty(message.getAuthor())) {
+            Elements candidates = source.select("a.top_user, a.xw1, a.b_b, "
+                    + "a[href*=space-uid-], a[href*=space-uid], a[href*=touid=], a[href*=uid=]");
+            for (Element candidate : candidates) {
+                if (candidate.closest(".comiis_quote, .quote, blockquote, [class*=quote], "
+                        + "[id^=comment_reply_], [id^=reply_]") != null) continue;
+                String name = candidate.text().trim();
+                if (isWallEmpty(name) || isWallDateLike(name)) continue;
+                message.setAuthor(name);
+                String uid = extractWallUid(candidate.attr("href"));
+                if (!isWallEmpty(uid)) message.setAuthorUid(uid);
+                break;
+            }
+        }
+
+        if (isWallEmpty(message.getAvatarUrl())) {
+            Element avatar = source.selectFirst("img[src], img[data-original]");
+            if (avatar != null) {
+                String url = avatar.hasAttr("src") ? avatar.attr("src") : avatar.attr("data-original");
+                message.setAvatarUrl(normalizeWallUrl(url));
+            }
+        }
+        if (isWallEmpty(message.getTime())) {
+            Element time = source.selectFirst("span.top_time, .f_d, .xg1, [class*=time]");
+            if (time != null && !isWallEmpty(time.text().trim())) {
+                message.setTime(time.text().trim());
+            }
+        }
+
+    }
+
+    private static void extractWallActions(Element source, Message message) {
+        if (source == null || message == null) return;
+        Element edit = source.selectFirst("a[id$=_edit][href], a[href*=ac=comment][href*=op=edit]");
+        if (edit != null) message.setWallEditUrl(normalizeWallUrl(edit.attr("href")));
+        Element delete = source.selectFirst("a[id$=_delete][href], a[href*=ac=comment][href*=op=delete]");
+        if (delete != null) message.setWallDeleteUrl(normalizeWallUrl(delete.attr("href")));
+        Element reply = source.selectFirst("a[id$=_reply][href], a[href*=ac=comment][href*=op=reply]");
+        if (reply != null) message.setWallReplyUrl(normalizeWallUrl(reply.attr("href")));
+    }
+
+    private static String wallText(Element element) {
+        if (element == null) return "";
+        StringBuilder text = new StringBuilder();
+        appendWallText(element, text);
+        return text.toString().replaceAll("[ \\t]+", " ")
+                .replaceAll(" *\\n *", "\n").replaceAll("\\n{3,}", "\n\n").trim();
+    }
+
+    private static void appendWallText(Node node, StringBuilder text) {
+        if (node instanceof TextNode) {
+            text.append(((TextNode) node).getWholeText());
+        } else if (node instanceof Element) {
+            Element element = (Element) node;
+            if ("br".equals(element.tagName())) {
+                text.append('\n');
+                return;
+            }
+            for (Node child : element.childNodes()) appendWallText(child, text);
+            if (element.isBlock()) text.append('\n');
+        }
+    }
+
+    private static String extractWallId(Element element) {
+        if (element == null) return "";
+        Matcher matcher = Pattern.compile("(?:comment|reply)[_-](\\d+)").matcher(element.id());
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String extractWallUid(String url) {
+        if (isWallEmpty(url)) return "";
+        Matcher query = Pattern.compile("(?:[?&]|^)uid=(\\d+)").matcher(url);
+        if (query.find()) return query.group(1);
+        Matcher path = Pattern.compile("space-uid-(\\d+)").matcher(url);
+        return path.find() ? path.group(1) : "";
+    }
+
+    private static String normalizeWallUrl(String url) {
+        if (isWallEmpty(url)) return "";
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        if (url.startsWith("//")) return "https:" + url;
+        if (url.startsWith("/")) return BASE_DOMAIN + url.substring(1);
+        return BASE_DOMAIN + url;
+    }
+
+    private static boolean isWallDateLike(String text) {
+        if (isWallEmpty(text)) return false;
+        return text.matches(".*(?:\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}:\\d{2}|"
+                + "\\d+\\s*(?:分钟|小时|天前|秒前)).*");
+    }
+
+    /** 解析留言板分页链接中的最大页码。 */
+    public static int parseWallMaxPage(String html) {
+        if (isWallEmpty(html)) return 1;
+        int maxPage = 1;
+        try {
+            Document document = Jsoup.parse(html, BASE_DOMAIN);
+            for (Element link : document.select("a[href*=page=], option[value*=page=]")) {
+                String url = link.hasAttr("href") ? link.attr("href") : link.attr("value");
+                Matcher matcher = Pattern.compile("(?:^|[?&])page=(\\d+)").matcher(url);
+                if (matcher.find()) maxPage = Math.max(maxPage, Integer.parseInt(matcher.group(1)));
+            }
+            Element pages = document.selectFirst(".pg, .comiis_p12, .page, [class*=page]");
+            if (pages != null) {
+                Matcher matcher = Pattern.compile("(?:共\\s*)?(\\d+)\\s*页").matcher(pages.text());
+                while (matcher.find()) maxPage = Math.max(maxPage, Integer.parseInt(matcher.group(1)));
+            }
+        } catch (RuntimeException ignored) {
+            // A malformed pagination widget should not break wall display.
+        }
+        return Math.max(1, maxPage);
+    }
 
     /**
      * 提取 formhash（发帖/回复需要）

@@ -13,6 +13,8 @@ import com.solosu.mtforum.databinding.ActivitySettingsBinding;
 //import com.solosu.mtforum.network.UpdateChecker;
 import com.solosu.mtforum.session.AccountManager;
 import com.solosu.mtforum.session.AutoSignInManager;
+import com.solosu.mtforum.session.SameThreadReadManager;
+import com.solosu.mtforum.mcp.McpServerManager;
 import com.solosu.mtforum.util.CrashHandler;
 import androidx.appcompat.app.AlertDialog;
 import android.content.DialogInterface;
@@ -48,6 +50,40 @@ public class SettingsActivity extends AppCompatActivity {
         binding.switchAutoSignIn.setChecked(autoSignInEnabled);
         binding.switchAutoSignIn.setOnCheckedChangeListener((buttonView, isChecked) ->
                 AutoSignInManager.setEnabled(this, isChecked));
+
+        binding.switchSameThreadRead.setChecked(SameThreadReadManager.isEnabled(this));
+        binding.switchSameThreadRead.setOnCheckedChangeListener((buttonView, isChecked) ->
+                SameThreadReadManager.setEnabled(this, isChecked));
+
+        McpServerManager mcp = McpServerManager.getInstance(getApplicationContext());
+        binding.switchMcp.setChecked(mcp.isEnabled());
+        binding.switchMcp.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            mcp.setEnabled(isChecked);
+            updateMcpInfo();
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed()) updateMcpInfo();
+            }, 700L);
+            Toast.makeText(this, isChecked ? "本机 MCP 服务已开启" : "本机 MCP 服务已关闭",
+                    Toast.LENGTH_SHORT).show();
+        });
+        binding.btnMcpCopyConfig.setOnClickListener(v -> {
+            mcp.copyConfigToClipboard(this);
+            Toast.makeText(this, "连接配置已复制。电脑端需使用 USB adb forward 转发本机端口。",
+                    Toast.LENGTH_LONG).show();
+        });
+        binding.btnMcpRegenerateToken.setOnClickListener(v -> {
+            android.app.Dialog dialog = new AlertDialog.Builder(this)
+                    .setTitle("重新生成 MCP 令牌")
+                    .setMessage("旧令牌将立即失效。继续后，需要在 MCP 客户端更新认证配置。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("重新生成", (d, which) -> {
+                        mcp.regenerateToken();
+                        updateMcpInfo();
+                        Toast.makeText(this, "新令牌已生成", Toast.LENGTH_SHORT).show();
+                    }).show();
+            DialogHelper.applyToAlertDialog(dialog, this);
+        });
+        updateMcpInfo();
 
         // build60: 账号与签到管理入口
         binding.layoutAccountManager.setOnClickListener(v -> startActivity(
@@ -146,6 +182,31 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateAccountCount();
+        updateMcpInfo();
+    }
+
+    private void updateMcpInfo() {
+        if (binding == null) return;
+        McpServerManager mcp = McpServerManager.getInstance(getApplicationContext());
+        boolean enabled = mcp.isEnabled();
+        binding.switchMcp.setChecked(enabled);
+        if (!enabled) {
+            binding.tvMcpSummary.setText("默认关闭；仅本机回环访问，不含公网隧道");
+        } else if (mcp.isRunning()) {
+            binding.tvMcpSummary.setText("服务运行中；12 个只读工具，认证材料不会输出");
+        } else if (mcp.isStarting()) {
+            binding.tvMcpSummary.setText("服务正在启动；仅绑定 127.0.0.1");
+        } else {
+            binding.tvMcpSummary.setText("已开启但未运行；本机端口 9797 可能不可用");
+        }
+        int visibility = enabled ? View.VISIBLE : View.GONE;
+        binding.tvMcpEndpoint.setText("端点：" + mcp.getEndpoint());
+        binding.tvMcpTokenValue.setText(mcp.getTokenMasked());
+        binding.tvMcpEndpoint.setVisibility(visibility);
+        binding.layoutMcpToken.setVisibility(visibility);
+        binding.tvMcpConnectionNote.setVisibility(visibility);
+        binding.btnMcpCopyConfig.setVisibility(visibility);
+        binding.btnMcpRegenerateToken.setVisibility(visibility);
     }
 
     private void updateDownloadModeText() {

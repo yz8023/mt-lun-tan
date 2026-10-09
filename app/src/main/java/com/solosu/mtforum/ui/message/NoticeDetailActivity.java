@@ -73,6 +73,7 @@ public class NoticeDetailActivity extends AppCompatActivity {
 
         // 设置 RecyclerView
         adapter = new MessageAdapter(this);
+        adapter.setViewType(viewType);
         adapter.setOnItemClickListener((message, position) -> {
             // 私信必须优先进入原生聊天页，不能因为摘要中偶然包含 tid= 而跳到帖子页。
             if ("pm".equals(viewType)) {
@@ -92,10 +93,14 @@ public class NoticeDetailActivity extends AppCompatActivity {
 
             String summary = message.getSummary();
             if (summary != null && !summary.isEmpty()) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("tid=(\\d+)").matcher(summary);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                        "(?:[?&](?:tid|ptid)=|\\b(?:tid|ptid)=|thread-)(\\d+)").matcher(summary);
                 if (m.find()) {
                     Intent intent = new Intent(this, com.solosu.mtforum.ui.detail.ThreadDetailActivity.class);
                     intent.putExtra("tid", m.group(1));
+                    if (!TextUtils.isEmpty(message.getPid())) {
+                        intent.putExtra("pid", message.getPid());
+                    }
                     startActivity(intent);
                 }
             }

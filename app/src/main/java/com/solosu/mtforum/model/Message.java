@@ -11,7 +11,12 @@ public class Message {
     private String title;         // 消息标题
     private String summary;       // 消息摘要
     private String time;        // 时间
+    private String pid;          // 通知对应的回复楼层ID
     private String deleteUrl;   // 私信列表中网页端生成的真实删除地址
+    private String quotedContent; // 留言板回复时引用的原留言
+    private String wallEditUrl;   // 留言板编辑地址
+    private String wallDeleteUrl; // 留言板删除地址
+    private String wallReplyUrl;  // 留言板回复地址
     private boolean isRead;       // 是否已读
     private int type;             // 0=私信, 1=系统通知, 2=回复提醒
 
@@ -37,8 +42,24 @@ public class Message {
 
     public String getTime() { return time; }
     public void setTime(String time) { this.time = time; }
+
+    public String getPid() { return pid; }
+    public void setPid(String pid) { this.pid = pid; }
+
     public String getDeleteUrl() { return deleteUrl; }
     public void setDeleteUrl(String deleteUrl) { this.deleteUrl = deleteUrl; }
+
+    public String getQuotedContent() { return quotedContent; }
+    public void setQuotedContent(String quotedContent) { this.quotedContent = quotedContent; }
+
+    public String getWallEditUrl() { return wallEditUrl; }
+    public void setWallEditUrl(String wallEditUrl) { this.wallEditUrl = wallEditUrl; }
+
+    public String getWallDeleteUrl() { return wallDeleteUrl; }
+    public void setWallDeleteUrl(String wallDeleteUrl) { this.wallDeleteUrl = wallDeleteUrl; }
+
+    public String getWallReplyUrl() { return wallReplyUrl; }
+    public void setWallReplyUrl(String wallReplyUrl) { this.wallReplyUrl = wallReplyUrl; }
 
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }

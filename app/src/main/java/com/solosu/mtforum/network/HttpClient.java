@@ -525,6 +525,68 @@ public class HttpClient {
         }
     }
 
+    /** 通过 Discuz findpost 重定向解析目标回复所在页码（正序页码）。 */
+    public String resolveFindPostPage(String tid, String pid) throws Exception {
+        if (tid == null || pid == null
+                || !tid.matches("[0-9]{1,20}") || !pid.matches("[0-9]{1,20}")) return null;
+        String url = BASE_URL + "forum.php?mod=viewthread&goto=findpost&ptid=" + tid + "&pid=" + pid;
+        Request request = new Request.Builder().url(url)
+                .header("User-Agent", DESKTOP_USER_AGENT)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .get().build();
+        OkHttpClient redirectingClient = client.newBuilder()
+                .followRedirects(true).followSslRedirects(true).build();
+        try (Response response = redirectingClient.newCall(request).execute()) {
+            if (appContext != null) commitCookieStore(appContext);
+            String finalUrl = response.request().url().toString();
+            String page = extractFindPostPage(finalUrl, tid);
+            if (page != null) return page;
+            String location = response.header("Location");
+            if (location != null) {
+                okhttp3.HttpUrl resolved = response.request().url().resolve(location);
+                page = extractFindPostPage(resolved != null ? resolved.toString() : location, tid);
+                if (page != null) return page;
+                if (location.contains("tid=" + tid) || location.contains("thread-" + tid + "-")) return "1";
+            }
+            if (response.body() == null) return null;
+            String body = response.body().string().replace("&amp;", "&")
+                    .replace("%3D", "=").replace("%3d", "=")
+                    .replace("%26", "&");
+            java.util.regex.Matcher redirect = java.util.regex.Pattern.compile(
+                    "(?is)(?:window\\.location|location\\.href|URL=)[^;\\\"'>]*?(?:[?&]page=(\\d+)|thread-"
+                            + java.util.regex.Pattern.quote(tid) + "-(\\d+)-)").matcher(body);
+            if (redirect.find()) return redirect.group(1) != null ? redirect.group(1) : redirect.group(2);
+            java.util.regex.Matcher currentPage = java.util.regex.Pattern.compile(
+                    "(?is)<div[^>]*class=\\\"[^\\\"]*\\bpg\\b[^\\\"]*\\\"[^>]*>.*?<strong>(\\d+)</strong>")
+                    .matcher(body);
+            return currentPage.find() ? currentPage.group(1) : null;
+        }
+    }
+
+    private static String extractFindPostPage(String url, String tid) {
+        if (url == null) return null;
+        okhttp3.HttpUrl parsed = okhttp3.HttpUrl.parse(url);
+        if (parsed != null) {
+            String page = parsed.queryParameter("page");
+            if (page != null && page.matches("[0-9]{1,6}")) return page;
+            // Discuz 常把目标页码编码进 extra 参数，例如 extra=page%3D12。
+            String extra = parsed.queryParameter("extra");
+            if (extra != null) {
+                java.util.regex.Matcher embeddedPage = java.util.regex.Pattern
+                        .compile("(?:^|[&?])page=([0-9]{1,6})(?:$|[&#])")
+                        .matcher(extra.replace("&amp;", "&"));
+                if (embeddedPage.find()) return embeddedPage.group(1);
+                java.util.regex.Matcher compactPage = java.util.regex.Pattern
+                        .compile("(?:^|[&?])page=([0-9]{1,6})$").matcher(extra);
+                if (compactPage.find()) return compactPage.group(1);
+            }
+        }
+        java.util.regex.Matcher pretty = java.util.regex.Pattern.compile(
+                "thread-" + java.util.regex.Pattern.quote(tid) + "-([0-9]{1,6})-").matcher(url);
+        return pretty.find() ? pretty.group(1) : null;
+    }
+
     /**
      * GET 请求返回 byte[]（用于下载图片等二进制内容）
      */

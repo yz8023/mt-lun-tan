@@ -103,7 +103,10 @@ public class CodeBlockView extends LinearLayout {
         rawLang = TextUtils.isEmpty(lang) ? "" : lang.trim();
         tvContent.setText(rawCode);
 
-        tvLang.setText(TextUtils.isEmpty(lang) ? "代码" : lang.trim());
+        String language = TextUtils.isEmpty(lang) ? "" : lang.trim();
+        tvLang.setText(TextUtils.isEmpty(language) ? "代码内容" : "代码内容 · " + language);
+        tvLang.setContentDescription(TextUtils.isEmpty(language)
+                ? "代码内容" : "代码内容，语言 " + language);
 
         int lineCount = countLines(rawCode);
         tvLines.setText(lineCount + " 行");

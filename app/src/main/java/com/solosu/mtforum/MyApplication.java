@@ -82,6 +82,9 @@ public class MyApplication extends Application {
         com.solosu.mtforum.ai.AutoReplyEngine.attachClaims(this);
         HttpClient.getInstance().init(this);
 
+        // MCP 默认关闭；若用户此前明确启用，仅恢复绑定 127.0.0.1 的只读本机服务。
+        com.solosu.mtforum.mcp.McpServerManager.getInstance(this).start();
+
         // build61: 网络层一旦发现 403 / 登录页，就用已加密保存的密码静默重登
         HttpClient.setAuthFailureListener(() -> SessionGuard.onAuthFailure(this));
         HttpClient.setChallengeListener(url ->

@@ -156,7 +156,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="回复原文"
+                android:text="引用内容"
                 android:textColor="@color/reply_quote_title"
                 android:textSize="11sp"
                 android:textStyle="bold" />

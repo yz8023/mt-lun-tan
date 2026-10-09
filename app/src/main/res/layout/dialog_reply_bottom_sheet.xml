@@ -187,6 +187,19 @@
                 android:layout_weight="1" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_markdown_import"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="6dp"
+                android:contentDescription="导入 Markdown 并转换为 BBCode"
+                android:minWidth="44dp"
+                android:text="MD"
+                android:textColor="@color/primary"
+                app:cornerRadius="20dp"
+                app:strokeColor="@color/primary" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_preview_bbcode"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="wrap_content"

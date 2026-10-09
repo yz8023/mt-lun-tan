@@ -32,6 +32,12 @@ public final class NoticeBadgeManager {
     private static final String KEY_BASELINE_PREFIX = "baseline_";
     private static final String KEY_CURRENT_PREFIX = "current_";
     private static final String KEY_PENDING_PREFIX = "pending_";
+    private static final String KEY_PENDING_ALL_READ_PREFIX = "pending_all_read_";
+    private static final String KEY_READ_EPOCH_PREFIX = "read_epoch_";
+    private static final String KEY_READSET_PREFIX = "readset_";
+    private static final String KEY_CLICKED_PM_PREFIX = "clicked_pm_";
+    private static final String KEY_CLICKED_NOTICE_PREFIX = "clicked_notice_";
+    private static final String KEY_NEW_COUNT_PREFIX = "new_count_";
 
     private NoticeBadgeManager() {}
 
@@ -59,16 +65,24 @@ public final class NoticeBadgeManager {
      * 切换账号后拿的是上一个账号的基线，于是新账号的全部历史消息都被算成"新"。
      * 现在带上 uid 前缀。
      */
-    private static String scope(Context context) {
+    public static String activeAccountUid(Context context) {
         try {
-            String uid = com.solosu.mtforum.session.AccountManager.activeUid(context);
-            if (TextUtils.isEmpty(uid)) {
+            String uid = context == null ? "" : com.solosu.mtforum.session.AccountManager.activeUid(context);
+            if (TextUtils.isEmpty(uid) && context != null) {
                 uid = com.solosu.mtforum.session.UserSessionManager.getInstance().getUid(context);
             }
-            return TextUtils.isEmpty(uid) ? "anon_" : (uid + "_");
+            return TextUtils.isEmpty(uid) ? "" : uid;
         } catch (Exception e) {
-            return "anon_";
+            return "";
         }
+    }
+
+    private static String scope(Context context) {
+        return scopeUid(activeAccountUid(context));
+    }
+
+    private static String scopeUid(String uid) {
+        return TextUtils.isEmpty(uid) ? "anon_" : (uid + "_");
     }
 
     /**
@@ -143,22 +157,45 @@ public final class NoticeBadgeManager {
     }
 
     private static String buildNoticeSnapshot(List<Message> items) {
-        Set<String> ids = new HashSet<>();
+        // 保留 stable key 重复项，避免解析结果中不同事件因字段缺失碰撞后被 Set 合并。
+        Map<String, Integer> seen = new HashMap<>();
+        List<String> ids = new ArrayList<>();
         for (Message item : items) {
-            ids.add(sha256(stableNoticeKey(item)));
+            String key = sha256(stableNoticeKey(item));
+            int occurrence = seen.containsKey(key) ? seen.get(key) : 0;
+            seen.put(key, occurrence + 1);
+            ids.add(occurrence == 0 ? key : key + "#" + occurrence);
         }
-        List<String> sorted = new ArrayList<>(ids);
-        Collections.sort(sorted);
-        return join(sorted);
+        Collections.sort(ids);
+        return join(ids);
     }
 
+    /** 稳定通知事件键；同一通知中的不同回复楼层必须通过 PID 分开。 */
     private static String stableNoticeKey(Message item) {
         String id = firstNonEmpty(item.getPmid(), "");
-        if (!TextUtils.isEmpty(id)) return "id|" + id;
+        String pid = firstNonEmpty(item.getPid(), "");
+        if (!TextUtils.isEmpty(id)) return "id|" + id + "|pid|" + pid;
         return "content|" + firstNonEmpty(item.getAuthorUid(), "") + "|"
                 + firstNonEmpty(item.getAuthor(), "") + "|"
                 + firstNonEmpty(item.getTitle(), "") + "|"
-                + firstNonEmpty(item.getSummary(), "");
+                + firstNonEmpty(item.getSummary(), "") + "|"
+                + pid + "|" + normalizeKeyTime(item.getTime());
+    }
+
+    private static String normalizeKeyTime(String time) {
+        if (TextUtils.isEmpty(time)) return "";
+        String normalized = time.replace('\u00a0', ' ').trim();
+        if (normalized.matches(".*\\d{4}[-/年]\\d{1,2}[-/月]\\d{1,2}.*")
+                || normalized.matches("^\\d{1,2}[-/]\\d{1,2}\\s+\\d{1,2}:\\d{2}.*")) {
+            return normalized;
+        }
+        // 相对时间会随日历前进而变化，不应造成同一事件的 key 漂移。
+        return "";
+    }
+
+    /** 与通知快照使用完全相同的键，供列表逐条已读状态查询。 */
+    public static String stableKeyFor(Message item) {
+        return stableNoticeKey(item);
     }
 
     /**
@@ -168,48 +205,286 @@ public final class NoticeBadgeManager {
     public static synchronized int saveCurrentAndGetNewCount(Context context,
                                                                String viewType,
                                                                String snapshot) {
+        return saveCurrentAndGetNewCountForAccount(context, activeAccountUid(context), viewType, snapshot);
+    }
+
+    /** 网络请求以发起时捕获的 UID 写快照，避免切号期间旧响应污染新账号基线。 */
+    public static synchronized int saveCurrentAndGetNewCountForAccount(Context context,
+                                                                        String accountUid,
+                                                                        String viewType,
+                                                                        String snapshot) {
+        return saveCurrentAndGetNewCountForAccount(context, accountUid, viewType, snapshot,
+                getReadEpochForAccount(context, accountUid));
+    }
+
+    /** requestEpoch 需在发起网络请求前捕获；旧响应不得覆盖“全部已读”操作之后的状态。 */
+    public static synchronized int saveCurrentAndGetNewCountForAccount(Context context,
+                                                                        String accountUid,
+                                                                        String viewType,
+                                                                        String snapshot,
+                                                                        int requestEpoch) {
         if (context == null || TextUtils.isEmpty(viewType)) return 0;
         SharedPreferences p = prefs(context);
-        String scope = scope(context);
-        String baselineKey = KEY_BASELINE_PREFIX + scope + viewType;
-        String currentKey = KEY_CURRENT_PREFIX + scope(context) + viewType;
-        String pendingKey = KEY_PENDING_PREFIX + scope + viewType;
+        String account = scopeUid(accountUid);
+        String baselineKey = KEY_BASELINE_PREFIX + account + viewType;
+        String currentKey = KEY_CURRENT_PREFIX + account + viewType;
+        String pendingKey = KEY_PENDING_PREFIX + account + viewType;
+        String readSetKey = KEY_READSET_PREFIX + account + viewType;
+        String countKey = KEY_NEW_COUNT_PREFIX + account + viewType;
+        String currentSnapshot = snapshot == null ? "" : snapshot;
         String oldBaseline = p.getString(baselineKey, null);
+        boolean notificationType = !"pm".equals(viewType) && !"follower".equals(viewType);
+        int latestReadEpoch = p.getInt(KEY_READ_EPOCH_PREFIX + account, 0);
 
-        if (p.getBoolean(pendingKey, false) || oldBaseline == null) {
-            p.edit().putString(baselineKey, snapshot == null ? "" : snapshot)
-                    .putString(currentKey, snapshot == null ? "" : snapshot)
+        if (requestEpoch != latestReadEpoch) {
+            // 该列表请求在“全部已读”之前发起、之后才返回。把这份旧请求视为清除时快照，
+            // 不能让它把刚清掉的角标重新点亮。
+            SharedPreferences.Editor editor = p.edit()
+                    .putString(baselineKey, currentSnapshot)
+                    .putString(currentKey, currentSnapshot)
                     .putBoolean(pendingKey, false)
-                    .apply();
+                    .putBoolean(KEY_PENDING_ALL_READ_PREFIX + account + viewType, false)
+                    .putInt(countKey, 0);
+            Set<String> allSnapshotKeys = baseKeys(parseSet(currentSnapshot));
+            if ("pm".equals(viewType)) {
+                editor.putStringSet(KEY_CLICKED_PM_PREFIX + account,
+                        baseKeys(parsePmMap(currentSnapshot).keySet()));
+            } else if (notificationType) {
+                editor.putStringSet(readSetKey, allSnapshotKeys)
+                        .putStringSet(KEY_CLICKED_NOTICE_PREFIX + account + viewType, allSnapshotKeys);
+            }
+            editor.apply();
             return 0;
         }
 
-        int count = calculateNewCount(viewType, oldBaseline, snapshot);
-        p.edit().putString(currentKey, snapshot == null ? "" : snapshot).apply();
+        if (p.getBoolean(pendingKey, false) || oldBaseline == null) {
+            SharedPreferences.Editor editor = p.edit()
+                    .putString(baselineKey, currentSnapshot)
+                    .putString(currentKey, currentSnapshot)
+                    .putBoolean(pendingKey, false)
+                    .putInt(countKey, 0);
+            Set<String> firstSnapshotKeys = baseKeys(parseSet(currentSnapshot));
+            if (notificationType) {
+                editor.putStringSet(readSetKey, firstSnapshotKeys);
+            }
+            if (p.getBoolean(KEY_PENDING_ALL_READ_PREFIX + account + viewType, false)) {
+                if ("pm".equals(viewType)) {
+                    editor.putStringSet(KEY_CLICKED_PM_PREFIX + account,
+                            baseKeys(parsePmMap(currentSnapshot).keySet()));
+                } else if (notificationType) {
+                    editor.putStringSet(KEY_CLICKED_NOTICE_PREFIX + account + viewType,
+                            firstSnapshotKeys);
+                }
+                editor.putBoolean(KEY_PENDING_ALL_READ_PREFIX + account + viewType, false);
+            }
+            editor.apply();
+            return 0;
+        }
+
+        int count;
+        SharedPreferences.Editor editor = p.edit().putString(currentKey, currentSnapshot);
+        if (!notificationType) {
+            count = calculateNewCount(viewType, oldBaseline, currentSnapshot);
+        } else {
+            Set<String> readSet = p.getStringSet(readSetKey, null);
+            if (readSet == null) {
+                // 从 v5.21 旧基线迁移：已查看基线维持已读，基线之后出现的新通知仍未读。
+                readSet = baseKeys(parseSet(oldBaseline));
+                editor.putStringSet(readSetKey, readSet);
+            }
+            count = countNotInSet(currentSnapshot, readSet);
+        }
+        editor.putInt(countKey, count).apply();
         return count;
     }
 
-    /** 点击进入某分类时，将该分类当前内容标记为已查看。 */
+    /**
+     * 进入分类时的兼容回调。私信/粉丝仍按分类基线处理；其它通知只刷新角标，
+     * 不再把未点击的整页内容批量标成已读。
+     */
     public static synchronized void markViewed(Context context, String viewType) {
         if (context == null || TextUtils.isEmpty(viewType)) return;
         SharedPreferences p = prefs(context);
-        String current = p.getString(KEY_CURRENT_PREFIX + scope(context) + viewType, null);
+        String account = scope(context);
+        String current = p.getString(KEY_CURRENT_PREFIX + account + viewType, null);
         SharedPreferences.Editor editor = p.edit();
-        if (current == null) {
-            editor.putBoolean(KEY_PENDING_PREFIX + scope(context) + viewType, true);
+        if ("pm".equals(viewType) || "follower".equals(viewType)) {
+            if (current == null) {
+                editor.putBoolean(KEY_PENDING_PREFIX + account + viewType, true);
+            } else {
+                editor.putString(KEY_BASELINE_PREFIX + account + viewType, current)
+                        .putBoolean(KEY_PENDING_PREFIX + account + viewType, false);
+            }
+            editor.putInt(KEY_NEW_COUNT_PREFIX + account + viewType, 0);
+        } else if (current == null) {
+            editor.putBoolean(KEY_PENDING_PREFIX + account + viewType, true)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + viewType, 0);
         } else {
-            editor.putString(KEY_BASELINE_PREFIX + scope(context) + viewType, current)
-                    .putBoolean(KEY_PENDING_PREFIX + scope(context) + viewType, false);
+            Set<String> readSet = p.getStringSet(KEY_READSET_PREFIX + account + viewType, null);
+            if (readSet == null) readSet = baseKeys(parseSet(
+                    p.getString(KEY_BASELINE_PREFIX + account + viewType, "")));
+            editor.putBoolean(KEY_PENDING_PREFIX + account + viewType, false)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + viewType,
+                            countNotInSet(current, readSet));
         }
         editor.apply();
         fireViewed(viewType);
     }
 
-    /** 手动“全部已读”时同步重置所有分类基线。 */
+    /** 用户实际点开的通知/会话才逐条写入已读集合。 */
+    public static synchronized void markItemRead(Context context, String viewType, String itemKey) {
+        if (context == null || TextUtils.isEmpty(viewType) || TextUtils.isEmpty(itemKey)) return;
+        SharedPreferences p = prefs(context);
+        String account = scope(context);
+        String current = p.getString(KEY_CURRENT_PREFIX + account + viewType, "");
+        if ("pm".equals(viewType)) {
+            Map<String, Integer> baseline = parsePmMap(
+                    p.getString(KEY_BASELINE_PREFIX + account + viewType, ""));
+            Map<String, Integer> currentCounts = parsePmMap(current);
+            String hashedUid = sha256(itemKey);
+            if (currentCounts.containsKey(hashedUid)) baseline.put(hashedUid, currentCounts.get(hashedUid));
+            String serializedBaseline = serializePmMap(baseline);
+            String clickedKey = KEY_CLICKED_PM_PREFIX + account;
+            Set<String> clicked = new HashSet<>(p.getStringSet(clickedKey, Collections.emptySet()));
+            clicked.add(hashedUid);
+            p.edit().putString(KEY_BASELINE_PREFIX + account + viewType, serializedBaseline)
+                    .putStringSet(clickedKey, clicked)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + viewType,
+                            calculatePmDelta(serializedBaseline, current)).apply();
+        } else if ("follower".equals(viewType)) {
+            Set<String> baseline = parseSet(
+                    p.getString(KEY_BASELINE_PREFIX + account + viewType, ""));
+            baseline.add(sha256(itemKey));
+            String serializedBaseline = serializeSet(baseline);
+            p.edit().putString(KEY_BASELINE_PREFIX + account + viewType, serializedBaseline)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + viewType,
+                            calculateNewCount(viewType, serializedBaseline, current)).apply();
+        } else {
+            String readSetKey = KEY_READSET_PREFIX + account + viewType;
+            Set<String> readSet = new HashSet<>(p.getStringSet(readSetKey,
+                    baseKeys(parseSet(p.getString(KEY_BASELINE_PREFIX + account + viewType, "")))));
+            String hashedKey = sha256(itemKey);
+            readSet.add(hashedKey);
+            String clickedKey = KEY_CLICKED_NOTICE_PREFIX + account + viewType;
+            Set<String> clicked = new HashSet<>(p.getStringSet(clickedKey, new HashSet<>()));
+            clicked.add(hashedKey);
+            int remaining = countNotInSet(current, readSet);
+            p.edit().putStringSet(readSetKey, readSet)
+                    .putStringSet(clickedKey, clicked)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + viewType, remaining).apply();
+        }
+        fireViewed(viewType);
+    }
+
+    public static synchronized boolean isItemRead(Context context, String viewType, String itemKey) {
+        if (context == null || TextUtils.isEmpty(viewType) || TextUtils.isEmpty(itemKey)) return false;
+        if ("pm".equals(viewType)) return !hasPmUnread(context, itemKey);
+        SharedPreferences p = prefs(context);
+        String account = scope(context);
+        if ("follower".equals(viewType)) {
+            String hashedUid = sha256(itemKey);
+            String current = p.getString(KEY_CURRENT_PREFIX + account + viewType, null);
+            String baseline = p.getString(KEY_BASELINE_PREFIX + account + viewType, null);
+            if (current == null || baseline == null) return true;
+            return !parseSet(current).contains(hashedUid) || parseSet(baseline).contains(hashedUid);
+        }
+        Set<String> readSet = p.getStringSet(KEY_READSET_PREFIX + account + viewType, null);
+        if (readSet == null) {
+            readSet = baseKeys(parseSet(p.getString(KEY_BASELINE_PREFIX + account + viewType, "")));
+        }
+        return readSet.contains(sha256(itemKey));
+    }
+
+    public static synchronized boolean isNoticeUnread(Context context, String viewType, String itemKey) {
+        return context != null && !TextUtils.isEmpty(viewType)
+                && !isItemRead(context, viewType, itemKey);
+    }
+
+    /** PM 列表的点击标记只用于压制服务端尚未刷新的旧未读状态。 */
+    public static synchronized boolean isPmClicked(Context context, String itemKey) {
+        if (context == null || TextUtils.isEmpty(itemKey)) return false;
+        String key = KEY_CLICKED_PM_PREFIX + scope(context);
+        return prefs(context).getStringSet(key, Collections.emptySet()).contains(sha256(itemKey));
+    }
+
+    /** 服务端明确返回已读时清理旧点击标记，使该会话以后新增消息可重新高亮。 */
+    public static synchronized void clearPmClickedIfServerRead(Context context, String itemKey) {
+        if (context == null || TextUtils.isEmpty(itemKey)) return;
+        String key = KEY_CLICKED_PM_PREFIX + scope(context);
+        SharedPreferences p = prefs(context);
+        Set<String> existing = p.getStringSet(key, null);
+        String hashed = sha256(itemKey);
+        if (existing == null || !existing.contains(hashed)) return;
+        Set<String> updated = new HashSet<>(existing);
+        updated.remove(hashed);
+        p.edit().putStringSet(key, updated).apply();
+    }
+
+    /** 用户真正点开的条目；与首屏基线分开，避免旧服务端未读 class 把它重新点亮。 */
+    public static synchronized boolean isNoticeClicked(Context context, String viewType, String itemKey) {
+        if (context == null || TextUtils.isEmpty(viewType) || TextUtils.isEmpty(itemKey)) return false;
+        String key = KEY_CLICKED_NOTICE_PREFIX + scope(context) + viewType;
+        return prefs(context).getStringSet(key, Collections.emptySet()).contains(sha256(itemKey));
+    }
+
+    public static synchronized void markNoticeClicked(Context context, String viewType, String itemKey) {
+        markItemRead(context, viewType, itemKey);
+    }
+
+    public static synchronized int getNewCount(Context context, String viewType) {
+        return getNewCountForAccount(context, activeAccountUid(context), viewType);
+    }
+
+    public static synchronized int getNewCountForAccount(Context context, String accountUid, String viewType) {
+        if (context == null || TextUtils.isEmpty(viewType)) return 0;
+        return prefs(context).getInt(KEY_NEW_COUNT_PREFIX + scopeUid(accountUid) + viewType, 0);
+    }
+
+    public static synchronized int getReadEpochForAccount(Context context, String accountUid) {
+        if (context == null) return 0;
+        return prefs(context).getInt(KEY_READ_EPOCH_PREFIX + scopeUid(accountUid), 0);
+    }
+
+    public static synchronized int getTotalNewCount(Context context) {
+        if (context == null) return 0;
+        String[] types = {"pm", "follower", "mypost", "interactive", "system", "app"};
+        int total = 0;
+        for (String type : types) total += getNewCount(context, type);
+        return total;
+    }
+
+    /** 显式“全部已读”：当前快照整体进入已读集合，不影响随后出现的新事件。 */
     public static synchronized void markAllViewed(Context context) {
         if (context == null) return;
+        SharedPreferences p = prefs(context);
+        String account = scope(context);
         String[] types = {"pm", "follower", "mypost", "interactive", "system", "app"};
-        for (String type : types) markViewed(context, type);
+        SharedPreferences.Editor editor = p.edit().putInt(
+                KEY_READ_EPOCH_PREFIX + account,
+                p.getInt(KEY_READ_EPOCH_PREFIX + account, 0) + 1);
+        for (String type : types) {
+            String current = p.getString(KEY_CURRENT_PREFIX + account + type, null);
+            if (current == null) {
+                editor.putBoolean(KEY_PENDING_PREFIX + account + type, true)
+                        .putBoolean(KEY_PENDING_ALL_READ_PREFIX + account + type, true)
+                        .putInt(KEY_NEW_COUNT_PREFIX + account + type, 0);
+                continue;
+            }
+            editor.putString(KEY_BASELINE_PREFIX + account + type, current)
+                    .putBoolean(KEY_PENDING_PREFIX + account + type, false)
+                    .putInt(KEY_NEW_COUNT_PREFIX + account + type, 0);
+            if ("pm".equals(type)) {
+                Set<String> clickedPm = new HashSet<>(p.getStringSet(
+                        KEY_CLICKED_PM_PREFIX + account, Collections.emptySet()));
+                clickedPm.addAll(parsePmMap(current).keySet());
+                editor.putStringSet(KEY_CLICKED_PM_PREFIX + account, clickedPm);
+            } else if (!"follower".equals(type)) {
+                Set<String> allCurrent = baseKeys(parseSet(current));
+                editor.putStringSet(KEY_READSET_PREFIX + account + type, allCurrent)
+                        .putStringSet(KEY_CLICKED_NOTICE_PREFIX + account + type, allCurrent);
+            }
+        }
+        editor.apply();
         fireViewed("*");
     }
 
@@ -221,6 +496,50 @@ public final class NoticeBadgeManager {
         int count = 0;
         for (String key : parseSet(current)) if (!oldSet.contains(key)) count++;
         return count;
+    }
+
+    private static int countNotInSet(String snapshot, Set<String> readSet) {
+        if (TextUtils.isEmpty(snapshot)) return 0;
+        Set<String> safeReadSet = readSet == null ? Collections.emptySet() : readSet;
+        int count = 0;
+        for (String key : parseSet(snapshot)) {
+            if (!safeReadSet.contains(baseKey(key))) count++;
+        }
+        return count;
+    }
+
+    private static Set<String> baseKeys(Set<String> keys) {
+        Set<String> result = new HashSet<>();
+        if (keys != null) for (String key : keys) result.add(baseKey(key));
+        return result;
+    }
+
+    private static String baseKey(String key) {
+        if (key == null) return "";
+        int duplicate = key.indexOf('#');
+        return duplicate > 0 ? key.substring(0, duplicate) : key;
+    }
+
+    private static boolean hasPmUnread(Context context, String uid) {
+        if (TextUtils.isEmpty(uid)) return false;
+        SharedPreferences p = prefs(context);
+        String account = scope(context);
+        String key = sha256(uid);
+        Map<String, Integer> baseline = parsePmMap(
+                p.getString(KEY_BASELINE_PREFIX + account + "pm", ""));
+        Map<String, Integer> current = parsePmMap(
+                p.getString(KEY_CURRENT_PREFIX + account + "pm", ""));
+        int currentCount = current.containsKey(key) ? current.get(key) : 0;
+        int baselineCount = baseline.containsKey(key) ? baseline.get(key) : 0;
+        return currentCount > baselineCount;
+    }
+
+    private static String serializePmMap(Map<String, Integer> values) {
+        StringBuilder result = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : new TreeMap<>(values).entrySet()) {
+            result.append(entry.getKey()).append('=').append(entry.getValue()).append(';');
+        }
+        return result.toString();
     }
 
     private static int calculatePmDelta(String baseline, String current) {
@@ -260,6 +579,13 @@ public final class NoticeBadgeManager {
         StringBuilder result = new StringBuilder();
         for (String value : values) result.append(value).append(';');
         return result.toString();
+    }
+
+    private static String serializeSet(Set<String> values) {
+        List<String> sorted = new ArrayList<>();
+        if (values != null) sorted.addAll(values);
+        Collections.sort(sorted);
+        return join(sorted);
     }
 
     private static String firstNonEmpty(String... values) {

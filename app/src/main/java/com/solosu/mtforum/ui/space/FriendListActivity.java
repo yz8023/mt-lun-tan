@@ -2,6 +2,7 @@ package com.solosu.mtforum.ui.space;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
@@ -41,18 +42,24 @@ public class FriendListActivity extends AppCompatActivity {
         String title;
         String listUrl;
 
-        // ★ 修复：关注列表的正确 URL 需要当前登录用户的 UID
+        // 空 uid 表示当前账号；传入 uid 时展示目标用户的关注/粉丝，不能串用当前账号统计。
         String currentUid = UserSessionManager.getInstance().getUid(this);
         if (currentUid == null) currentUid = "";
+        String requestedUid = getIntent().getStringExtra("uid");
+        String ownerUid = TextUtils.isEmpty(requestedUid) ? currentUid : requestedUid;
+        String ownerName = getIntent().getStringExtra("username");
+        String ownerLabel = TextUtils.isEmpty(ownerName) ? "用户" : ownerName;
 
         if ("following".equals(mode)) {
-            title = "我的关注";
+            title = TextUtils.isEmpty(requestedUid) ? "我的关注" : ownerLabel + "的关注";
             // ★ 修复：原来的 home.php?mod=space&do=follow 返回空页面
             //   正确 URL: home.php?mod=follow&do=following&uid={uid}&mobile=2
-            listUrl = HttpClient.BASE_URL + "home.php?mod=follow&do=following&uid=" + currentUid + "&mobile=2";
+            listUrl = HttpClient.BASE_URL + "home.php?mod=follow&do=following&uid=" + ownerUid + "&mobile=2";
         } else if ("followers".equals(mode)) {
-            title = "我的粉丝";
-            listUrl = HttpClient.BASE_URL + "home.php?mod=follow&do=follower&mobile=2";
+            title = TextUtils.isEmpty(requestedUid) ? "我的粉丝" : ownerLabel + "的粉丝";
+            listUrl = HttpClient.BASE_URL + "home.php?mod=follow&do=follower"
+                    + (TextUtils.isEmpty(requestedUid) ? "" : "&uid=" + requestedUid)
+                    + "&mobile=2";
         } else {
             title = "我的好友";
             listUrl = HttpClient.BASE_URL + "home.php?mod=space&do=friend&mobile=2";

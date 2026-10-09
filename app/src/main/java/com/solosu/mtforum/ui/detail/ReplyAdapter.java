@@ -54,6 +54,7 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     private OnReplyClickListener replyClickListener;
     private OnUserClickListener userClickListener;
     private OnReplyLongClickListener replyLongClickListener; // build73: 长按出操作菜单
+    private String highlightedPid = "";
 
     public interface OnReplyClickListener {
         void onReplyClick(ReplyItem item, int position);
@@ -89,6 +90,11 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
         notifyDataSetChanged();
     }
 
+    public void setHighlightedPid(String pid) {
+        highlightedPid = TextUtils.isEmpty(pid) ? "" : pid;
+        notifyDataSetChanged();
+    }
+
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -101,6 +107,10 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         ReplyItem item = replyList.get(position);
         holder.bind(item);
+        boolean highlighted = item != null && !TextUtils.isEmpty(highlightedPid)
+                && highlightedPid.equals(item.getPid());
+        holder.itemView.setBackgroundResource(highlighted
+                ? R.drawable.reply_jump_highlight_bg : R.drawable.reply_nested_bg);
     }
 
     @Override

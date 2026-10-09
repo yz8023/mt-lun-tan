@@ -1,0 +1,2 @@
+# 历史参考存档，保留在仓库中但不进入 git archive 生成的发布源码包
+MT论坛源码1.08.zip export-ignore

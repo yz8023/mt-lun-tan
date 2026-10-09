@@ -30,6 +30,7 @@ import com.solosu.mtforum.ui.space.FriendListActivity;
 import com.solosu.mtforum.ui.space.CreditDetailActivity;
 import com.solosu.mtforum.ui.space.EditProfileActivity;
 import com.solosu.mtforum.ui.space.SettingsActivity;
+import com.solosu.mtforum.ui.space.UserWallActivity;
 
 /**
  * 个人中心 Fragment（全新 UI）
@@ -41,6 +42,14 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
 
     private FragmentProfileBinding binding;
     private HttpClient httpClient;
+    private static final long PROFILE_REFRESH_TTL_MS = 90_000L;
+    private UserProfile cachedProfile;
+    private String cachedProfileUid;
+    private String loadingProfileUid;
+    private int loadingProfileEpoch = -1;
+    private long lastProfileLoadedAt;
+    private int profileRequestGeneration;
+    private boolean hasLoadedProfile;
 
     @Nullable
     @Override
@@ -59,6 +68,7 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
         applyFrostedGlassToIcon(binding.ivEmojiThreads);
         applyFrostedGlassToIcon(binding.ivEmojiFavorites);
         applyFrostedGlassToIcon(binding.ivEmojiFriends);
+        applyFrostedGlassToIcon(binding.ivEmojiWall);
         applyFrostedGlassToIcon(binding.ivEmojiCredits);
         applyFrostedGlassToIcon(binding.ivEmojiEdit);
         applyFrostedGlassToIcon(binding.ivEmojiSettings);
@@ -111,6 +121,8 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
             startActivity(intent);
         });
 
+        binding.layoutMyWall.setOnClickListener(v -> openMyWall());
+
         binding.layoutCreditsDetail.setOnClickListener(v -> {
             Intent intent = new Intent(requireContext(), CreditDetailActivity.class);
             startActivity(intent);
@@ -140,12 +152,41 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
         });
     }
 
+    private void openMyWall() {
+        if (!isActuallyLoggedIn()) {
+            startLogin();
+            return;
+        }
+        String uid = UserSessionManager.getInstance().getUid(requireContext());
+        if (TextUtils.isEmpty(uid) || !uid.matches("\\d+")) {
+            android.widget.Toast.makeText(requireContext(), "无法获取当前账号 UID", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(requireContext(), UserWallActivity.class);
+        intent.putExtra(UserWallActivity.EXTRA_UID, uid);
+        intent.putExtra(UserWallActivity.EXTRA_USERNAME,
+                binding.tvUsername.getText() == null ? "我" : binding.tvUsername.getText().toString());
+        startActivity(intent);
+    }
+
     @Override
     public void onResume() {
         super.onResume();
-        // build65: 账号切换过就自动重载本页
-        if (consumeAccountSwitched()) { loadProfile(); }
-        updateLoginState();
+        boolean accountSwitched = consumeAccountSwitched();
+        if (!isActuallyLoggedIn()) {
+            updateLoginState();
+            return;
+        }
+        binding.getRoot().setVisibility(View.VISIBLE);
+        binding.btnLogout.setText(getString(R.string.action_logout));
+        String uid = UserSessionManager.getInstance().getUid(requireContext());
+        boolean stale = !hasLoadedProfile || System.currentTimeMillis() - lastProfileLoadedAt
+                >= PROFILE_REFRESH_TTL_MS || !TextUtils.equals(uid, cachedProfileUid);
+        if (accountSwitched || stale) {
+            loadProfile();
+        } else if (cachedProfile != null) {
+            displayProfile(cachedProfile);
+        }
     }
 
     /**
@@ -173,6 +214,9 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
 
     private void updateLoginState() {
         if (!isActuallyLoggedIn()) {
+            // 未登录时废弃之前账号未完成的回包，避免退出后旧资料又覆盖登录入口。
+            profileRequestGeneration++;
+            loadingProfileUid = null;
             // 未登录时保留个人中心页面，只显示登录入口；不要在 onResume 中反复启动 LoginActivity。
             binding.getRoot().setVisibility(View.VISIBLE);
             binding.tvUsername.setText("未登录");
@@ -196,54 +240,60 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
      * 先请求服务端；如果服务端返回登录页（Cookie 过期），清除 Cookie 并跳转登录页
      */
     private void loadProfile() {
+        if (!isAdded() || binding == null || !isActuallyLoggedIn()) return;
+        final android.content.Context app = requireContext().getApplicationContext();
+        final String requestUid = UserSessionManager.getInstance().getUid(app);
+        final int requestEpoch = com.solosu.mtforum.session.AccountManager.currentEpoch();
+
+        // 缓存先出首屏；同一账号正在加载时合并请求，避免切页/回前台重复打两次整页。
+        if (cachedProfile != null && TextUtils.equals(requestUid, cachedProfileUid)) {
+            displayProfile(cachedProfile);
+        }
+        if (TextUtils.equals(requestUid, loadingProfileUid)
+                && requestEpoch == loadingProfileEpoch) return;
+        final int requestGeneration = ++profileRequestGeneration;
+        loadingProfileUid = requestUid;
+        loadingProfileEpoch = requestEpoch;
+
         new Thread(() -> {
             try {
-                // ★ 修复：使用空间首页 URL 并附加当前 uid 参数（确保获取到完整的个人空间主页）
-                // 单纯 home.php?mod=space&mobile=2 可能不展示完整统计数据
-                String loginUid = UserSessionManager.getInstance().getUid(requireContext());
-                String profileUrl;
-                if (!TextUtils.isEmpty(loginUid)) {
-                    profileUrl = HttpClient.BASE_URL + "home.php?mod=space&uid=" + loginUid + "&mobile=2";
-                } else {
-                    profileUrl = HttpClient.BASE_URL + "home.php?mod=space&mobile=2";
-                }
+                String profileUrl = !TextUtils.isEmpty(requestUid)
+                        ? HttpClient.BASE_URL + "home.php?mod=space&uid=" + requestUid + "&mobile=2"
+                        : HttpClient.BASE_URL + "home.php?mod=space&mobile=2";
                 String html = httpClient.get(profileUrl);
 
-                // === 关键修复：检测服务器是否返回了登录页（Cookie 过期） ===
                 if (ForumParser.isLoginPage(html)) {
-                    // Cookie 已过期/无效，清除所有 Cookie 并跳转登录
-                    if (!isAdded()) return;
-                    requireActivity().runOnUiThread(() -> {
-                        if (!isAdded()) return;
-                        httpClient.clearCookies(requireContext());
-                        UserSessionManager.getInstance().clearLoginInfo(requireContext());
-                        LoginBottomSheet.show(requireActivity(), () -> {
-                            if (isAdded()) {
-                                updateLoginState();
-                            }
+                    android.app.Activity activity = getActivity();
+                    if (activity == null) return;
+                    activity.runOnUiThread(() -> {
+                        if (!isCurrentProfileLoad(requestGeneration, requestUid, requestEpoch)) return;
+                        loadingProfileUid = null;
+                        httpClient.clearCookies(app);
+                        UserSessionManager.getInstance().clearLoginInfo(app);
+                        LoginBottomSheet.show(activity, () -> {
+                            if (isAdded()) updateLoginState();
                         });
-                        android.widget.Toast.makeText(requireContext(),
+                        android.widget.Toast.makeText(app,
                                 "登录已过期，请重新登录", android.widget.Toast.LENGTH_SHORT).show();
                     });
                     return;
                 }
 
-                // === 服务端确认已登录 → 正常解析用户资料 ===
                 UserProfile profile = ForumParser.parseUserProfile(html);
-
                 if (profile == null || profile.getUsername() == null) {
+                    if (!isCurrentProfileLoad(requestGeneration, requestUid, requestEpoch)) return;
                     String altUrl = HttpClient.BASE_URL + "home.php?mod=space&do=profile&mobile=2";
                     String altHtml = httpClient.get(altUrl);
-                    if (!isAdded()) return;
                     if (ForumParser.isLoginPage(altHtml)) {
-                        requireActivity().runOnUiThread(() -> {
-                            if (!isAdded()) return;
-                            httpClient.clearCookies(requireContext());
-                            UserSessionManager.getInstance().clearLoginInfo(requireContext());
-                            LoginBottomSheet.show(requireActivity(), () -> {
-                                if (isAdded()) {
-                                    updateLoginState();
-                                }
+                        android.app.Activity activity = getActivity();
+                        if (activity == null) return;
+                        activity.runOnUiThread(() -> {
+                            if (!isCurrentProfileLoad(requestGeneration, requestUid, requestEpoch)) return;
+                            loadingProfileUid = null;
+                            httpClient.clearCookies(app);
+                            UserSessionManager.getInstance().clearLoginInfo(app);
+                            LoginBottomSheet.show(activity, () -> {
+                                if (isAdded()) updateLoginState();
                             });
                         });
                         return;
@@ -251,26 +301,44 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
                     profile = ForumParser.parseUserProfile(altHtml);
                 }
 
-                if (!isAdded()) return;
                 final UserProfile finalProfile = profile;
-                requireActivity().runOnUiThread(() -> {
-                    if (!isAdded()) return;
+                android.app.Activity activity = getActivity();
+                if (activity == null) return;
+                activity.runOnUiThread(() -> {
+                    if (!isCurrentProfileLoad(requestGeneration, requestUid, requestEpoch)) return;
+                    loadingProfileUid = null;
                     if (finalProfile != null && finalProfile.getUsername() != null) {
+                        cachedProfile = finalProfile;
+                        cachedProfileUid = TextUtils.isEmpty(requestUid)
+                                ? finalProfile.getUid() : requestUid;
+                        lastProfileLoadedAt = System.currentTimeMillis();
+                        hasLoadedProfile = true;
                         displayProfile(finalProfile);
                     } else {
+                        hasLoadedProfile = false;
                         android.widget.Toast.makeText(requireContext(),
                                 "无法加载用户资料，请确认已登录", android.widget.Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Exception e) {
-                if (!isAdded()) return;
-                requireActivity().runOnUiThread(() -> {
-                    if (!isAdded()) return;
+                android.app.Activity activity = getActivity();
+                if (activity == null) return;
+                activity.runOnUiThread(() -> {
+                    if (!isCurrentProfileLoad(requestGeneration, requestUid, requestEpoch)) return;
+                    loadingProfileUid = null;
+                    hasLoadedProfile = false;
                     android.widget.Toast.makeText(requireContext(),
                             "加载资料失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
                 });
             }
-        }).start();
+        }, "profile-load-" + requestGeneration).start();
+    }
+
+    private boolean isCurrentProfileLoad(int generation, String uid, int epoch) {
+        if (!isAdded() || binding == null || generation != profileRequestGeneration
+                || epoch != com.solosu.mtforum.session.AccountManager.currentEpoch()) return false;
+        String currentUid = UserSessionManager.getInstance().getUid(requireContext());
+        return TextUtils.equals(uid, currentUid);
     }
 
     /**
@@ -330,6 +398,9 @@ public class ProfileFragment extends Fragment implements com.solosu.mtforum.ui.R
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        profileRequestGeneration++;
+        loadingProfileUid = null;
+        loadingProfileEpoch = -1;
         binding = null;
     }
 

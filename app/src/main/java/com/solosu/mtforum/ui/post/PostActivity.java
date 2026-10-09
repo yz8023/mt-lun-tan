@@ -66,7 +66,7 @@ public class PostActivity extends AppCompatActivity {
     private TextView tvError;
 
     // 五大功能按钮 + 图片按钮
-    private TextView btnSmiley, btnAt, btnInsert, btnImage, btnAttach, btnAdvanced;
+    private TextView btnSmiley, btnAt, btnInsert, btnMarkdown, btnImage, btnAttach, btnAdvanced;
     private LinearLayout llSmileyPanel, llAtPanel;
     private TextInputEditText etAtUsername;
     private TextView btnAtInsert;
@@ -217,6 +217,7 @@ public class PostActivity extends AppCompatActivity {
         btnSmiley = findViewById(R.id.btn_smiley);
         btnAt = findViewById(R.id.btn_at);
         btnInsert = findViewById(R.id.btn_insert);
+        btnMarkdown = findViewById(R.id.btn_markdown);
         btnImage = findViewById(R.id.btn_image);
         btnAttach = findViewById(R.id.btn_attach);
         btnAdvanced = findViewById(R.id.btn_advanced);
@@ -276,7 +277,13 @@ public class PostActivity extends AppCompatActivity {
         // 3. 插入（引用/代码/Free/Hide）
         btnInsert.setOnClickListener(v -> showInsertDialog());
 
-        // 4. 图片上传（从相册选图，与网页端对齐）
+        // 4. Markdown 导入并转换为 BBCode，可预览后插入或替换。
+        if (btnMarkdown != null) {
+            btnMarkdown.setOnClickListener(v -> com.solosu.mtforum.util.MarkdownImportHelper
+                    .show(this, etContent, etTitle));
+        }
+
+        // 5. 图片上传（从相册选图，与网页端对齐）
         btnImage.setOnClickListener(v -> {
             hideAllPanels();
             pickImage();

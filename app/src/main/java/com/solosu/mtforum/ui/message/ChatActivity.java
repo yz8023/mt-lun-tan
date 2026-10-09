@@ -1,5 +1,6 @@
 package com.solosu.mtforum.ui.message;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
@@ -66,6 +67,20 @@ public class ChatActivity extends AppCompatActivity {
         TextView send = findViewById(R.id.chat_send);
 
         title.setText(TextUtils.isEmpty(name) ? "消息" : name);
+        title.setClickable(!TextUtils.isEmpty(uid));
+        title.setFocusable(!TextUtils.isEmpty(uid));
+        title.setContentDescription(TextUtils.isEmpty(name) ? "打开联系人资料" : "打开" + name + "的资料");
+        title.setOnClickListener(v -> {
+            if (TextUtils.isEmpty(uid)) {
+                Toast.makeText(this, "该会话没有可用的用户 UID", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent profile = new Intent(this, com.solosu.mtforum.ui.space.UserProfileActivity.class);
+            profile.putExtra("uid", uid);
+            profile.putExtra("username", name);
+            profile.putExtra("avatar", avatar);
+            startActivity(profile);
+        });
         status.setText("");
         back.setOnClickListener(v -> finish());
 

@@ -361,6 +361,149 @@ public final class DiscuzUserActionManager {
                 .matcher(page).find();
     }
 
+    /** 在用户留言板发布一条留言。 */
+    public static boolean postWallMessage(Context context, String uid, String message) {
+        if (!isDigits(uid) || TextUtils.isEmpty(message) || TextUtils.isEmpty(message.trim())) return false;
+        try {
+            HttpClient client = prepareClient();
+            String wallUrl = HttpClient.BASE_URL + "home.php?mod=space&uid=" + uid + "&do=wall&mobile=2";
+            String page = client.get(wallUrl);
+            if (ForumParser.isLoginPage(page)) return false;
+            String formhash = getFormhash(client, page, context);
+            if (TextUtils.isEmpty(formhash)) return false;
+
+            Map<String, String> params = new HashMap<>();
+            params.put("formhash", formhash);
+            params.put("referer", "home.php?mod=space&uid=" + uid + "&do=wall");
+            params.put("id", uid);
+            params.put("idtype", "uid");
+            params.put("handlekey", "qcwall_" + uid);
+            params.put("commentsubmit", "true");
+            params.put("quickcomment", "true");
+            params.put("message", message.trim());
+            String result = client.postWithReferer(
+                    HttpClient.BASE_URL + "home.php?mod=spacecp&ac=comment&inajax=1",
+                    params, wallUrl);
+            if (isWallActionAccepted(result)) return true;
+
+            // 某些 Comiis 版本的提交响应不含成功文案；重新读留言板核实是否落库。
+            String verify = client.get(wallUrl + "&verify=" + System.currentTimeMillis());
+            if (ForumParser.isLoginPage(verify)) return false;
+            for (com.solosu.mtforum.model.Message item : ForumParser.parseWallMessages(verify)) {
+                if (message.trim().equals(item.getSummary())) return true;
+            }
+            return false;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** 编辑自己在留言板中的一条留言。 */
+    public static boolean editWallMessage(Context context, String cid, String message) {
+        if (!isDigits(cid) || TextUtils.isEmpty(message) || TextUtils.isEmpty(message.trim())) return false;
+        return submitWallDialog(context, cid, message.trim(), "edit");
+    }
+
+    /** 回复留言板中的一条留言。 */
+    public static boolean replyWallMessage(Context context, String cid, String message) {
+        if (!isDigits(cid) || TextUtils.isEmpty(message) || TextUtils.isEmpty(message.trim())) return false;
+        return submitWallDialog(context, cid, message.trim(), "reply");
+    }
+
+    /** 删除自己在留言板中的一条留言。 */
+    public static boolean deleteWallMessage(Context context, String cid) {
+        if (!isDigits(cid)) return false;
+        return submitWallDialog(context, cid, null, "delete");
+    }
+
+    private static boolean submitWallDialog(Context context, String cid, String message, String op) {
+        try {
+            HttpClient client = prepareClient();
+            String keyPrefix = "edit".equals(op) ? "editcommenthk_"
+                    : "reply".equals(op) ? "replycommenthk_" : "delcommenthk_";
+            String dialogUrl = HttpClient.BASE_URL + "home.php?mod=spacecp&ac=comment&op=" + op
+                    + "&cid=" + cid + ("reply".equals(op) ? "&feedid=" : "")
+                    + "&handlekey=" + keyPrefix + cid + "&inajax=1";
+            String dialog = client.get(dialogUrl);
+            if (TextUtils.isEmpty(dialog) || ForumParser.isLoginPage(dialog)) return false;
+
+            String cdata = extractAjaxCdata(dialog);
+            org.jsoup.nodes.Document document = Jsoup.parse(
+                    cdata != null ? cdata : dialog, HttpClient.BASE_URL);
+            String formSelector = "edit".equals(op) ? "form[id*=editcommentform]"
+                    : "reply".equals(op) ? "form[id*=replycommentform]" : "form[id*=deletecommentform]";
+            Element form = document.selectFirst(formSelector);
+            if (form == null && "reply".equals(op)) form = document.selectFirst("form:has(input[name=cid])");
+            if (form == null) return false;
+
+            String actionUrl = form.attr("abs:action");
+            if (TextUtils.isEmpty(actionUrl)) actionUrl = form.attr("action");
+            actionUrl = absoluteWallActionUrl(actionUrl);
+            if (TextUtils.isEmpty(actionUrl)) return false;
+            if (!actionUrl.contains("inajax=")) {
+                actionUrl += (actionUrl.contains("?") ? "&" : "?") + "inajax=1";
+            }
+
+            String formhash = form.select("input[name=formhash]").attr("value");
+            String handlekey = form.select("input[name=handlekey]").attr("value");
+            String referer = form.select("input[name=referer]").attr("value");
+            if (TextUtils.isEmpty(referer)) referer = dialogUrl;
+            if (TextUtils.isEmpty(formhash)) return false;
+
+            Map<String, String> params = new HashMap<>();
+            params.put("referer", referer);
+            params.put("formhash", formhash);
+            params.put("handlekey", handlekey);
+            if ("edit".equals(op)) {
+                params.put("editsubmit", "true");
+                params.put("message", message);
+            } else if ("reply".equals(op)) {
+                params.put("id", form.select("input[name=id]").attr("value"));
+                String idtype = form.select("input[name=idtype]").attr("value");
+                params.put("idtype", TextUtils.isEmpty(idtype) ? "uid" : idtype);
+                params.put("cid", cid);
+                params.put("commentsubmit", "true");
+                params.put("message", message);
+            } else {
+                params.put("deletesubmit", "true");
+                params.put("deletesubmitbtn", "true");
+            }
+            String result = client.postWithReferer(actionUrl, params, referer);
+            return isWallActionAccepted(result);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static String extractAjaxCdata(String html) {
+        if (html == null) return null;
+        int start = html.indexOf("<![CDATA[");
+        int end = html.indexOf("]]>", start < 0 ? 0 : start + 9);
+        return start >= 0 && end > start ? html.substring(start + 9, end) : null;
+    }
+
+    private static String absoluteWallActionUrl(String action) {
+        if (TextUtils.isEmpty(action)) return "";
+        String absolute = action.startsWith("http://") || action.startsWith("https://")
+                ? action : action.startsWith("//") ? "https:" + action
+                : HttpClient.BASE_URL + (action.startsWith("/") ? action.substring(1) : action);
+        okhttp3.HttpUrl parsed = okhttp3.HttpUrl.parse(absolute);
+        return parsed != null && "bbs.binmt.cc".equalsIgnoreCase(parsed.host()) ? absolute : "";
+    }
+
+    private static boolean isDigits(String value) {
+        return !TextUtils.isEmpty(value) && value.matches("\\d+");
+    }
+
+    private static boolean isWallActionAccepted(String result) {
+        if (TextUtils.isEmpty(result) || ForumParser.isLoginPage(result)) return false;
+        String lower = result.toLowerCase(Locale.ROOT);
+        if (containsAnyIgnoreCase(lower, "请先登录", "formhash错误", "没有权限", "非法操作",
+                "操作失败", "留言失败", "回复失败", "编辑失败", "删除失败", "ajaxerror")) return false;
+        return containsAnyIgnoreCase(lower, "留言成功", "留言已发布", "回复成功", "编辑成功",
+                "留言已更新", "删除成功", "已删除", "操作成功", "succeedhandle_");
+    }
+
     private static HttpClient prepareClient() {
         HttpClient client = HttpClient.getInstance();
         if (!client.isLoggedIn()) client.syncFromCookieManager();
