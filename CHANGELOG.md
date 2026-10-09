@@ -28,7 +28,7 @@
 ### ⑤ 多账号签到与签名材料
 
 - 自动签到遵守“全部账号签到”开关；关闭时不再因账号库里有多条记录就无条件串行等待；已经完成今日签到的账号不再占用网络间隔。
-- 从源码仓库移除签名 keystore 与硬编码口令。Release 签名通过本机忽略文件或 GitHub Actions Secrets 注入；源码压缩包不含 keystore、签名属性或密码，未配置签名时 CI 仍可编译未签名 release，但发布步骤会拒绝未签名 APK。
+- 签名材料重构：build.gradle 不再硬编码口令，改为环境变量或本机忽略的 `app/signing.properties` 注入；Release 签名优先由 GitHub Actions Secrets 提供。当前仓库的 Secrets 尚未配置，CI 暂时回退使用仓库内置的演示 keystore（口令与 v2.0~v5.21 公开历史一致）；配置 Secrets 后即可移除该回退文件。发布源码压缩包通过 `.gitattributes` export-ignore 永久排除 keystore 与签名属性；未配置任何签名材料时发布步骤会拒绝未签名 APK。
 
 ### 测试与构建
 

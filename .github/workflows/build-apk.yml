@@ -62,7 +62,9 @@ jobs:
           unzip -q gradle.zip -d "$HOME/gradle-dist"
           echo "$HOME/gradle-dist/gradle-8.13/bin" >> "$GITHUB_PATH"
 
-      # 私钥与密码仅由 Actions Secrets 注入；源码仓库及 git archive 永不保存签名材料。
+      # 签名优先由 Actions Secrets 注入；Secrets 未配置时回退到仓库内置的演示
+      # keystore（口令与 v2.0~v5.21 公开历史相同）。发布源码压缩包通过
+      # .gitattributes export-ignore 永久排除 keystore 与 signing.properties。
       - name: Configure release signing when CI secrets are available
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -76,8 +78,14 @@ jobs:
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/keystore.jks
             chmod 600 app/keystore.jks
             echo "Release signing keystore restored from Actions Secrets."
+          elif [ -s app/keystore.jks ]; then
+            # 回退：仓库内置演示 keystore + 本地 signing.properties（已被 .gitignore 忽略）。
+            # 配置 Actions Secrets 后自动改走上面的注入路径，届时应移除该回退文件。
+            printf 'storeFile=app/keystore.jks\nstorePassword=mtforum123\nkeyAlias=mtforum\nkeyPassword=mtforum123\n' > app/signing.properties
+            chmod 600 app/signing.properties
+            echo "Release signing secrets are unavailable; falling back to the repo-bundled demo keystore."
           else
-            echo "Release signing secrets are unavailable; CI will validate an unsigned release build."
+            echo "Release signing secrets are unavailable and no fallback keystore exists; CI will validate an unsigned release build."
           fi
 
       # cloudflared 隧道已移除；本机只读 MCP 不需要内置 native tunnel binary。
@@ -96,8 +104,14 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -s app/keystore.jks || { echo "Release signing keystore is unavailable; refusing to publish an unsigned APK."; exit 1; }
-          test -n "$ANDROID_KEYSTORE_PASSWORD" && test -n "$ANDROID_KEY_ALIAS" \
-            && test -n "$ANDROID_KEY_PASSWORD" || { echo "Release signing secrets are incomplete; refusing to publish an unsigned APK."; exit 1; }
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Signing material from Actions Secrets verified."
+          elif [ -f app/signing.properties ]; then
+            echo "Actions Secrets unavailable; using the repo-bundled fallback signing configuration."
+          else
+            echo "Release signing secrets are incomplete and no fallback exists; refusing to publish an unsigned APK."
+            exit 1
+          fi
 
       - name: Build optimized release APK
         env:
@@ -180,7 +194,7 @@ jobs:
           SHA256  ${SOURCE}  ${SOURCE_SHA256}
           ```
 
-          签名文件与密码不进入源码仓库/源码压缩包；签名配置可由 CI Secrets 或本地私有配置注入。
+          签名配置优先由 CI Secrets 注入；发布源码压缩包通过 export-ignore 排除 keystore 与签名属性。
           EOF
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
