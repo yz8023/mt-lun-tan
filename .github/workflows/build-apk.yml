@@ -189,10 +189,10 @@ jobs:
 
           **APK 大小：** ${APK_SIZE}
 
-          ```
+          \`\`\`
           SHA256  ${APK}  ${SHA256}
           SHA256  ${SOURCE}  ${SOURCE_SHA256}
-          ```
+          \`\`\`
 
           签名配置优先由 CI Secrets 注入；发布源码压缩包通过 export-ignore 排除 keystore 与签名属性。
           EOF
