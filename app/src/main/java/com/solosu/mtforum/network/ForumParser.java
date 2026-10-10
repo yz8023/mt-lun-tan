@@ -924,6 +924,52 @@ public class ForumParser {
     }
 
     /**
+     * build114：把「相册式」正文图片并进正文 HTML。
+     *
+     * <p>多图帖（一次发多张截图这类）在 Comiis 移动模板下的结构是：
+     * <pre>
+     * &lt;div class="comiis_messages"&gt;
+     *   &lt;div class="comiis_a comiis_message_table cl"&gt;文字 + 表情&lt;/div&gt;
+     *   &lt;ul class="comiis_img_list cl"&gt;
+     *     &lt;li&gt;&lt;span&gt;&lt;img class="comiis_loadimages" .../&gt;&lt;/span&gt;&lt;/li&gt;
+     *   &lt;/ul&gt;
+     * &lt;/div&gt;
+     * </pre>
+     * 实际存在两种版式：{@code ul.comiis_img_list}（多图，如 tid=174354）
+     * 与 {@code ul.comiis_img_one}（单图，如 tid=174353）。
+     *
+     * 图片和正文是<b>平级</b>的两个容器，而正文只取
+     * {@code div.comiis_message_table}，于是相册里的图被整体丢掉 ——
+     * 表现是「正文图片一张都不显示，连占位符和空白块都没有」（区别于懒加载那种
+     * 会留一个 500x320 空白块的情况）。
+     *
+     * @param content    已提取的正文 HTML
+     * @param contentDiv 正文容器（用于判断是否已包含，传 null 表示不判断）
+     * @param opMsg      整个消息区
+     */
+    private static String appendAlbumImages(String content, Element contentDiv, Element opMsg) {
+        if (opMsg == null) return content;
+        StringBuilder sb = new StringBuilder(content == null ? "" : content);
+        // 注意：这里不能用 ul.comiis_img_list 死匹配。实测站点有两种相册版式：
+        //   ul.comiis_img_list —— 多图（如 tid=174354）
+        //   ul.comiis_img_one  —— 单图（如 tid=174353）
+        // 只认前者的话单图帖依旧一张都取不到。用属性包含匹配，后续再出变体也能覆盖。
+        for (Element ul : opMsg.select("ul[class*=comiis_img]")) {
+            // 正文容器里已经含着这个列表了就不要重复追加
+            if (contentDiv != null) {
+                boolean already = false;
+                for (Element e : contentDiv.select("ul[class*=comiis_img]")) {
+                    if (e == ul) { already = true; break; }
+                }
+                if (already || contentDiv == ul) continue;
+            }
+            String h = ul.html();
+            if (!TextUtils.isEmpty(h)) sb.append(h);
+        }
+        return sb.toString();
+    }
+
+    /**
      * build112：桌面模板的个人空间页解析。
      *
      * <p>为什么需要它：本站在<b>移动模板</b>（{@code &mobile=2}）下的空间页里
@@ -1912,6 +1958,10 @@ public class ForumParser {
                 if (content.length() < 10 && opMsg.select("td.t_f").first() != null) {
                     content = opMsg.select("td.t_f").first().html().trim();
                 }
+                // build114：多图帖的图片是单独放在 <ul class="comiis_img_list"> 里的，
+                // 跟正文容器 div.comiis_message_table 平级，所以上面取到的 content
+                // 里一张图都没有 —— 表现就是「正文图片整个消失，连空白块都没有」。
+                content = appendAlbumImages(content, contentDiv, opMsg);
                 detail.setContentHtml(normalizeCodeBlocks(content));
             } else {
                 // 兜底：直接取整个消息区，并移除操作区域
@@ -1919,7 +1969,10 @@ public class ForumParser {
                 msgClone.select("div.comiis_favshare, a.followmod, div.comiis_postli_time").remove();
                 String fallbackHtml = msgClone.html().trim();
                 if (fallbackHtml.length() > 30) {
-                    detail.setContentHtml(normalizeCodeBlocks(fallbackHtml));
+                    // 兜底分支取的是整个消息区，理论上已包含相册图片；
+                    // 但保险起见仍走一次合并（内部会跳过重复项）。
+                    detail.setContentHtml(normalizeCodeBlocks(
+                            appendAlbumImages(fallbackHtml, null, opMsg)));
                 }
             }
 
@@ -2115,7 +2168,14 @@ public class ForumParser {
                         reply.setQuotedContentText(quote.text().replace('\u00a0', ' ').trim());
                         quote.remove();
                     }
-                    reply.setContentHtml(normalizeCodeBlocks(rContent.html().trim()));
+                    // 评论也可能带相册版式（ul.comiis_img_list / ul.comiis_img_one），
+                    // 图片挂在 div.comiis_message 下、与正文容器平级，同样要拼回来。
+                    Element rMsg = rp.select("div.comiis_message").first();
+                    String rHtml = rContent.html().trim();
+                    if (rMsg != null) {
+                        rHtml = appendAlbumImages(rHtml, rContent, rMsg);
+                    }
+                    reply.setContentHtml(normalizeCodeBlocks(rHtml));
                     reply.setContentText(rContent.text().replace('\u00a0', ' ').trim());
                 }
 

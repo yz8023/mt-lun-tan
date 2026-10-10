@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.30
+        default: v5.31
 
 permissions:
   contents: write
@@ -178,9 +178,9 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：拖到底不自动加载更多评论**：原来的自动加载条件里有一句「加载更多按钮必须处于隐藏状态」，而按钮恰恰在还有下一页时是显示的 —— 这个分支永远进不去，于是每次都得手动点按钮。已改为只判断「还有下一页且当前没在加载」。
-          - **预取可连续消费**：追加一页后若缓存里还有下一页、且仍停在底部，会继续接上，不再出现「加载一页后又卡住、还要再滑一下」的二次卡顿。
-          - **移除：账号名搜索用户**：实测无效，按你的要求整体移除（搜索页的切换控件、相关代码与字段一并删除），搜索恢复为只搜帖子。
+          - **修复：相册版式的帖子正文图片整张丢失**（表现为「没有图片、没有占位符、连空白块都没有」）。带多张截图的帖子在站点上会把图片放在 `ul.comiis_img_list`、单图帖放在 `ul.comiis_img_one`，这两个容器与正文 `div.comiis_message_table` 是**平级**的，而解析器只取正文容器，于是图片被整体丢掉。现已按两个容器分别拼回正文。
+          - **修复同样作用于评论区**：评论内容走的是同一个正文选择器，带相册的评论此前也会丢图，本次一并处理。
+          - **验证**：用真实页面离线回放提取流程 —— `tid=174354` 正文图 0 → 3 张，`tid=174353` 0 → 1 张；对照帖 `tid=174306`（原本正常）保持 2 → 2 张，无回归。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -195,14 +195,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 评论自动加载修复 · 移除账号名搜索" \
+              --title "MTForum v${VERSION} — 相册图片修复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 评论自动加载修复 · 移除账号名搜索" \
+              --title "MTForum v${VERSION} — 相册图片修复" \
               --notes-file release-notes.md \
               --latest
           fi

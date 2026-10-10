@@ -1,5 +1,19 @@
 # 更新日志
 
+## v5.31 (build114) — 相册图片修复
+
+### 修复
+- **相册版式的帖子正文图片整张丢失**：带多张截图的帖子，站点把图片放在 `ul.comiis_img_list`、
+  单图帖放在 `ul.comiis_img_one`，这两个容器与正文 `div.comiis_message_table` 平级，
+  而解析器只取正文容器，图片被整体丢掉（`ForumParser.appendAlbumImages`）。
+- **评论区同样问题一并修复**：评论内容走同一个正文选择器（`div.comiis_message div.comiis_a.comiis_message_table.cl`），
+  带相册的评论此前也会丢图。
+
+### 验证
+- 真实页面离线回放提取流程：`tid=174354` 正文图 0 → 3 张；`tid=174353` 0 → 1 张；
+  对照帖 `tid=174306`（原本正常）2 → 2 张，无回归。
+- 选择器改用 `ul[class*=comiis_img]` 属性包含匹配，覆盖多图/单图两种版式及后续可能的变体。
+
 ## v5.30 (build113) — 评论自动加载修复 · 移除账号名搜索
 
 ### 1. 修复：拖到底不自动加载更多评论
