@@ -1,5 +1,41 @@
 # 更新日志
 
+## v5.34 (build117) — 局部疯狂闪烁修复
+
+> 与 v5.33（整篇重排型闪烁）是**两个独立问题**，不要混为一谈。
+
+### 现象
+帖子 170823 中「一个完整的 CocoStudio UI JSON，完美解出。」这段及其前一张图持续疯狂闪烁，无错误日志。
+
+### 根因
+该图位于 `icdn.binmt.cc`，被 WAF 拦截，返回**指向自身的 307 无限重定向**：
+
+```
+HTTP/2 307
+x-tengine-error: denied by http_custom
+location: /2608/6a797e4f48063.png    ← 指向自己
+```
+
+1. Chromium 跟随至上限（约 20 跳）后中止，抛 `error`，且**持续反复抛**；
+2. `fail()` 回调原生 `imgFailed` → `retryPostWebImage` → OkHttp 亦跟随重定向，
+   需绕完 20 跳、耗时数十秒才失败；
+3. `data-mt-retried`（「一张图只重试一次」标记）**原在重取结束后**才由
+   `markImgFailedJs` / `setImgDataUriJs` 写入 —— 在这段长窗口内，
+   每一个新的 `error` 事件都会再开启一条重取线程；
+4. 重取成功时 `setImgDataUriJs` 执行 `classList.remove('mt-img-failed')`，
+   失败时 `markImgFailedJs` 再 `add` 回去 —— 图片框在 `height:56px !important`
+   与 `height:auto !important` 之间反复跳变，其后文字随之上下抽动，即「疯狂闪」。
+
+### 修复
+- `PostWebImageScript.bindErrorsJs()`：在调用 `PostBody.imgFailed` **之前**
+  先写入 `data-mt-retried='1'`，使同一张图只可能进入一次重取流程。
+- `ThreadDetailActivity` 新增 `postWebImgRetrying`（同步 `HashSet<Integer>`）：
+  重取入口去重，杜绝同一索引被并发开多条线程；`renderContentInWeb` 内每次重渲染清空。
+
+### 备注
+- 未改动 `HttpClient` 的共享重定向策略：去重后每张坏图最多一次慢请求，
+  风险低于改动全局网络行为。
+
 ## v5.33 (build116) — 正文闪烁修复
 
 ### 修复

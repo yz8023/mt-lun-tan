@@ -6089,6 +6089,9 @@ private void viewHiddenContent() {
             }
         });
 
+        // build117: 重新渲染正文时清空重取去重表，否则翻页/刷新后同一张图永远取不了
+        postWebImgRetrying.clear();
+
         // 图片点击回调 + 图片全部加载完的回调：JS 只暴露这两个方法，且只接受字符串
         web.addJavascriptInterface(new Object() {
             @android.webkit.JavascriptInterface
@@ -6251,6 +6254,11 @@ private void viewHiddenContent() {
             markPostWebImageFailed(web, index);
             return;
         }
+        // build117: 同一张图只重取一次。并发的 imgFailed 直接丢弃，
+        // 否则死循环重定向的图会叠出好几条各绕 20 跳的线程。
+        if (!postWebImgRetrying.add(Integer.valueOf(index))) {
+            return;
+        }
         postWebImgPending++;   // build107: 有重取在飞，兜底判断必须等它落地
         new java.lang.Thread(() -> {
             try {
@@ -6399,6 +6407,17 @@ private void viewHiddenContent() {
                 + "}catch(x){fin();}})();";
         web.evaluateJavascript(js, null);
     }
+
+    /**
+     * build117: 正在原生重取中的图片索引。
+     *
+     * <p>JS 侧已在发起重试前打上 {@code data-mt-retried}，但那是靠页面脚本守的；
+     * 这里再兜一层，保证同一张图绝不会被并发开多条重取线程 ——
+     * 死循环重定向的图（icdn 307）每条线程都要跟着绕 20 跳才失败，
+     * 几条并发就能把线程池和网卡占满，正文高度也会跟着反复跳变。
+     */
+    private final java.util.Set<Integer> postWebImgRetrying =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<Integer>());
 
     /** build116: 待执行的那次高度测量，用来合并掉重复调用。 */
     private Runnable pendingWebHeightMeasure;

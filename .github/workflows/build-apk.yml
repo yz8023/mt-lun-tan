@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.33
+        default: v5.34
 
 permissions:
   contents: write
@@ -178,9 +178,9 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：部分帖子加载到某个位置后一直快速闪烁**。正文 WebView 的高度测量函数 `measurePostWebHeight()` 被反复调用（页面加载完成、图片全部落地、每张图重试成功、每张图标记失败、图廊兜底各一次，一篇几十张截图的长帖就是几十次），而它每次都**无条件**执行 `setLayoutParams()`，哪怕量出来的高度和当前一模一样，也会强制整棵子树重新 measure/layout 并让 WebView 重绘。几十次无谓重排连在一起就是持续闪烁 —— 闪烁点落在「图片与文字交界」处，正是因为那里高度变化最剧烈、重绘最显眼。
-          - **做法**：合并排队的测量（新测量覆盖旧的，只跑最后一次），并加上高度阈值判断 —— 与当前高度相差 ≤2px 就直接跳过，不再重新排版。留 2px 容差以避开亚像素取整造成的 1px 来回抖动。
-          - **顺带修一个空转隐患**：图片兜底判断 `maybeFallbackToGallery()` 在等待原生重取时会每 600ms 自我重排一次，原本没有次数上限；而它依赖的计数器 `postWebImgPending` 的 `++` 跑在 JavaBridge 线程、`--` 跑在主线程，存在数据竞争，一旦计数卡住就会永远轮询下去。现已加上限（最多约 6 秒），超时后按当前状态判断，不再空转。
+          - **修复：某张图连同它后面那段文字一直疯狂闪**（v5.33 修的是整篇重排型闪烁，这个是另一回事，属于**局部**闪烁）。实测该图地址 `icdn.binmt.cc` 被 WAF 挡下，返回**指向自身的 307 无限重定向**（`x-tengine-error: denied by http_custom`）。Chromium 跟到 20 跳后放弃并抛 error，而且会**持续反复抛**。
+          - **为什么会闪**：`data-mt-retried`（「一张图只重试一次」的标记）原本是在**重取跑完之后**才写上的。死循环重定向让重取要绕 20 跳、几十秒才失败，这段窗口里每一个 error 都会再开一条重取线程；而重取一旦成功 `setImgDataUriJs` 又会 `remove('mt-img-failed')`、失败再加回去 —— 图片框在 56px 与 auto 之间反复跳变，紧随其后的文字被顶得上下抽动，就是看到的「疯狂闪」。
+          - **做法**：把该标记改为**发起重试前立刻写入**，同一张图只可能重取一次；另外在 Java 侧加了一层索引去重，杜绝同一张图被并发开多条线程（每条都要跟着绕 20 跳）。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -195,14 +195,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 正文闪烁修复" \
+              --title "MTForum v${VERSION} — 局部疯狂闪烁修复" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 正文闪烁修复" \
+              --title "MTForum v${VERSION} — 局部疯狂闪烁修复" \
               --notes-file release-notes.md \
               --latest
           fi

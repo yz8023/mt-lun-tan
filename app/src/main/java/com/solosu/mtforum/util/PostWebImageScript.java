@@ -28,6 +28,7 @@ public final class PostWebImageScript {
      * </ul>
      * 每张图带 {@code data-mtimg-i} 索引，原生回填时按索引精确定位；
      * {@code data-mt-retried} 保证一张图只重试一次，重试失败转可视样式。
+     * build117: 该标记改为<b>发起重试前</b>写入 —— 见 {@link #bindErrorsJs()} 内注释。
      */
     public static String bindErrorsJs() {
         return "(function(){try{"
@@ -36,6 +37,20 @@ public final class PostWebImageScript {
                 + "if(e.getAttribute('data-mt-retried')){"
                 + "if(e.classList)e.classList.add('mt-img-failed');"
                 + "return;}"
+                // build117: 标记必须在发起重试之前就打上，不能等重试跑完。
+                //
+                // 站点对部分 CDN（icdn.binmt.cc）上的图会返回「指向自身」的 307
+                // 无限重定向（x-tengine-error: denied by http_custom）。Chromium
+                // 跟到 20 跳后放弃并抛 error —— 而且会持续反复抛。原来的实现是
+                // 等原生重取结束、markImgFailedJs 落地时才写 data-mt-retried，
+                // 于是这段窗口里每一个 error 都会再开一条重取线程（每条都要跟着
+                // 绕 20 跳，几十秒才失败）；而重取一旦成功 setImgDataUriJs 又会
+                // remove('mt-img-failed')，失败再 add 回去 ——
+                // 图片框在 56px 与 auto 之间反复跳变，紧随其后的文字被顶得上下抽动，
+                // 用户看到的就是「那张图和后面那段话一直疯狂闪」。
+                //
+                // 这里在回调原生之前先占位，同一张图就只会重试一次，闪烁随即止住。
+                + "e.setAttribute('data-mt-retried','1');"
                 + "if(window.PostBody&&window.PostBody.imgFailed){"
                 + "PostBody.imgFailed(String(idx),e.currentSrc||e.src||'');}}"
                 + "for(var i=0;i<a.length;i++){(function(e,idx){"
