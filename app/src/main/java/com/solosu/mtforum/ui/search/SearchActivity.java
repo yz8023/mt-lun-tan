@@ -234,9 +234,19 @@ public class SearchActivity extends AppCompatActivity {
     /**
      * build110：按账号名直接定位用户。
      *
-     * <p>Discuz 的 {@code home.php?mod=space&username=xxx} 会自动跳转到该用户的
-     * 空间页（{@code &uid=nnn}），我们拿到 uid 后交给已有的 UserProfileActivity，
-     * 这样搜到的人跟点帖子作者进的是同一个页面。
+     * <p>Discuz 的 {@code home.php?mod=space&username=xxx} 会直接跳转到该用户的空间页，
+     * 我们拿到 uid 后交给已有的 UserProfileActivity —— 跟点帖子作者进去是同一个页面。
+     *
+     * <p><b>两个坑（都是实测踩出来的）：</b>
+     * <ol>
+     *   <li><b>不能带 {@code &mobile=2}</b>。移动模板不认 {@code username=} 参数，
+     *       而且不会报错，是<b>静默回落成"我的空间"</b> —— 页面里满是我自己的 uid，
+     *       结果就是「搜谁都是我自己」。必须去掉 mobile=2 走桌面模板。</li>
+     *   <li><b>不能用"出现次数最多的 uid"当结果</b>，因为用户不存在时同样会回落到
+     *       自己的空间，那个 uid 依然能取到。必须再验一次：
+     *       空间页的 {@code <title>} 是「用户名的广播 - MT论坛」，
+     *       不存在时是「提示信息 - MT论坛」。标题里没有搜的名字就判定没找到。</li>
+     * </ol>
      */
     private void searchUserByAccount(String account) {
         progressBar.setVisibility(View.VISIBLE);
@@ -253,7 +263,7 @@ public class SearchActivity extends AppCompatActivity {
             try {
                 String url = com.solosu.mtforum.network.HttpClient.BASE_URL
                         + "home.php?mod=space&username="
-                        + java.net.URLEncoder.encode(name, "UTF-8") + "&mobile=2";
+                        + java.net.URLEncoder.encode(name, "UTF-8");   // 注意：不要加 &mobile=2
                 com.solosu.mtforum.network.HttpClient client =
                         com.solosu.mtforum.network.HttpClient.getInstance();
                 client.syncFromCookieManager();
@@ -263,19 +273,28 @@ public class SearchActivity extends AppCompatActivity {
                 } else if (html == null || html.isEmpty()) {
                     failure = "没有拿到用户页";
                 } else {
-                    // 空间页里到处都是 uid=nnn，出现次数最多的那个就是本人
-                    java.util.regex.Matcher m =
-                            java.util.regex.Pattern.compile("uid=(\\d+)").matcher(html);
-                    java.util.Map<String, Integer> hits = new java.util.HashMap<>();
-                    while (m.find()) {
-                        String id = m.group(1);
-                        hits.put(id, hits.containsKey(id) ? hits.get(id) + 1 : 1);
+                    // 先确认这页真的是这个人的空间，再取 uid。
+                    // 标题形如「用户名的广播 - MT论坛」；搜不到时站点给的是「提示信息」。
+                    String title = "";
+                    java.util.regex.Matcher tm = java.util.regex.Pattern
+                            .compile("(?is)<title>(.*?)</title>").matcher(html);
+                    if (tm.find()) title = tm.group(1).trim();
+                    if (!title.contains(name)) {
+                        failure = "没有找到该用户";
+                    } else {
+                        java.util.regex.Matcher m =
+                                java.util.regex.Pattern.compile("uid=(\\d+)").matcher(html);
+                        java.util.Map<String, Integer> hits = new java.util.HashMap<>();
+                        while (m.find()) {
+                            String id = m.group(1);
+                            hits.put(id, hits.containsKey(id) ? hits.get(id) + 1 : 1);
+                        }
+                        int best = 0;
+                        for (java.util.Map.Entry<String, Integer> e : hits.entrySet()) {
+                            if (e.getValue() > best) { best = e.getValue(); uid = e.getKey(); }
+                        }
+                        if (uid == null) failure = "没有找到该用户";
                     }
-                    int best = 0;
-                    for (java.util.Map.Entry<String, Integer> e : hits.entrySet()) {
-                        if (e.getValue() > best) { best = e.getValue(); uid = e.getKey(); }
-                    }
-                    if (uid == null) failure = "没有找到该用户";
                 }
             } catch (Exception e) {
                 failure = e.getMessage();
@@ -298,50 +317,6 @@ public class SearchActivity extends AppCompatActivity {
         });
     }
 
-    /** 显示最近搜索；点选重搜，点芯片上的叉号删除单项。 */
-    private void renderSearchHistory() {
-        if (chipSearchHistory == null || layoutSearchHistory == null) return;
-        List<String> history = SearchHistoryStore.list(this);
-        chipSearchHistory.removeAllViews();
-        layoutSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
-        if (btnClearSearchHistory != null) {
-            btnClearSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-        for (String term : history) {
-            Chip chip = new Chip(this);
-            chip.setText(term);
-            chip.setCheckable(false);
-            chip.setClickable(true);
-            chip.setCloseIconVisible(true);
-            chip.setCloseIconResource(android.R.drawable.ic_menu_close_clear_cancel);
-            chip.setCloseIconContentDescription("删除搜索词 " + term);
-            chip.setOnClickListener(v -> {
-                etSearch.setText(term);
-                etSearch.setSelection(term.length());
-                performSearch();
-            });
-            chip.setOnCloseIconClickListener(v -> {
-                SearchHistoryStore.remove(this, term);
-                renderSearchHistory();
-            });
-            chipSearchHistory.addView(chip);
-        }
-    }
-
-    private void confirmClearSearchHistory() {
-        if (SearchHistoryStore.list(this).isEmpty()) return;
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("清空搜索历史")
-                .setMessage("删除本机保存的全部搜索词？")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("清空", (dialog, which) -> {
-                    SearchHistoryStore.clear(this);
-                    renderSearchHistory();
-                })
-                .show();
-    }
-
-    /** 重置分页状态并拉第一页 */
     private void startSearch(String keyword) {
         pendingKeyword = keyword;
         searchGeneration++;
