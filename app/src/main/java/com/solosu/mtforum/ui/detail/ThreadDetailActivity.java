@@ -6087,6 +6087,9 @@ private void viewHiddenContent() {
                 bindPostWebCodeCopy(view);
                 // build106: 附件图取不到时原生重试回填，绝不静默空白
                 bindPostWebImageErrors(view);
+                // build120: 冻结动图表情 —— 超高 wrap_content WebView 里循环播放的
+                // GIF 会持续 invalidate 所在 tile，用户看到的就是「那个区域一直疯狂闪」
+                bindPostWebFreezeSmileys(view);
                 measurePostWebHeight(view, "onPageFinished");
             }
         });
@@ -6257,6 +6260,21 @@ private void viewHiddenContent() {
         // 脚本本体在 util/PostWebCodeCopyScript（纯字符串、零 Android 依赖，
         // 有 JVM 单测守着选择器与「复制内容不带按钮文案」这两条不变量）
         web.evaluateJavascript(com.solosu.mtforum.util.PostWebCodeCopyScript.js(), null);
+    }
+
+    /**
+     * build120: 冻结正文里的动图表情。
+     *
+     * <p>用户实测（tid=170823）：滚到某区域才闪、移出即停、「图片带文字一起闪」、
+     * 三版布局侧修复无效 —— 这是视口可见性决定的<b>持续重绘</b>，
+     * 而非布局振荡。超高 wrap_content WebView 按 tile 光栅化，
+     * 循环播放的 GIF 表情每帧都 invalidate 所在 tile 整片重绘。
+     * 脚本见 {@link com.solosu.mtforum.util.PostWebImageScript#freezeAnimatedSmileysJs()}。
+     */
+    private void bindPostWebFreezeSmileys(android.webkit.WebView web) {
+        if (web == null) return;
+        web.evaluateJavascript(
+                com.solosu.mtforum.util.PostWebImageScript.freezeAnimatedSmileysJs(), null);
     }
 
     /**

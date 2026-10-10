@@ -111,6 +111,69 @@ public final class PostWebImageScript {
                 + "}catch(x){}})();";
     }
 
+    /**
+     * build120: 把正文里<b>动图表情</b>冻结成首帧静态图。
+     *
+     * <h3>为什么直视这个问题</h3>
+     * 用户实测的闪烁特征（tid=170823）：
+     * <ol>
+     *   <li>只有<b>滚到某个区域</b>才闪，移出视口立刻停 —— 视口可见性决定的持续重绘；</li>
+     *   <li>闪的是「图片带文字一起」一整片 —— 同一光栅分块被反复 invalidate；</li>
+     *   <li>v5.33~v5.35 修了所有布局/重试路径都没用 —— 振荡源不在布局而在绘制。</li>
+     * </ol>
+     * 正文 WebView 是 wrap_content，长图文的总高度轻松超过 3 万 px，Chromium
+     * 只能按 tile 光栅化；此时页面里<b>任何一个会循环 invalidate 的元素</b>
+     * 都会让它所在 tile 整片反复重绘 —— 看到的「那片一直在闪」。
+     * 而正文里唯一循环 invalidate 的就是<b>循环播放的动图表情</b>：
+     * 实测该帖有 13 个 qq 表情 GIF（如 qq014.gif 带 NETSCAPE2.0 循环、2 帧，
+     * qq019.gif 9 帧），其中 qq014 就在用户指认的闪烁文字后一两段。
+     * 移出视口后 Chromium 会停掉它的动画时钟 —— 与现象严丝合缝。
+     *
+     * <h3>做法</h3>
+     * 把表情 img 换成绘有其当前帧的 {@code <canvas>}（canvas 画完就是静的）。
+     * 只动表情路径（/static/image/smiley/ 等），内容图不碰；
+     * 页面不高（≈6000px 以内，tile 压力不存在）时完全不启用，表情继续动。
+     *
+     * <p>跨域 canvas 会被标记 tainted，但仅绘制+展示不需要读像素，不受影响。
+     * 图加载失败时不处理（走原有失败兜底）；原生重试回填成功后会触发 load，
+     * 这里靠 {@code data-mt-smiley-gif} 盖章识别（src 已被换成 data: 也认得）。
+     */
+    public static String freezeAnimatedSmileysJs() {
+        return "(function(){try{"
+                + "var h=0;try{h=document.body?document.body.scrollHeight:0;}catch(e){}"
+                + "if(h>0&&h<=6000)return;"
+                // 盖章：是表情动图就打上 data-mt-smiley-gif（src 之后可能被换成 data:，据此识别）
+                + "function isSmileyGif(e){try{"
+                + "var s=(e.getAttribute('src')||'').toLowerCase();"
+                + "if(s.indexOf('.gif')<0)return false;"
+                + "if(e.getAttribute('smilieid')!=null)return true;"
+                + "return s.indexOf('/static/image/smiley/')>=0"
+                + "||s.indexOf('/emoticon/')>=0"
+                + "||s.indexOf('/smiley/')>=0;"
+                + "}catch(x){return false;}}"
+                + "function freeze(e){try{"
+                + "if(!e||e.getAttribute('data-mt-frozen'))return;"
+                + "e.setAttribute('data-mt-frozen','1');"
+                + "var w=e.naturalWidth||24,hh=e.naturalHeight||24;"
+                + "var c=document.createElement('canvas');c.width=w;c.height=hh;"
+                + "var g=c.getContext('2d');if(!g)return;"
+                + "g.drawImage(e,0,0);"
+                + "c.style.cssText='width:24px;height:24px;display:inline-block;"
+                + "vertical-align:middle;margin:0 2px;';"
+                + "if(e.parentNode)e.parentNode.replaceChild(c,e);"
+                + "}catch(x){}}"
+                + "var a=document.getElementsByTagName('img');"
+                + "for(var i=0;i<a.length;i++){(function(e){"
+                + "if(!isSmileyGif(e))return;"
+                + "e.setAttribute('data-mt-smiley-gif','1');"
+                + "if(e.complete&&e.naturalWidth>0){freeze(e);return;}"
+                + "e.addEventListener('load',function(){"
+                + "if(e.getAttribute('data-mt-smiley-gif')&&!e.getAttribute('data-mt-frozen'))freeze(e);"
+                + "},{once:true});"
+                + "})(a[i]);}"
+                + "}catch(x){}})();";
+    }
+
     /** 重试也失败时给图打上可视的失败样式，替代静默空白。 */
     public static String markImgFailedJs(int index) {
         return "(function(){try{"

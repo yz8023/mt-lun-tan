@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.36
+        default: v5.37
 
 permissions:
   contents: write
@@ -178,10 +178,10 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **正文闪烁诊断版**：三次修复（v5.33 全局重排 / v5.34 图片重试时机 / v5.35 跨域Cookie+大图）后闪烁仍在，说明振荡源尚未被看见。本版把正文渲染管线的每一步（重新渲染、高度测量与写入、图片来源、重试结果、图廊判定）全部写入「日志中心」，**不猜了，用数据定位**。
-          - **振荡自动冻结**：一旦检测到高度写入呈 ABAB 振荡或 6 秒内写入超过 30 次，自动冻结 WebView 高度 60 秒止血，并在日志里留下明确标记。
-          - **修复：代码块「复制」按钮从未生效**（自 v5.15 起）——注入脚本里一处引号错误令整段脚本语法错误、从未执行。已用真实正文 + Node 仿真验证修复后按钮成功接线、点击能回调。
-          - **请配合抓一次日志**：打开问题帖让它闪 20~30 秒 → 进「日志中心」（性能页）→ 截图或复制 `[正文#…]` 开头的行发回来，即可定位振荡源。
+          - **修复：滚到某个区域就一直疯狂闪、移出就停** —— 这个症状终于对上号了：视口可见性决定的「持续重绘」，不是布局问题。
+          - **机理**：正文是超高（数万 px）的整页 WebView，系统只能分成小块逐块画；此时页面里任何循环刷新的元素都会让它所在那一块整片反复重画 —— 看起来就是「那片图片带文字一起闪」。而正文里唯一循环刷新的就是**循环播放的表情 GIF**（实测该帖有 13 个 qq 表情，均带循环标志，其中一个就在你指认的文字后面两段）。
+          - **做法**：把表情 GIF 换成它当前帧的画面（canvas 快照，画完就是静态的）。只动表情图，内容图不碰；帖子不高时（≈6000px 以内）完全不启用，表情继续原样动。短帖行为零变化。
+          - v5.36 的诊断打点与「高度振荡自动冻结」保留 —— 若还有残余闪烁，日志中心 `[正文#…]` 的记录会直接告诉我们下一个源头。
           - 二是原生侧替它重取**成功**后，会把那张 1.7 MB、1329×2822 的图 base64 成约 2.3 MB 的 data 字符串硬塞回 WebView —— PNG 帧解码 + 正文重排的开销让高度一直在涨/降，就是看到的一直闪。
           - **做法**：正文渲染前先扫描 HTML 里所有 img/src，把登录态 Cookie 同步到这些图片所在的域；原生重取的图体积超过 256 KB 就不再塞 data URI，改为让 WebView 自己带 Cookie 再拉一次。
 
@@ -198,14 +198,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 正文闪烁诊断与振荡自保护" \
+              --title "MTForum v${VERSION} — 冻结动图表情修复区域闪烁" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 正文闪烁诊断与振荡自保护" \
+              --title "MTForum v${VERSION} — 冻结动图表情修复区域闪烁" \
               --notes-file release-notes.md \
               --latest
           fi

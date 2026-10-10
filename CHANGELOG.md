@@ -1,5 +1,28 @@
 # 更新日志
 
+## v5.37 (build120) — 冻结动图表情，修复区域性疯狂闪烁
+
+### 定位过程
+用户反馈三连：滚到那个区域才闪 / 移出就停 / 图片带文字一起闪（tid=170823）。
+→ 视口可见性决定的持续重绘。超高 wrap_content WebView 按 tile 光栅化，
+任何循环 invalidate 的元素都会让其 tile 整片重绘。
+正文内唯一循环 invalidate 源 = 循环播放的表情 GIF。
+
+### 证据
+- 该帖正文含 13 个 `cdn.binmt.cc/static/image/smiley/qq/*.gif`，
+  抓包验证均为 NETSCAPE2.0 循环动画（qq014 两帧、qq019 九帧），
+  qq014 就在用户指认文字后一两段。
+- v5.33~v5.35 修尽布局/重试路径无效，与此机理吻合。
+
+### 修复
+`PostWebImageScript.freezeAnimatedSmileysJs()`：页面高度 > 6000px 时，
+把表情 GIF 换成当前帧 canvas 快照（画完即静态）；
+只对表情路径生效，内容图不碰；`data-mt-smiley-gif` 盖章 + once 监听，
+幂等；图片未加载时挂 once-load。经 Node 仿真验证各分支。
+
+### 保留
+v5.36 的全链路诊断打点与高度振荡熔断继续保留，残余问题一查日志即知。
+
 ## v5.36 (build119) — 正文闪烁诊断与振荡自保护
 
 ### 背景
