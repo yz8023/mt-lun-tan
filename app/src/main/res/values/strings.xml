@@ -225,7 +225,17 @@
 4. 扰乱论坛秩序,辱骂,引战;
 5. 其它违规且需要立即屏蔽的内容;</string>
     <string name="kick_reason_label">踢帖理由:(实名踢帖,认真填写,恶意者严肃处罚)</string>
+    <string name="kick_preset_label">快捷选择(点击填入,可再修改):</string>
     <string name="kick_reason_hint">请输入踢帖理由...</string>
+
+    <!-- build115: 踢帖预选理由，与 kick_rules_content 的 5 条规则一一对应 -->
+    <string-array name="kick_reason_presets">
+        <item>存在广告/引流/色情内容</item>
+        <item>涉及政治及宗教敏感内容</item>
+        <item>价值过低却设置收费</item>
+        <item>扰乱论坛秩序、辱骂、引战</item>
+        <item>其它违规且需立即屏蔽的内容</item>
+    </string-array>
     <string name="kick_success">踢帖请求已提交</string>
     <string name="kick_failed">踢帖失败</string>
     <string name="action_cancel">取消</string>

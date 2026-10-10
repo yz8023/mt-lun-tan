@@ -64,6 +64,24 @@
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
 
+        <!-- build115: 预选理由，点击即填入输入框 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/kick_preset_label"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="6dp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chip_kick_presets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:singleSelection="true"
+            app:chipSpacingHorizontal="6dp"
+            app:chipSpacingVertical="4dp"
+            android:layout_marginBottom="12dp" />
+
         <!-- 理由输入框 -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/til_kick_reason"

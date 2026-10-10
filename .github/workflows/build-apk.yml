@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.31
+        default: v5.32
 
 permissions:
   contents: write
@@ -178,9 +178,9 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：相册版式的帖子正文图片整张丢失**（表现为「没有图片、没有占位符、连空白块都没有」）。带多张截图的帖子在站点上会把图片放在 `ul.comiis_img_list`、单图帖放在 `ul.comiis_img_one`，这两个容器与正文 `div.comiis_message_table` 是**平级**的，而解析器只取正文容器，于是图片被整体丢掉。现已按两个容器分别拼回正文。
-          - **修复同样作用于评论区**：评论内容走的是同一个正文选择器，带相册的评论此前也会丢图，本次一并处理。
-          - **验证**：用真实页面离线回放提取流程 —— `tid=174354` 正文图 0 → 3 张，`tid=174353` 0 → 1 张；对照帖 `tid=174306`（原本正常）保持 2 → 2 张，无回归。
+          - **修复：踢帖明明成功却提示「踢帖失败」**。原因是踢帖复用了评分/打赏的成功判定函数，那个函数只认 `succeedhandle_rate`、`评分成功`、`打赏成功` 等**评分**字样，踢帖接口的返回文案一个都匹配不上，于是服务端踢成功了客户端也一律走失败分支。已新增踢帖专用判定。
+          - **失败时显示站点的真实原因**。以前不管站点返回什么，都只弹一个没信息量的「踢帖失败」。现在会从响应里抽取提示文案（如「今日踢帖次数已达上限」「该帖子不存在或已被删除」「验证已失效」）并一并显示，便于判断到底卡在哪。
+          - **新增：踢帖预选理由**。弹窗里加了 5 个快捷理由（与踢帖规则一一对应：广告引流色情 / 政治宗教敏感 / 低价值收费 / 辱骂引战 / 其它违规），点一下即填入输入框，仍可再手动修改，不用每次从零打字。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -195,14 +195,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 相册图片修复" \
+              --title "MTForum v${VERSION} — 踢帖修复 · 预选理由" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 相册图片修复" \
+              --title "MTForum v${VERSION} — 踢帖修复 · 预选理由" \
               --notes-file release-notes.md \
               --latest
           fi

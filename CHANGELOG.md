@@ -1,5 +1,19 @@
 # 更新日志
 
+## v5.32 (build115) — 踢帖修复 · 预选理由
+
+### 修复
+- **踢帖成功却提示失败**：`submitKickRequest` 复用了 `isForumActionResponseSuccessful()`，
+  该函数为评分/打赏设计，仅匹配 `succeedhandle_rate` / `rate_success` / `评分成功` / `打赏成功`，
+  踢帖响应无法命中，导致一律判失败。新增 `isKickResponseSuccessful()`。
+- **失败提示无信息量**：新增 `extractKickError()`，从 ajax CDATA 或 `messagetext` 节点抽取站点文案；
+  失败提示改为「踢帖失败：＜站点原因＞」，取不到原因时才退回通用提示。
+
+### 新增
+- **踢帖预选理由**：`dialog_kick.xml` 增加 `chip_kick_presets`（ChipGroup），
+  理由取自 `strings.xml` 的 `kick_reason_presets` 数组，与踢帖规则 5 条一一对应；
+  点击填入输入框并清除错误态，仍可手动编辑。
+
 ## v5.31 (build114) — 相册图片修复
 
 ### 修复

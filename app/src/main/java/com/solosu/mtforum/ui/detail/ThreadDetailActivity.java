@@ -1854,6 +1854,78 @@ public class ThreadDetailActivity extends AppCompatActivity {
         return containsAny(result, "recommendv", "recommendc", "点赞成功", "推荐成功", "succeedhandle_recommend", "评价成功");
     }
 
+    /**
+     * build115: 踢帖专用成功判定。
+     *
+     * 之前踢帖复用了 isForumActionResponseSuccessful()，那个函数是给「评分/打赏」写的，
+     * 只认 succeedhandle_rate / rate_success / 评分成功 / 打赏成功 这类评分字样。
+     * 踢帖接口返回的是踢帖相关文案，一个都匹配不上，于是服务端明明踢成功了，
+     * 客户端也一律走失败分支弹「踢帖失败」——这就是「踢贴失败」的直接原因。
+     */
+    private boolean isKickResponseSuccessful(String result) {
+        if (TextUtils.isEmpty(result) || ForumParser.isLoginPage(result)) {
+            return false;
+        }
+        if (containsAny(result, "请先登录", "formhash错误", "非法操作", "没有权限",
+                "未定义操作", "undefined action", "插件不存在", "没有开启",
+                "主题不存在", "该主题不存在", "帖子不存在", "不能踢自己的", "不能踢自己",
+                "踢帖次数", "次数已达上限", "已达上限", "操作失败", "提交失败")) {
+            return false;
+        }
+        // Discuz ajax 成功回调 succeedhandle_xxx / 各类成功文案
+        return containsAny(result, "succeedhandle", "踢帖成功", "踢成功", "踢贴成功",
+                "操作成功", "提交成功", "kick_success", "success");
+    }
+
+    /**
+     * build115: 从踢帖响应里抽出站点给出的提示文案。
+     * 拿不到具体文案时返回空串，由调用方退回通用提示，避免只弹一个没信息量的「踢帖失败」。
+     */
+    private String extractKickError(String response) {
+        if (TextUtils.isEmpty(response)) {
+            return "服务器未返回结果，请稍后重试";
+        }
+        if (ForumParser.isLoginPage(response) || containsAny(response, "请先登录")) {
+            return "登录状态已失效，请重新登录";
+        }
+        // Discuz ajax 响应：<root><![CDATA[...]]></root>
+        int c1 = response.indexOf("<![CDATA[");
+        if (c1 >= 0) {
+            int c2 = response.indexOf("]]>", c1);
+            if (c2 > c1) {
+                String cdata = response.substring(c1 + 9, c2);
+                String txt = android.text.Html.fromHtml(cdata).toString().trim();
+                if (!TextUtils.isEmpty(txt)) {
+                    return txt;
+                }
+            }
+        }
+        // 普通 showmessage 页面：<div id="messagetext">...</div>
+        int m1 = response.indexOf("messagetext");
+        if (m1 >= 0) {
+            int gt = response.indexOf('>', m1);
+            if (gt >= 0) {
+                int m2 = response.indexOf("</", gt);
+                if (m2 > gt) {
+                    String txt = android.text.Html.fromHtml(response.substring(gt + 1, m2)).toString().trim();
+                    if (!TextUtils.isEmpty(txt)) {
+                        return txt;
+                    }
+                }
+            }
+        }
+        if (containsAny(response, "formhash错误", "非法操作")) {
+            return "验证已失效，请刷新页面后重试";
+        }
+        if (containsAny(response, "次数已达上限", "踢帖次数", "已达上限")) {
+            return "今日踢帖次数已达上限";
+        }
+        if (containsAny(response, "主题不存在", "帖子不存在")) {
+            return "该帖子不存在或已被删除";
+        }
+        return "";
+    }
+
     private void updateLikeIcon() {
         ImageButton imageButton = this.binding.btnLike;
         // build66: 改用与列表页一致的拇指标(原 forum_like 是心形),用颜色区分已赞/未赞
@@ -4687,11 +4759,13 @@ private void viewHiddenContent() {
                 params.put("kick_reason", reason);
             }
             String result = this.httpClient.post(kickUrl, params);
-            final boolean success = isForumActionResponseSuccessful(result);
+            // build115: 改用踢帖专用判定（原来复用了评分/打赏的，永远判不出成功）
+            final boolean success = isKickResponseSuccessful(result);
+            final String errMsg = success ? "" : extractKickError(result);
             runOnUiThread(new Runnable() {
                 @Override // java.lang.Runnable
                 public final void run() {
-                    ThreadDetailActivity.this.lambda$submitKickRequest$58(success);
+                    ThreadDetailActivity.this.lambda$submitKickRequest$58(success, errMsg);
                 }
             });
         } catch (Exception e) {
@@ -4704,12 +4778,16 @@ private void viewHiddenContent() {
         }
     }
 
-    private void lambda$submitKickRequest$58(boolean success) {
+    private void lambda$submitKickRequest$58(boolean success, String errMsg) {
         if (success) {
             Toast.makeText(this, R.string.kick_success, 0).show();
             refreshPostDetail();
         } else {
-            Toast.makeText(this, R.string.kick_failed, 0).show();
+            // 有站点返回的真实原因就显示原因，没有才退回通用提示
+            String msg = TextUtils.isEmpty(errMsg)
+                    ? getString(R.string.kick_failed)
+                    : getString(R.string.kick_failed) + "：" + errMsg;
+            Toast.makeText(this, msg, 1).show();
         }
     }
 
@@ -4745,6 +4823,29 @@ private void viewHiddenContent() {
         final EditText etKickReason = view.findViewById(R.id.et_kick_reason);
         Button btnCloseKick = view.findViewById(R.id.btn_close_kick);
         Button btnSubmitKick = view.findViewById(R.id.btn_submit_kick);
+
+        // build115: 预选理由 —— 点一下填入输入框，用户可再手改
+        com.google.android.material.chip.ChipGroup chipPresets = view.findViewById(R.id.chip_kick_presets);
+        if (chipPresets != null) {
+            String[] presets = getResources().getStringArray(R.array.kick_reason_presets);
+            for (final String preset : presets) {
+                com.google.android.material.chip.Chip chip =
+                        new com.google.android.material.chip.Chip(this);
+                chip.setText(preset);
+                chip.setCheckable(true);
+                chip.setClickable(true);
+                chip.setOnClickListener(new View.OnClickListener() {
+                    @Override // android.view.View.OnClickListener
+                    public final void onClick(View v) {
+                        etKickReason.setText(preset);
+                        etKickReason.setSelection(preset.length());
+                        etKickReason.setError(null);
+                    }
+                });
+                chipPresets.addView(chip);
+            }
+        }
+
         btnCloseKick.setOnClickListener(v -> dialog.dismiss());
         btnSubmitKick.setOnClickListener(v -> {
             String reason = etKickReason.getText().toString().trim();
