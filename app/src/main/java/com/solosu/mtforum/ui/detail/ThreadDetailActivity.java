@@ -6073,6 +6073,8 @@ private void viewHiddenContent() {
 
             @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
+                com.solosu.mtforum.util.PerfLog.event(
+                        "[正文#" + webRenderEpoch + "] onPageFinished");
                 // build107: 先补纯文本链接，再挂其余脚本。顺序有讲究 ——
                 // 链接化只动文本节点，且跳过 <pre>/<code>/<a> 与 .mt-code 卡片，
                 // 所以代码块里 curl https://… 这类示例网址不会被改成链接；
@@ -6085,7 +6087,7 @@ private void viewHiddenContent() {
                 bindPostWebCodeCopy(view);
                 // build106: 附件图取不到时原生重试回填，绝不静默空白
                 bindPostWebImageErrors(view);
-                measurePostWebHeight(view);
+                measurePostWebHeight(view, "onPageFinished");
             }
         });
 
@@ -6111,7 +6113,9 @@ private void viewHiddenContent() {
             @android.webkit.JavascriptInterface
             public void onReady() {
                 runOnUiThread(() -> {
-                    measurePostWebHeight(web);
+                    com.solosu.mtforum.util.PerfLog.event(
+                            "[正文#" + webRenderEpoch + "] onReady");
+                    measurePostWebHeight(web, "onReady");
                     // build107: 图片全部落地后（含失败）再判断要不要上图廊兜底
                     maybeFallbackToGallery(web);
                 });
@@ -6125,6 +6129,8 @@ private void viewHiddenContent() {
             public void imgFailed(String index, String src) {
                 final int idx = parseIntSafe(index);
                 if (idx < 0) return;
+                com.solosu.mtforum.util.PerfLog.event(
+                        "[正文#" + webRenderEpoch + "] imgFailed idx=" + idx + " src=" + src);
                 retryPostWebImage(web, idx, src);
             }
 
@@ -6174,6 +6180,17 @@ private void viewHiddenContent() {
             }
         } catch (Exception ignored) {
         }
+        // ===== build119: 诊断打点 + 每轮渲染重置诊断状态 =====
+        webRenderEpoch++;
+        webHeightApplies = 0;
+        webHeightHistory.clear();
+        webHeightFrozen = false;
+        webHeightWindowStart = System.currentTimeMillis();
+        webHeightWindowCount = 0;
+        com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                + "] renderContentInWeb html=" + (html == null ? -1 : html.length())
+                + " hash=" + (html == null ? 0 : html.hashCode())
+                + " 栈=" + callerTag());
         web.loadDataWithBaseURL(com.solosu.mtforum.network.HttpClient.BASE_URL,
                 html, "text/html", "utf-8", "about:blank");
     }
@@ -6274,11 +6291,15 @@ private void viewHiddenContent() {
         postWebImgPending++;   // build107: 有重取在飞，兜底判断必须等它落地
         new java.lang.Thread(() -> {
             try {
+                com.solosu.mtforum.util.PerfLog.event(
+                        "[正文#" + webRenderEpoch + "] 重取开始 idx=" + index);
                 // getBytes 走共享 OkHttpClient：自动带论坛 Cookie 与 UA
                 byte[] bytes = com.solosu.mtforum.network.HttpClient.getInstance()
                         .getBytes(src, 8 * 1024 * 1024);
                 String mime = sniffImageMime(bytes);
                 if (bytes == null || bytes.length == 0 || mime == null) {
+                    com.solosu.mtforum.util.PerfLog.event(
+                            "[正文#" + webRenderEpoch + "] 重取失败(空或非图) idx=" + index);
                     markPostWebImageFailed(web, index);
                     return;
                 }
@@ -6287,15 +6308,19 @@ private void viewHiddenContent() {
                 // 实测 1329x2822、1.7MB 的图就是这样把正文搞得持续闪烁的。
                 // 此时 Cookie 已同步到图片所在域，让 WebView 自己带会话重取。
                 if (bytes.length > MAX_INLINE_IMAGE_BYTES) {
+                    com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                            + "] 重取成功 " + bytes.length + "B 过大 → WebView带Cookie重载 idx=" + index);
                     runOnUiThread(() -> {
                         if (isFinishing() || isDestroyed()) return;
                         web.evaluateJavascript(
                                 com.solosu.mtforum.util.PostWebImageScript
                                         .reloadImgSrcJs(index, src), null);
-                        measurePostWebHeight(web);
+                        measurePostWebHeight(web, "大图Cookie重载");
                     });
                     return;
                 }
+                com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                        + "] 重取成功 dataURI回填 " + bytes.length + "B idx=" + index);
                 final String dataUri = "data:" + mime + ";base64,"
                         + java.util.Base64.getEncoder().encodeToString(bytes);
                 runOnUiThread(() -> {
@@ -6304,9 +6329,11 @@ private void viewHiddenContent() {
                             com.solosu.mtforum.util.PostWebImageScript
                                     .setImgDataUriJs(index, dataUri), null);
                     // 回填后图片高度变化，重新量一次正文高度
-                    measurePostWebHeight(web);
+                    measurePostWebHeight(web, "重取回填");
                 });
             } catch (Throwable t) {
+                com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                        + "] 重取异常 " + t + " idx=" + index);
                 markPostWebImageFailed(web, index);
             } finally {
                 // 计数只在主线程改：兜底判断也在主线程读，避免跨线程竞态
@@ -6355,10 +6382,13 @@ private void viewHiddenContent() {
                 value -> {
                     if (isFinishing() || isDestroyed()) return;
                     int loaded = parseJsInt(value);
+                    com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                            + "] 图廊判定 loaded=" + loaded
+                            + " pending=" + postWebImgPending);
                     if (loaded == 0 && !fallbackGalleryShown && !pendingGalleryUrls.isEmpty()) {
                         fallbackGalleryShown = true;
                         renderImageGallery(pendingGalleryUrls);
-                        measurePostWebHeight(web);
+                        measurePostWebHeight(web, "图廊兜底");
                     }
                 });
     }
@@ -6369,7 +6399,7 @@ private void viewHiddenContent() {
             if (isFinishing() || isDestroyed()) return;
             web.evaluateJavascript(
                     com.solosu.mtforum.util.PostWebImageScript.markImgFailedJs(index), null);
-            measurePostWebHeight(web);
+            measurePostWebHeight(web, "标记失败");
         });
     }
 
@@ -6454,6 +6484,50 @@ private void viewHiddenContent() {
     /** build116: 待执行的那次高度测量，用来合并掉重复调用。 */
     private Runnable pendingWebHeightMeasure;
 
+    // ===== build119: 正文闪烁诊断 + 振荡自保护 =====
+    /** 本次会话的正文渲染序号（renderContentInWeb 每次进入 +1）。 */
+    private int webRenderEpoch;
+    /** 本 epoch 内实际写入 WebView 高度的次数。 */
+    private int webHeightApplies;
+    /** 6 秒滑动窗口起点与窗口内写入次数（风暴检测）。 */
+    private long webHeightWindowStart;
+    private int webHeightWindowCount;
+    /** 最近写入的高度历史（ABAB 振荡检测用）。 */
+    private final java.util.ArrayDeque<Integer> webHeightHistory = new java.util.ArrayDeque<>();
+    /** 检测到振荡后冻结高度写入的标志与冻结时刻。 */
+    private boolean webHeightFrozen;
+    private long webHeightFrozenAt;
+
+    /** build119: 识别 A,B,A,B,A,B 式高度振荡；命中返回描述，否则 null。 */
+    private String detectHeightOscillation() {
+        if (webHeightHistory.size() < 6) return null;
+        Integer[] hh = webHeightHistory.toArray(new Integer[6]);
+        if (hh[0].equals(hh[2]) && hh[2].equals(hh[4])
+                && hh[1].equals(hh[3]) && hh[3].equals(hh[5])
+                && !hh[0].equals(hh[1])) {
+            return "ABAB: " + hh[0] + "↔" + hh[1];
+        }
+        return null;
+    }
+
+    /** build119: 抓调用栈第 2~4 帧，定位是谁又触发了一次渲染。 */
+    private static String callerTag() {
+        try {
+            StackTraceElement[] st = new Throwable().getStackTrace();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 2; i < st.length && i < 5; i++) {
+                String cn = st[i].getClassName();
+                sb.append(i > 2 ? " ← " : "")
+                        .append(cn.substring(cn.lastIndexOf('.') + 1))
+                        .append('.').append(st[i].getMethodName())
+                        .append(':').append(st[i].getLineNumber());
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
     /**
      * 量正文 WebView 的真实内容高度并写回 layoutParams。
      *
@@ -6477,7 +6551,7 @@ private void viewHiddenContent() {
      * <p>build92: 之所以非撑开不可 —— WebView 嵌在 NestedScrollView 里，
      * 不按内容实际高度撑开的话，要么被截断、要么自己内部滚动把父滚动器卡住。
      */
-    private void measurePostWebHeight(final android.webkit.WebView web) {
+    private void measurePostWebHeight(final android.webkit.WebView web, final String why) {
         if (web == null) return;
         // 合并：新测量覆盖旧的，避免十几二十个 runnable 排队轮番改高度
         if (pendingWebHeightMeasure != null) {
@@ -6502,6 +6576,43 @@ private void viewHiddenContent() {
                                 // 高度没实质变化就别重新排版 —— 这是止住闪烁的关键。
                                 // 留 2px 容差，避开亚像素取整造成的 1px 来回抖动。
                                 if (lp.height > 0 && Math.abs(lp.height - newHeight) <= 2) {
+                                    return;
+                                }
+                                // ===== build119: 诊断 + 振荡自保护 =====
+                                if (webHeightFrozen) {
+                                    // 冻结 60 秒，给用户时间去日志中心翻记录
+                                    if (System.currentTimeMillis() - webHeightFrozenAt < 60_000L) {
+                                        return;
+                                    }
+                                    webHeightFrozen = false;
+                                    webHeightApplies = 0;
+                                    webHeightHistory.clear();
+                                    com.solosu.mtforum.util.PerfLog.event(
+                                            "[正文#" + webRenderEpoch + "] 冻结解除，恢复测量");
+                                }
+                                long nowMs = System.currentTimeMillis();
+                                if (nowMs - webHeightWindowStart > 6_000L) {
+                                    webHeightWindowStart = nowMs;
+                                    webHeightWindowCount = 0;
+                                }
+                                webHeightWindowCount++;
+                                webHeightApplies++;
+                                if (webHeightApplies <= 40 || webHeightApplies % 10 == 0) {
+                                    com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                                            + "] 高度写入#" + webHeightApplies + ": " + lp.height
+                                            + "→" + newHeight + " Δ" + (newHeight - lp.height)
+                                            + " css=" + h + " 来源=" + why);
+                                }
+                                if (webHeightHistory.size() >= 6) webHeightHistory.pollFirst();
+                                webHeightHistory.offerLast(Integer.valueOf(newHeight));
+                                String osc = detectHeightOscillation();
+                                if (osc != null || webHeightWindowCount > 30) {
+                                    webHeightFrozen = true;
+                                    webHeightFrozenAt = nowMs;
+                                    com.solosu.mtforum.util.PerfLog.event("[正文#" + webRenderEpoch
+                                            + "] !!! 高度振荡（" + (osc != null ? osc
+                                            : "6秒内写入" + webHeightWindowCount + "次")
+                                            + "），已冻结 60 秒 —— 请把本页日志截图发给作者");
                                     return;
                                 }
                                 lp.height = newHeight;

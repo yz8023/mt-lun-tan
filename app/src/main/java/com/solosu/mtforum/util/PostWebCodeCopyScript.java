@@ -55,7 +55,7 @@ public final class PostWebCodeCopyScript {
                 + "if(window.PostBody&&window.PostBody.copyText){PostBody.copyText(txt);flash(el,true);}"
                 + "else{flash(el,false);}}catch(e){flash(el,false);}}"
                 // 主路径：我们自己的卡片。代码在卡的 .mt-code-bd 里，行号/按钮都不在里面。
-                + "function wireCards(){try{var cards=document.querySelectorAll('.'"
+                + "function wireCards(){try{var cards=document.querySelectorAll('."
                 + MARK + "');"
                 + "for(var i=0;i<cards.length;i++){(function(card){"
                 + "if(card.getAttribute('data-mt-copy')==='1')return;"

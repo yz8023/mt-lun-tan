@@ -15,7 +15,7 @@ import java.util.Locale;
  */
 public final class PerfLog {
 
-    private static final int MAX = 80;
+    private static final int MAX = 160;
     private static final List<String> ENTRIES = new ArrayList<>();
 
     private PerfLog() {
@@ -49,6 +49,20 @@ public final class PerfLog {
         }
         // 同时进运行日志，方便和其它事件对时间线
         com.solosu.mtforum.ai.AiLog.i("perf", line);
+    }
+
+    /**
+     * build119: 正文闪烁诊断事件。与耗时记录共用一个缓冲，
+     * 用户在「日志中心 → 性能」页就能直接看到，不用接电脑。
+     */
+    public static void event(String line) {
+        String full = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(new Date())
+                + "  " + line;
+        synchronized (ENTRIES) {
+            ENTRIES.add(full);
+            while (ENTRIES.size() > MAX) ENTRIES.remove(0);
+        }
+        com.solosu.mtforum.ai.AiLog.i("web", full);
     }
 
     /** 倒序输出（最新在上） */
