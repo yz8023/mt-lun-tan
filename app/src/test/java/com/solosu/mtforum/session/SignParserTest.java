@@ -188,4 +188,29 @@ public class SignParserTest {
         assertTrue(SignParser.hasSaltkey("saltkey=b"));
         assertFalse(SignParser.hasSaltkey("cEbe_2132_auth=a"));
     }
+
+    /**
+     * build107: 站点部分页面用<b>单引号</b>包属性。
+     *
+     * <p>实测：用移动版 UA 请求 {@code member.php?mod=logging&action=login}，
+     * 返回的登录页里是 {@code <input type="hidden" name="formhash" id="formhash"
+     * value='a3906715' />} —— 属性值是单引号。原来只认双引号，formhash 解析为空，
+     * 上层就报「登录页解析失败（可能被风控）」：看着像站点风控，其实是自己的正则
+     * 漏了一种写法。两种引号都必须认。
+     */
+    @Test
+    public void extractFormhash_acceptsSingleQuotedAttributes() {
+        String single = "<form id=\"loginform\" method=\"post\" action=\"member.php?mod=logging&amp;"
+                + "action=login&amp;loginsubmit=yes&amp;loginhash=LD3qp\">"
+                + "<input type=\"hidden\" name=\"formhash\" id=\"formhash\" value='a3906715' /></form>";
+        assertEquals("单引号包属性也要能解析出 formhash", "a3906715", SignParser.extractFormhash(single));
+
+        String doubleQuoted = "<input type=\"hidden\" name=\"formhash\" id=\"formhash\" value=\"a3906715\" />";
+        assertEquals("双引号写法不能被改坏", "a3906715", SignParser.extractFormhash(doubleQuoted));
+
+        String reversed = "<input type=\"hidden\" value='bb11cc22' name=\"formhash\" />";
+        assertEquals("属性顺序反过来也要认", "bb11cc22", SignParser.extractFormhash(reversed));
+
+        assertEquals("loginhash 照常解析", "LD3qp", SignParser.extractLoginhash(single));
+    }
 }

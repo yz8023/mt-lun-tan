@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.24
+        default: v5.25
 
 permissions:
   contents: write
@@ -178,12 +178,11 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          ## MTForum v${VERSION}
-
-          - **帖子内纯文本链接可点**：修复「帖子内链接无法自动识别为可直接点击打开的超链接」。原帖渲染（默认）走 WebView，而链接识别此前只在 TextView 分支调用，作者直接把网址贴进正文时点不动；现在正文加载完自动补成可点链接。
-          - **覆盖与边界**：支持 https?://、//host、www. 与常见裸域名（含 .cn）并自动补 https://；收尾标点不吞进链接，邮箱与 readme.html 这类文件名不会误判成网址。
-          - **不改坏内容**：代码块、\`pre\`/\`code\` 与已有 \`a\` 内的网址不参与识别，示例网址不被改坏，也不会重复包一层；链接沿用统一的应用内/系统浏览器设置。
-          - **顺带修复**：WebView 不可用时的 TextView 兜底分支、以及回复里的引用块，以前同样没挂链接识别。
+          - **帖子内图片白屏修复**：修复部分帖子（如 tid=174306 / 174257 / 174255 / 174248）打开后图片整片空白的问题。这些帖子的图是 Discuz 附件，站点对没有登录态的请求返回提示页，WebView 里的图「加载完成但零像素」，屏幕上就是一片白。现在正文一张图都没真正加载出来时，自动启用底部图廊兜底显示列表页的真实图片，不再留空白。
+          - **判定口径**：只有 complete 且 naturalWidth 大于 0 的图才算加载成功；提示页那种零像素的图不算，正在用原生带会话重取的图会等它落地再判断，不会误判成「没救了」。
+          - **不影响正常帖子**：正文正常出图时兜底不介入，原来「不在正文和图廊各显示一次」的语义保持不变。
+          - **顺带修复**：evaluateJavascript 的返回值按 JSON 解析（原来只认裸数字，带引号的字符串会解析失败，导致这类兜底逻辑静默失效）。
+          - **顺带修复**：登录页 formhash 解析支持单引号属性（站点部分页面用单引号，原正则只认双引号，会误报「登录页解析失败（可能被风控）」）。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -198,14 +197,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 帖子内链接可点 · 引用块链接可点" \
+              --title "MTForum v${VERSION} — 帖子内图片白屏修复 · 图廊兜底" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 帖子内链接可点 · 引用块链接可点" \
+              --title "MTForum v${VERSION} — 帖子内图片白屏修复 · 图廊兜底" \
               --notes-file release-notes.md \
               --latest
           fi

@@ -138,12 +138,18 @@ public final class SignParser {
     // ==================== 字段提取 ====================
 
     /** Discuz formhash：优先取表单隐藏域，退而取 URL 参数 */
+    /**
+     * 站点对部分页面（实测：移动版 UA 拿到的登录页）用<b>单引号</b>包属性：
+     * {@code <input type="hidden" name="formhash" id="formhash" value='a3906715' />}。
+     * 只认双引号的话 formhash 解析为空，上层就直接报「登录页解析失败（可能被风控）」——
+     * 看起来像站点风控，其实是自己的正则漏了一种写法。
+     */
     public static String extractFormhash(String html) {
-        String v = extract(html, "name=\"formhash\"[^>]*?value=\"([a-zA-Z0-9]+)\"");
+        String v = extract(html, "name=[\"']formhash[\"'][^>]*?value=[\"']([a-zA-Z0-9]+)[\"']");
         if (!isBlank(v)) return v;
-        v = extract(html, "value=\"([a-zA-Z0-9]+)\"[^>]*?name=\"formhash\"");
+        v = extract(html, "value=[\"']([a-zA-Z0-9]+)[\"'][^>]*?name=[\"']formhash[\"']");
         if (!isBlank(v)) return v;
-        v = extract(html, "formhash\"\\s*value=\"([a-zA-Z0-9]+)\"");
+        v = extract(html, "formhash[\"']\\s*value=[\"']([a-zA-Z0-9]+)[\"']");
         if (!isBlank(v)) return v;
         return orEmpty(extract(html, "formhash=([a-zA-Z0-9]+)"));
     }

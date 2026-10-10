@@ -61,4 +61,22 @@ public class PostWebImageScriptTest {
         assertTrue(js.contains("mt-img-failed"));
         assertTrue(js.contains("data-mt-retried"));
     }
+
+    /**
+     * build107: 统计「真正加载成功」的图片数，用于判断要不要上图廊兜底。
+     *
+     * <p>判定必须是 {@code complete && naturalWidth > 0}：站点把需要登录的附件换成
+     * HTML 提示页时，{@code <img>} 照样会触发 load 完成事件，只是尺寸为 0 ——
+     * 那种图在用户眼里就是一片空白，绝不能算「加载成功」，否则兜底永远不会触发。
+     */
+    @Test
+    public void countLoadedImages_onlyCountsImagesWithRealPixels() {
+        String js = PostWebImageScript.countLoadedImagesJs();
+        assertTrue("必须按 naturalWidth 判定，不是只看 complete",
+                js.contains("naturalWidth>0"));
+        assertTrue("必须同时要求 complete", js.contains("e.complete&&e.naturalWidth>0"));
+        assertTrue("遍历所有 img", js.contains("getElementsByTagName('img')"));
+        assertTrue("出错要返回 -1，让调用方当未知处理而不是『一张没有』",
+                js.contains("return -1"));
+    }
 }

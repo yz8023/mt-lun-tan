@@ -1,5 +1,66 @@
 # 更新日志
 
+## v5.25 (build108) — 帖子内图片白屏修复 · 图廊兜底
+
+### 用户反馈（本轮）
+
+1. 部分帖子（tid=174306 / 174257 / 174255 / 174248）图片无法加载，是白屏。
+
+### 根因
+
+- 四个帖子的图全是 **Discuz 附件**（页面提示「本帖子中包含更多资源，您需要登录后
+  才能下载或查看附件」）。站点对没有登录态的请求返回的是 HTML 提示页 —— 对
+  `<img>` 来说照样会触发 load 完成事件，只是解码出来尺寸为 0，用户眼前就是空白。
+- v5.11（build92）起主楼默认走 `renderContentInWeb`，为了避免「一图两显」，
+  这条路在渲染前**无条件**关掉底部图廊：`renderImageGallery(null)`。
+  于是正文的附件图一旦没渲染出来，就是「正文没图 + 图廊也没图 = 一屏空白」。
+- v5.23 加的原生重取兜底只覆盖「正文里 `<img>` 存在但加载失败」，
+  覆盖不到「正文压根没解析出图」这种情况。
+
+### ① 图廊兜底（主修复）
+
+- 新增 `PostWebImageScript.countLoadedImagesJs()`：统计正文里**真正加载成功**
+  的图片数，判定标准是 `complete && naturalWidth > 0`，零像素的提示页不算成功。
+- 图片全部落地后（`onReady`，含失败、含原生重取结束）统计张数；为 0 且有候选
+  地址时才启用底部图廊。正文正常出图时不介入，「不重复显示」的语义不变。
+- 有原生重取在飞时不下结论（`postWebImgPending` 计数 + 延迟重试），
+  避免把「正在抢救」误判成「没救了」而弹出重复图廊。
+
+### ② 顺带修掉的两个静默失效
+
+- `parseJsInt`：`evaluateJavascript` 的返回值是 JSON，字符串会带引号，
+  而 `parseIntSafe` 只认裸数字会**永远解析失败** —— 这类兜底逻辑会静默失效。
+  新增专用解析，带引号与不带引号都认。
+- `SignParser.extractFormhash`：站点部分页面用**单引号**包属性
+  （实测移动版 UA 的登录页是 `value='a3906715'`），原正则只认双引号，
+  formhash 解析为空，上层就报「登录页解析失败（可能被风控）」——
+  看着像站点风控，其实是自己的正则漏了一种写法。改为两种引号都认。
+
+### 排查过程
+
+本轮用仓库自带的 ESA 挑战解算器拿到了四个帖子的真实页面，并用仓库自己的
+`ForumParser`（编译了 JVM 桩）跑过：四个帖子 `imageUrls` 均为 0、
+`hasHiddenContent` 均为 false，图片确实全在登录可见的附件里。
+手机站登录是 `comiis_sms` 短信验证码，PC 登录 POST 从本环境一律被 Discuz
+判为「非法字符」拒绝，因此未能取得登录态页面做端到端复现 —— 结论由代码路径
+与游客页结构推导得出，已由用户实机验证为准。
+
+### 测试
+
+- 新增 `PostWebImageScriptTest#countLoadedImages_onlyCountsImagesWithRealPixels`、
+  `SignParserTest#extractFormhash_acceptsSingleQuotedAttributes`。
+- 本地 37 项 JVM 单测全绿；`countLoadedImagesJs` 另用 jsdom 在真实 DOM 上验证过
+  「零像素提示页不算成功、未加载完的也不算」。
+- 改动前后 javac 错误数一致（8 个，均为既有代码在 JDK11 下的转义告警，
+  CI 用 JDK17 不受影响）。
+
+### 构建
+
+- versionCode **60** / versionName **5.25**（build108）
+- 签名不变，可直接覆盖升级。
+
+---
+
 ## v5.24 (build107) — 帖子内纯文本链接自动识别为可点链接
 
 ### 用户反馈（本轮）

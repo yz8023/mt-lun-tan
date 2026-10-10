@@ -118,6 +118,23 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private boolean targetPidJumpInProgress = false;
     /** build87: 列表页带过来的真实 CDN 图，帖子页解析不到图时兜底用 */
     private java.util.List<String> listImageFallback = new java.util.ArrayList<>();
+
+    /**
+     * build107: WebView 原帖渲染模式下的「图廊兜底候选」。
+     *
+     * <p>原帖渲染默认把底部图廊关掉（避免同一张图正文、图廊各出现一次），
+     * 但正文里那些需要登录态的附件一旦没渲染出来，用户看到的就是一整片空白 ——
+     * 用户报的「这些帖子图片无法加载是白屏」正是这种情况。这里先把候选地址留一份，
+     * 等确认正文一张图都没加载成功时再启用图廊兜底。
+     */
+    private final java.util.List<String> pendingGalleryUrls = new java.util.ArrayList<>();
+    /** build107: 图廊兜底只做一次，避免重试回调反复弹。 */
+    private boolean fallbackGalleryShown;
+    /**
+     * build107: 仍在用原生 OkHttp 重取的图片数。
+     * 有重取在飞的时候不能下「一张都没有」的结论，必须等它们落地。
+     */
+    private int postWebImgPending;
     /**
      * build87: 上一次渲染时所在的账号。{@link #onResume()} 发现切号就重拉一次，
      * 否则已经打开的帖子页会一直停留在旧账号的点赞/收藏/关注态 ——
@@ -947,7 +964,12 @@ public class ThreadDetailActivity extends AppCompatActivity {
             // build90: 但原位模式下兜底图已经补写进正文了，不能再进底部图廊，
             // 否则同一张图在正文和帖子底部各出现一次。
             if (webRender) {
-                // 图已经在 WebView 里按原位置渲染了，底部图廊必须让位，否则一图两显
+                // 图已经在 WebView 里按原位置渲染了，底部图廊必须让位，否则一图两显。
+                // build107: 但先把候选留住 —— 万一正文一张都没加载出来（需要登录态的
+                // 附件被站点换成提示页），onReady 时会用它兜底，而不是留一屏空白。
+                this.pendingGalleryUrls.clear();
+                this.pendingGalleryUrls.addAll(galleryUrls);
+                this.fallbackGalleryShown = galleryUrls.isEmpty();
                 renderImageGallery(null);
             } else {
                 if (!imagesInline && galleryUrls.isEmpty() && !this.listImageFallback.isEmpty()) {
@@ -5828,7 +5850,11 @@ private void viewHiddenContent() {
              */
             @android.webkit.JavascriptInterface
             public void onReady() {
-                runOnUiThread(() -> measurePostWebHeight(web));
+                runOnUiThread(() -> {
+                    measurePostWebHeight(web);
+                    // build107: 图片全部落地后（含失败）再判断要不要上图廊兜底
+                    maybeFallbackToGallery(web);
+                });
             }
 
             /**
@@ -5968,6 +5994,7 @@ private void viewHiddenContent() {
             markPostWebImageFailed(web, index);
             return;
         }
+        postWebImgPending++;   // build107: 有重取在飞，兜底判断必须等它落地
         new java.lang.Thread(() -> {
             try {
                 // getBytes 走共享 OkHttpClient：自动带论坛 Cookie 与 UA
@@ -5990,8 +6017,47 @@ private void viewHiddenContent() {
                 });
             } catch (Throwable t) {
                 markPostWebImageFailed(web, index);
+            } finally {
+                // 计数只在主线程改：兜底判断也在主线程读，避免跨线程竞态
+                runOnUiThread(() -> {
+                    if (postWebImgPending > 0) postWebImgPending--;
+                });
             }
         }, "post-img-retry").start();
+    }
+
+    /**
+     * build107: 正文一张图都没加载出来时，用底部图廊兜底，不再留一屏空白。
+     *
+     * <p>原帖渲染（默认）为了不「一图两显」，在渲染前就无条件关掉了底部图廊。
+     * 这有个前提：正文里的图一定渲染得出来。可帖子里的图常常是 Discuz 附件，
+     * 站点对没有登录态（或权限不足）的请求返回的是「本帖子中包含更多资源 /
+     * 您需要登录后才能下载或查看附件」的 HTML 提示页 —— 对 {@code <img>} 来说
+     * 就是加载「完成」但尺寸为 0，屏幕上是一片空白。这时关掉图廊等于什么都没有，
+     * 用户报的「这些帖子图片无法加载是白屏」就是这个。
+     *
+     * <p>所以这里在图片全部落地之后（含失败、含原生重取结束）统计真正加载成功的
+     * 张数；为 0 且有候选地址时才启用图廊。正文正常出图时不会走到这里，
+     * 「不重复显示」的语义保持不变。
+     */
+    private void maybeFallbackToGallery(final android.webkit.WebView web) {
+        if (web == null || fallbackGalleryShown || pendingGalleryUrls.isEmpty()) return;
+        if (postWebImgPending > 0) {
+            // 还有原生重取在飞，等它落地再判断，否则会把「正在抢救」误判成「没救了」
+            web.postDelayed(() -> maybeFallbackToGallery(web), 600L);
+            return;
+        }
+        web.evaluateJavascript(
+                com.solosu.mtforum.util.PostWebImageScript.countLoadedImagesJs(),
+                value -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    int loaded = parseJsInt(value);
+                    if (loaded == 0 && !fallbackGalleryShown && !pendingGalleryUrls.isEmpty()) {
+                        fallbackGalleryShown = true;
+                        renderImageGallery(pendingGalleryUrls);
+                        measurePostWebHeight(web);
+                    }
+                });
     }
 
     private void markPostWebImageFailed(final android.webkit.WebView web, final int index) {
@@ -6002,6 +6068,26 @@ private void viewHiddenContent() {
                     com.solosu.mtforum.util.PostWebImageScript.markImgFailedJs(index), null);
             measurePostWebHeight(web);
         });
+    }
+
+    /**
+     * 解析 {@code evaluateJavascript} 回调里的整数。
+     *
+     * <p>带过来的是 JSON：脚本返回字符串时会带一圈引号，返回数字时不带。
+     * {@link #parseIntSafe} 只认裸数字，拿它读脚本返回值会永远解析失败 ——
+     * 兜底逻辑就永远不触发了。这里两种都认。
+     */
+    private static int parseJsInt(String raw) {
+        if (raw == null) return -1;
+        String v = raw.trim();
+        if (v.length() >= 2 && v.charAt(0) == '"' && v.charAt(v.length() - 1) == '"') {
+            v = v.substring(1, v.length() - 1);
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     private static int parseIntSafe(String value) {

@@ -58,6 +58,25 @@ public final class PostWebImageScript {
                 + "}catch(x){}})();";
     }
 
+    /**
+     * 统计正文中<b>真正加载成功</b>的图片数量（build107）。
+     *
+     * <p>判定标准必须是 {@code complete && naturalWidth > 0}：站点把「需要登录」
+     * 的附件换成 HTML 提示页时，{@code <img>} 照样会触发 load 完成事件，
+     * 只是解码出来尺寸为 0 —— 那种图在用户眼里就是一片空白。
+     *
+     * <p>返回值交给 {@code evaluateJavascript} 的回调；出错时返回 {@code -1}，
+     * 调用方把它当「未知」处理，不要误判成「一张都没有」。
+     */
+    public static String countLoadedImagesJs() {
+        return "(function(){try{"
+                + "var a=document.getElementsByTagName('img'),n=0;"
+                + "for(var i=0;i<a.length;i++){"
+                + "var e=a[i];if(e.complete&&e.naturalWidth>0)n++;}"
+                + "return n;"
+                + "}catch(x){return -1;}})()";
+    }
+
     /** 重试也失败时给图打上可视的失败样式，替代静默空白。 */
     public static String markImgFailedJs(int index) {
         return "(function(){try{"
