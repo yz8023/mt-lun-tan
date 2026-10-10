@@ -1,5 +1,58 @@
 # 更新日志
 
+## v5.30 (build113) — 评论自动加载修复 · 移除账号名搜索
+
+### 1. 修复：拖到底不自动加载更多评论
+
+用户反馈：「拖到底但不是最后一条的时候还需要手动点击加载更多评论」。
+
+`ThreadDetailActivity` 里负责自动加载的是 `nestedScroll` 的滚动监听，
+原来的判断是：
+
+```java
+if (isNearBottom && this.binding.btnLoadMore.getVisibility() == 8 && this.postDetail != null) {
+```
+
+`8` 即 `View.GONE`。也就是说：**只有"加载更多"按钮处于隐藏状态时才会自动加载**。
+而这个按钮恰恰在**还有下一页时是 VISIBLE** 的 —— 于是这个分支永远进不去，
+滑到底也不会自动加载，只能手动点按钮。
+
+改为只保留真正该有的判据：
+
+```java
+if ((isNearBottom || isAtBottom) && this.postDetail != null && !this.isLoadingMore) {
+    if (this.postDetail.getCurrentPage() < this.postDetail.getTotalPages()) {
+        loadMoreReplies();
+    }
+}
+```
+
+### 2. 预取可连续消费
+
+「预加载无效」多半是同一个根因的连带现象：自动加载不跑，缓存自然没人消费。
+
+另外补了一个二次卡顿：追加一页后，如果缓存里还有下一页、且用户仍停在底部
+（新内容没把屏幕填满时很容易这样），就继续接上，
+不再出现「加载一页后卡住、还得再滑一下或再点一次」。
+
+新增 `isScrolledNearBottom()` 供自动加载与预取续接共用同一套判据。
+
+### 3. 移除：账号名搜索用户（原第 7 项）
+
+实测无效，按用户要求整体移除：
+- 搜索页的「搜帖子 / 搜用户」切换控件（`MaterialButtonToggleGroup`）；
+- `SearchActivity` 里的 `searchUserMode` 字段、切换监听、`performSearch` 分支；
+- `searchUserByAccount()` 整个方法。
+
+搜索恢复为只搜帖子。
+
+### 构建
+
+- versionCode **65** / versionName **5.30**（build113）
+- 签名不变，可直接覆盖升级。
+
+---
+
 ## v5.29 (build112) — 修复个人主页一律显示成自己
 
 上一版（v5.28）修完搜索后，用户反馈「搜用户名还是跳到自己的主页」。

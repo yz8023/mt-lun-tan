@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.29
+        default: v5.30
 
 permissions:
   contents: write
@@ -178,10 +178,9 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：个人主页一律显示成自己**：真因不在搜索，而在个人主页。本站在移动模板（&mobile=2）的空间页里根本不下发目标用户的数据——实测目标用户名出现 0 次、目标 uid 出现 0 次，页面里只剩全局头部当前登录用户的信息。于是头像兜底选择器抓到的就是"我自己的头像"，表现成「不管点谁都像在看自己」。
-          - **改法**：移动页解析不到用户名时，改抓桌面模板空间页（不带 mobile=2，那里数据是齐的），用新增的 ForumParser.parseUserProfileDesktop() 解析——从页面标题取用户名，按 uid 精确匹配头像，避免抓到头部当前用户的小头像。
-          - **影响范围**：不只是搜索。帖子里点任意作者名进个人主页，以前也是同一个毛病，一并修好。
-          - **实测**：登录真实账号，7 个 uid 逐个验证（6 个他人 + 1 个自己），用户名与头像 7/7 全部正确。
+          - **修复：拖到底不自动加载更多评论**：原来的自动加载条件里有一句「加载更多按钮必须处于隐藏状态」，而按钮恰恰在还有下一页时是显示的 —— 这个分支永远进不去，于是每次都得手动点按钮。已改为只判断「还有下一页且当前没在加载」。
+          - **预取可连续消费**：追加一页后若缓存里还有下一页、且仍停在底部，会继续接上，不再出现「加载一页后又卡住、还要再滑一下」的二次卡顿。
+          - **移除：账号名搜索用户**：实测无效，按你的要求整体移除（搜索页的切换控件、相关代码与字段一并删除），搜索恢复为只搜帖子。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -196,14 +195,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 修复个人主页一律显示成自己" \
+              --title "MTForum v${VERSION} — 评论自动加载修复 · 移除账号名搜索" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 修复个人主页一律显示成自己" \
+              --title "MTForum v${VERSION} — 评论自动加载修复 · 移除账号名搜索" \
               --notes-file release-notes.md \
               --latest
           fi

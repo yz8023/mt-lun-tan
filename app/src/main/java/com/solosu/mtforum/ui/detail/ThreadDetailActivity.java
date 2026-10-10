@@ -442,10 +442,14 @@ public class ThreadDetailActivity extends AppCompatActivity {
             int contentHeight = child.getHeight() - scrollView.getHeight();
             boolean isAtBottom = scrollY >= contentHeight + (-200);
             boolean isNearBottom = scrollY >= contentHeight + (-400);
-            if (isNearBottom && this.binding.btnLoadMore.getVisibility() == 8 && this.postDetail != null) {
+            // build113：原来的条件里有一句 btnLoadMore.getVisibility() == 8（GONE）。
+            // 而按钮恰恰在「还有下一页」时是 VISIBLE 的 —— 于是这个分支永远进不去，
+            // 拖到底也不会自动加载，只能手动点按钮。
+            // 判据应该只有一个：还有下一页、且当前没在加载。
+            if ((isNearBottom || isAtBottom) && this.postDetail != null && !this.isLoadingMore) {
                 int currentPage = this.postDetail.getCurrentPage();
                 int totalPages = this.postDetail.getTotalPages();
-                if (currentPage < totalPages && !this.isLoadingMore) {
+                if (currentPage < totalPages) {
                     loadMoreReplies();
                 }
             }
@@ -2598,7 +2602,29 @@ private void viewHiddenContent() {
         updateReplyFilterAndOrder();
         this.binding.btnLoadMore.setVisibility(
                 next < this.postDetail.getTotalPages() ? View.VISIBLE : View.GONE);
+
+        // build113：追加完一页后，如果缓存里还有下一页、且用户仍停在底部，
+        // 就继续接上。否则会出现「滑到底 -> 加载一页 -> 还是停在底部但不再触发」
+        // 的二次卡顿，用户还得再手动滑一下或点按钮。
+        this.binding.nestedScroll.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (prefetchedPages.containsKey(next + 1)
+                    && this.postDetail.getCurrentPage() < this.postDetail.getTotalPages()
+                    && isScrolledNearBottom()) {
+                applyPrefetchedPage();
+            }
+        });
         return true;
+    }
+
+    /** 是否已滑到接近底部（供自动加载与预取续接共用） */
+    private boolean isScrolledNearBottom() {
+        if (this.binding == null || this.binding.nestedScroll == null) return false;
+        NestedScrollView sv = this.binding.nestedScroll;
+        View child = sv.getChildAt(0);
+        if (child == null) return false;
+        int contentHeight = child.getHeight() - sv.getHeight();
+        return contentHeight > 0 && sv.getScrollY() >= contentHeight - 400;
     }
 
     private void loadMoreReplies() {
