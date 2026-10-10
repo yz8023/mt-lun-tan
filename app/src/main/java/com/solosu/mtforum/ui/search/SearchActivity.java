@@ -263,7 +263,7 @@ public class SearchActivity extends AppCompatActivity {
             try {
                 String url = com.solosu.mtforum.network.HttpClient.BASE_URL
                         + "home.php?mod=space&username="
-                        + java.net.URLEncoder.encode(name, "UTF-8");   // 注意：不要加 &mobile=2
+                        + java.net.URLEncoder.encode(name, "UTF-8");   // 注意：不能加 &mobile=2
                 com.solosu.mtforum.network.HttpClient client =
                         com.solosu.mtforum.network.HttpClient.getInstance();
                 client.syncFromCookieManager();
@@ -317,6 +317,50 @@ public class SearchActivity extends AppCompatActivity {
         });
     }
 
+    /** 显示最近搜索；点选重搜，点芯片上的叉号删除单项。 */
+    private void renderSearchHistory() {
+        if (chipSearchHistory == null || layoutSearchHistory == null) return;
+        List<String> history = SearchHistoryStore.list(this);
+        chipSearchHistory.removeAllViews();
+        layoutSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
+        if (btnClearSearchHistory != null) {
+            btnClearSearchHistory.setVisibility(history.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        for (String term : history) {
+            Chip chip = new Chip(this);
+            chip.setText(term);
+            chip.setCheckable(false);
+            chip.setClickable(true);
+            chip.setCloseIconVisible(true);
+            chip.setCloseIconResource(android.R.drawable.ic_menu_close_clear_cancel);
+            chip.setCloseIconContentDescription("删除搜索词 " + term);
+            chip.setOnClickListener(v -> {
+                etSearch.setText(term);
+                etSearch.setSelection(term.length());
+                performSearch();
+            });
+            chip.setOnCloseIconClickListener(v -> {
+                SearchHistoryStore.remove(this, term);
+                renderSearchHistory();
+            });
+            chipSearchHistory.addView(chip);
+        }
+    }
+
+    private void confirmClearSearchHistory() {
+        if (SearchHistoryStore.list(this).isEmpty()) return;
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("清空搜索历史")
+                .setMessage("删除本机保存的全部搜索词？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (dialog, which) -> {
+                    SearchHistoryStore.clear(this);
+                    renderSearchHistory();
+                })
+                .show();
+    }
+
+    /** 重置分页状态并拉第一页 */
     private void startSearch(String keyword) {
         pendingKeyword = keyword;
         searchGeneration++;
