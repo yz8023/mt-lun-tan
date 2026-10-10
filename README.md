@@ -2,9 +2,17 @@
 
 [bbs.binmt.cc](https://bbs.binmt.cc/) 的第三方 Android 客户端。原生 Java + Material Design，覆盖板块浏览、帖子阅读、回复/发帖、个人中心、**多账号登录与切换**、**多账号自动签到**、AI 自动回复。
 
-当前版本：**v5.34（versionCode 69）**
+当前版本：**v5.35（versionCode 70）**
 
 ---
+
+## v5.35：CDN 图加载闪烁修复
+
+- **修复长图文贴一直疯狂闪**——根因是 Cookie 同步域名不够全。
+- App 现在会在渲染正文前把登录态同步到正文里所有图片所在的域，
+  保证 `icdn.binmt.cc` 之类的 CDN 图能被索取到，解决 WAF 307 循环；
+- 同时原生重取过大的图不再 base64 塞回 WebView，改为让 WebView 带 Cookie 自己再拉一次，
+  避免 MB 级字符串解码引发的持续重排。
 
 ## v5.34：局部疯狂闪烁修复
 

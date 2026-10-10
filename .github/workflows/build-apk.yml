@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.34
+        default: v5.35
 
 permissions:
   contents: write
@@ -178,9 +178,10 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：某张图连同它后面那段文字一直疯狂闪**（v5.33 修的是整篇重排型闪烁，这个是另一回事，属于**局部**闪烁）。实测该图地址 `icdn.binmt.cc` 被 WAF 挡下，返回**指向自身的 307 无限重定向**（`x-tengine-error: denied by http_custom`）。Chromium 跟到 20 跳后放弃并抛 error，而且会**持续反复抛**。
-          - **为什么会闪**：`data-mt-retried`（「一张图只重试一次」的标记）原本是在**重取跑完之后**才写上的。死循环重定向让重取要绕 20 跳、几十秒才失败，这段窗口里每一个 error 都会再开一条重取线程；而重取一旦成功 `setImgDataUriJs` 又会 `remove('mt-img-failed')`、失败再加回去 —— 图片框在 56px 与 auto 之间反复跳变，紧随其后的文字被顶得上下抽动，就是看到的「疯狂闪」。
-          - **做法**：把该标记改为**发起重试前立刻写入**，同一张图只可能重取一次；另外在 Java 侧加了一层索引去重，杜绝同一张图被并发开多条线程（每条都要跟着绕 20 跳）。
+          - **修复：个别帖子正文一直疯狂闪**（v5.34 是另一个问题，属于局部图片失效；本版解决的是「带 CDN 超大图」帖子一直闪的真正原因）。
+          - **根因有两层、环环相扣**：一是 WebView 拿图时**没带上登录态**，站点 WAF 直接拒掉（实测实测那个图带 Cookie 是 200，不带就是 307 无限重定向），原因是 App 只把 Cookie 同步给主域名 `bbs.binmt.cc`，而配图常挂在 `icdn.binmt.cc` 等其它子域；
+          - 二是原生侧替它重取**成功**后，会把那张 1.7 MB、1329×2822 的图 base64 成约 2.3 MB 的 data 字符串硬塞回 WebView —— PNG 帧解码 + 正文重排的开销让高度一直在涨/降，就是看到的一直闪。
+          - **做法**：正文渲染前先扫描 HTML 里所有 img/src，把登录态 Cookie 同步到这些图片所在的域；原生重取的图体积超过 256 KB 就不再塞 data URI，改为让 WebView 自己带 Cookie 再拉一次。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -195,14 +196,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 局部疯狂闪烁修复" \
+              --title "MTForum v${VERSION} — 修复CDN图无限闪烁" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 局部疯狂闪烁修复" \
+              --title "MTForum v${VERSION} — 修复CDN图无限闪烁" \
               --notes-file release-notes.md \
               --latest
           fi

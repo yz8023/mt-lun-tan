@@ -92,6 +92,25 @@ public final class PostWebImageScript {
                 + "}catch(x){return -1;}})()";
     }
 
+    /**
+     * build118: 让指定 img 重新按原地址加载一次。
+     *
+     * <p>用于「原生重取拿到了图，但图太大不适合塞成 data: URI」的情况
+     * （实测 tid=170823 那张是 1329x2822、1.7MB 的 PNG，base64 后约 2.3MB）。
+     * 把 2MB 级的字符串经 evaluateJavascript 塞进 WebView 再解码，开销极大，
+     * 正是正文持续闪烁的放大器。此时 Cookie 已同步到图片所在域，
+     * 让 WebView 自己带会话重取一次即可 —— 该图已带 data-mt-retried，
+     * 即便再失败也不会重复走这条链路。
+     */
+    public static String reloadImgSrcJs(int index, String url) {
+        return "(function(){try{"
+                + "var e=document.querySelector('img[data-mtimg-i=\\\"" + index + "\\\"]');"
+                + "if(e){e.setAttribute('data-mt-retried','1');"
+                + "if(e.classList)e.classList.remove('mt-img-failed');"
+                + "e.src=" + jsString(url) + ";}"
+                + "}catch(x){}})();";
+    }
+
     /** 重试也失败时给图打上可视的失败样式，替代静默空白。 */
     public static String markImgFailedJs(int index) {
         return "(function(){try{"

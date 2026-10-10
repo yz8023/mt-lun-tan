@@ -6162,6 +6162,18 @@ private void viewHiddenContent() {
         // 会话在 OkHttp 罐子里，渲染前把最新会话推进 WebView CookieManager，
         // 避免「单账号/新装设备 WebView 无会话 → 附件按游客处理 → 整帖空白」。
         this.httpClient.syncToCookieManager();
+        // build118: 上面只同步了主域，但正文配图常挂在别的 CDN 域（icdn.binmt.cc 等）。
+        // Cookie 是 host-only 的，不同步过去，WebView 取图就是不带会话的裸请求，
+        // 会被站点 WAF 用「指向自身的 307 无限重定向」挡掉 —— 图永远加载不出来。
+        // 实测该图带 Cookie 是 200（1.7MB PNG），不带就是 307 死循环。
+        try {
+            java.util.Set<String> imgHosts =
+                    com.solosu.mtforum.util.PostImageHtml.extractImageHosts(body);
+            if (!imgHosts.isEmpty()) {
+                this.httpClient.syncCookiesToHosts(imgHosts);
+            }
+        } catch (Exception ignored) {
+        }
         web.loadDataWithBaseURL(com.solosu.mtforum.network.HttpClient.BASE_URL,
                 html, "text/html", "utf-8", "about:blank");
     }
@@ -6268,6 +6280,20 @@ private void viewHiddenContent() {
                 String mime = sniffImageMime(bytes);
                 if (bytes == null || bytes.length == 0 || mime == null) {
                     markPostWebImageFailed(web, index);
+                    return;
+                }
+                // build118: 太大的图不塞 data: URI。base64 后体积再涨约 1/3，
+                // 2MB 级的字符串过 JNI 再让 Chromium 解码，开销极大 ——
+                // 实测 1329x2822、1.7MB 的图就是这样把正文搞得持续闪烁的。
+                // 此时 Cookie 已同步到图片所在域，让 WebView 自己带会话重取。
+                if (bytes.length > MAX_INLINE_IMAGE_BYTES) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        web.evaluateJavascript(
+                                com.solosu.mtforum.util.PostWebImageScript
+                                        .reloadImgSrcJs(index, src), null);
+                        measurePostWebHeight(web);
+                    });
                     return;
                 }
                 final String dataUri = "data:" + mime + ";base64,"
@@ -6407,6 +6433,12 @@ private void viewHiddenContent() {
                 + "}catch(x){fin();}})();";
         web.evaluateJavascript(js, null);
     }
+
+    /**
+     * build118: 原生重取成功后允许内联成 data: URI 的最大字节数。
+     * 超过它就让 WebView 自己带 Cookie 重取，不再把 MB 级字符串塞进 WebView。
+     */
+    private static final int MAX_INLINE_IMAGE_BYTES = 256 * 1024;
 
     /**
      * build117: 正在原生重取中的图片索引。

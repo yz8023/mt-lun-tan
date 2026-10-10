@@ -996,6 +996,48 @@ public class HttpClient {
             // Cookie 同步失败不应阻断原生请求流程
         }
     }
+
+    /**
+     * build118: 把 OkHttp 罐子里的会话同步到<b>指定主机</b>的 WebView CookieManager。
+     *
+     * <p>为什么需要：{@link #syncToCookieManager()} 只往 {@code BASE_URL}
+     * （bbs.binmt.cc）写 Cookie，而 Cookie 默认是 host-only，<b>不会跨子域自动携带</b>。
+     * 正文配图常挂在别的 CDN 域（实测 tid=170823 的图在 {@code icdn.binmt.cc}），
+     * WebView 请求这些图时等于「裸奔」：
+     *
+     * <pre>
+     *   带 Cookie   -> 200，1.7 MB PNG
+     *   不带 Cookie -> 307 指向自身的无限重定向（x-tengine-error: denied by http_custom）
+     * </pre>
+     *
+     * <p>站点 WAF 会把无会话的 CDN 请求挡掉。图取不到就一路退化成
+     * 「原生重取成功 -> 把 1.7MB 图 base64 成约 2.3MB 的 data: URI 塞回 WebView」，
+     * 这种超大图的解码与重排正是正文持续闪烁的源头。
+     */
+    public synchronized void syncCookiesToHosts(java.util.Collection<String> hosts) {
+        if (hosts == null || hosts.isEmpty()) return;
+        try {
+            String cookies = getCookieString();
+            if (cookies == null || cookies.isEmpty()) return;
+            String[] pairs = cookies.split(";\\s*");
+            CookieManager cm = CookieManager.getInstance();
+            for (String host : hosts) {
+                if (host == null || host.isEmpty()) continue;
+                for (String pair : pairs) {
+                    if (pair == null || pair.trim().isEmpty()) continue;
+                    cm.setCookie(host, pair.trim());
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cm.flush();
+            } else {
+                CookieSyncManager.getInstance().sync();
+            }
+        } catch (Exception ignored) {
+            // Cookie 同步失败不应阻断渲染
+        }
+    }
+
 /**
      * 初始化 — 从磁盘恢复持久化的 Cookie
      * 在 Application.onCreate() 或首次使用前调用一次

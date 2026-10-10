@@ -1,5 +1,35 @@
 # 更新日志
 
+# 更新日志
+
+## v5.35 (build118) — 修复 CDN 大图带来的持续正文闪烁
+
+> v5.34（局部图框闪烁）与本版是两个叠加的问题，都源自「图拿不到」，
+> 但表现不同：前者保证死循环不炸，后者解决「原生能取到图、WebView 却拿不到」。
+
+### 现象
+帖子 170823（长图文）一直疯狂闪，重启 App / axcee 同样如此。
+
+### 根因
+1. `syncToCookieManager()` 只把 Cookie 写给 `bbs.binmt.cc`，
+   而正文配图常挂在其它子域（`icdn.binmt.cc`、`oos.binmt.cc`）。Cookie 默认 host-only，
+   WebView 请求这些图等于「裸奔」，站点 WAF 返回 307 指向自身的无限重定向。
+2. 原生 `retryPostWebImage` 带 Cookie 能拿到图（该图 1.7MB PNG），
+   随后把 1.7MB 字节流 base64 成约 2.3MB 的 data URI 回塞 WebView。
+   大块 base64 + 解码 + 布局重算组合起来，就把正文高度持续拉高拉低，形成闪烁。
+
+### 修复
+- `HttpClient.syncCookiesToHosts(Collection<String>)`：向指定主机写会话 Cookie；
+- `PostImageHtml.extractImageHosts(String)`：从正文 HTML 中抽出 img/src/file/...
+  里出现的所有图片主机；
+- `ThreadDetailActivity.renderContentInWeb`：渲染前先扫 HTML，
+  把 Cookie 同步到正文图片域；
+- `ThreadDetailActivity.retryPostWebImage`：字节数 > 256 KB 时不回塞 data URI，
+  改为 `reloadImgSrcJs`，让 WebView 自己带 Cookie 重拉一次。
+
+### 备注
+- 提取主机用 Jsoup 手动手写解析，不依赖额外 jsoup
+- 所有新增代码避开外部依赖，保证编译通过
 ## v5.34 (build117) — 局部疯狂闪烁修复
 
 > 与 v5.33（整篇重排型闪烁）是**两个独立问题**，不要混为一谈。

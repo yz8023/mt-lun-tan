@@ -54,6 +54,55 @@ public final class PostImageHtml {
         }
     }
 
+    /**
+     * build118: 抽出正文里<b>图片资源所在的主机</b>（如 icdn.binmt.cc、oos.binmt.cc）。
+     *
+     * <p>用途：正文配图常常不在论坛主域上，而 WebView 的 Cookie 是 host-only 的，
+     * 不同步到这些域，图片请求就是不带会话的裸请求，会被站点 WAF 用
+     * 「指向自身的 307 无限重定向」挡下来。
+     *
+     * <p>这里不写死域名，直接从 HTML 里扫，站点换 CDN 也能自适应。
+     * 只看 {@code <img>} 的 src 与各原图属性（file / zoomfile / comiis_loadimages 等）。
+     */
+    public static java.util.Set<String> extractImageHosts(String html) {
+        java.util.Set<String> hosts = new java.util.LinkedHashSet<String>();
+        if (isEmpty(html)) return hosts;
+        try {
+            org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parseBodyFragment(html);
+            for (org.jsoup.nodes.Element img : doc.select("img")) {
+                for (String attr : REAL_ATTRS) {
+                    addHost(hosts, img.attr(attr));
+                }
+                addHost(hosts, img.attr("src"));
+                addHost(hosts, img.attr("data-src"));
+                addHost(hosts, img.attr("data-original"));
+            }
+        } catch (Throwable t) {
+            // 解析失败不影响渲染，返回已收集到的部分
+        }
+        return hosts;
+    }
+
+    private static void addHost(java.util.Set<String> hosts, String url) {
+        if (url == null) return;
+        String u = url.trim();
+        if (u.isEmpty() || u.startsWith("data:")) return;
+        int scheme = u.indexOf("://");
+        if (scheme < 0) return;
+        int start = scheme + 3;
+        int end = u.length();
+        for (int i = start; i < u.length(); i++) {
+            char c = u.charAt(i);
+            if (c == '/' || c == '?' || c == '#') { end = i; break; }
+        }
+        String host = u.substring(start, end);
+        if (host.isEmpty()) return;
+        // 去掉 port，Cookie 按主机名匹配
+        int colon = host.indexOf(':');
+        if (colon > 0) host = host.substring(0, colon);
+        hosts.add("https://" + host);
+    }
+
     public static String upgradeThumbnailsToFull(String html) {
         return upgradeThumbnailsToFull(html, null);
     }
