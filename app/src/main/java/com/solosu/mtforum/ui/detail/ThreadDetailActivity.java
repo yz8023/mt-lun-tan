@@ -6297,13 +6297,25 @@ private void viewHiddenContent() {
      * 张数；为 0 且有候选地址时才启用图廊。正文正常出图时不会走到这里，
      * 「不重复显示」的语义保持不变。
      */
+    /** build116: maybeFallbackToGallery 的自轮询已试次数，防止计数卡住时无限轮询。 */
+    private int fallbackGalleryPolls;
+
     private void maybeFallbackToGallery(final android.webkit.WebView web) {
         if (web == null || fallbackGalleryShown || pendingGalleryUrls.isEmpty()) return;
         if (postWebImgPending > 0) {
-            // 还有原生重取在飞，等它落地再判断，否则会把「正在抢救」误判成「没救了」
-            web.postDelayed(() -> maybeFallbackToGallery(web), 600L);
-            return;
+            // 还有原生重取在飞，等它落地再判断，否则会把「正在抢救」误判成「没救了」。
+            // build116: 加次数上限 —— postWebImgPending 的 ++ 在 JavaBridge 线程、
+            // -- 在主线程，存在数据竞争；万一计数卡住，这里会每 600ms 无限轮询下去。
+            // 最多等约 6 秒，超时就按当前状态判断，不再空转。
+            if (fallbackGalleryPolls >= 10) {
+                fallbackGalleryPolls = 0;
+            } else {
+                fallbackGalleryPolls++;
+                web.postDelayed(() -> maybeFallbackToGallery(web), 600L);
+                return;
+            }
         }
+        fallbackGalleryPolls = 0;
         web.evaluateJavascript(
                 com.solosu.mtforum.util.PostWebImageScript.countLoadedImagesJs(),
                 value -> {
@@ -6388,30 +6400,67 @@ private void viewHiddenContent() {
         web.evaluateJavascript(js, null);
     }
 
+    /** build116: 待执行的那次高度测量，用来合并掉重复调用。 */
+    private Runnable pendingWebHeightMeasure;
+
     /**
-     * build92: WebView 嵌在 NestedScrollView 里，必须按内容实际高度撑开，
-     * 否则要么被截断、要么自己内部滚动把父滚动器卡住。
+     * 量正文 WebView 的真实内容高度并写回 layoutParams。
+     *
+     * <p>build116: 修「帖子加载到某个位置后一直快速闪烁」。
+     *
+     * <p>原来这个函数有两个问题，叠加起来就是用户看到的闪烁：
+     * <ol>
+     *   <li><b>调用次数极多</b> —— onPageFinished、onReady（图片全部落地）、
+     *       每张图重试成功、每张图标记失败、图廊兜底，各调一次。
+     *       一篇几十张截图的长帖，一次渲染能排进几十次测量。</li>
+     *   <li><b>setLayoutParams 无条件执行</b> —— 哪怕量出来的高度和当前完全一样，
+     *       也会走一遍 requestLayout()，强制整棵子树重新 measure/layout
+     *       并让 WebView 重绘。几十次重排连在一起就是持续闪烁；
+     *       闪烁点落在「图片与文字交界」处，正是因为那里高度变化最剧烈、
+     *       重绘最容易被看出来。</li>
+     * </ol>
+     *
+     * <p>所以这里做两件事：合并排队的测量（只跑最后一次），
+     * 以及高度没有实质变化（差值 ≤2px）时直接跳过，不再重新排版。
+     *
+     * <p>build92: 之所以非撑开不可 —— WebView 嵌在 NestedScrollView 里，
+     * 不按内容实际高度撑开的话，要么被截断、要么自己内部滚动把父滚动器卡住。
      */
     private void measurePostWebHeight(final android.webkit.WebView web) {
         if (web == null) return;
-        web.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            web.evaluateJavascript(
-                    "document.body.scrollHeight",
-                    value -> {
-                        try {
-                            int h = value == null ? 0
-                                    : (int) Float.parseFloat(value.trim());
-                            if (h <= 0) return;
-                            float d = getResources().getDisplayMetrics().density;
-                            android.view.ViewGroup.LayoutParams lp = web.getLayoutParams();
-                            if (lp == null) return;
-                            lp.height = (int) (h * d);
-                            web.setLayoutParams(lp);
-                        } catch (Exception ignored) {
-                        }
-                    });
-        }, 140L);
+        // 合并：新测量覆盖旧的，避免十几二十个 runnable 排队轮番改高度
+        if (pendingWebHeightMeasure != null) {
+            web.removeCallbacks(pendingWebHeightMeasure);
+        }
+        pendingWebHeightMeasure = new Runnable() {
+            @Override // java.lang.Runnable
+            public final void run() {
+                pendingWebHeightMeasure = null;
+                if (isFinishing() || isDestroyed()) return;
+                web.evaluateJavascript(
+                        "document.body.scrollHeight",
+                        value -> {
+                            try {
+                                int h = value == null ? 0
+                                        : (int) Float.parseFloat(value.trim());
+                                if (h <= 0) return;
+                                float d = getResources().getDisplayMetrics().density;
+                                android.view.ViewGroup.LayoutParams lp = web.getLayoutParams();
+                                if (lp == null) return;
+                                int newHeight = (int) (h * d);
+                                // 高度没实质变化就别重新排版 —— 这是止住闪烁的关键。
+                                // 留 2px 容差，避开亚像素取整造成的 1px 来回抖动。
+                                if (lp.height > 0 && Math.abs(lp.height - newHeight) <= 2) {
+                                    return;
+                                }
+                                lp.height = newHeight;
+                                web.setLayoutParams(lp);
+                            } catch (Exception ignored) {
+                            }
+                        });
+            }
+        };
+        web.postDelayed(pendingWebHeightMeasure, 140L);
     }
 
     /**

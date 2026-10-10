@@ -1,5 +1,28 @@
 # 更新日志
 
+## v5.33 (build116) — 正文闪烁修复
+
+### 修复
+- **正文加载到某位置后持续快速闪烁**：`measurePostWebHeight()` 调用点极多
+  （`onPageFinished`、`onReady`、每张图 `retryPostWebImage` / `markPostWebImageFailed`、
+  `maybeFallbackToGallery`），且原实现无条件执行 `web.setLayoutParams(lp)`。
+  即便测得高度与当前一致，也会触发 `requestLayout()`，强制整棵子树
+  measure/layout 并让 WebView 重绘；长帖累积数十次即为肉眼可见的持续闪烁，
+  且在图片与文字交界处最明显（该处高度变化最剧烈）。
+  - 合并：以 `pendingWebHeightMeasure` 持有待执行 runnable，新测量先 `removeCallbacks` 再 post，
+    一堆排队任务塌缩为最后一次。
+  - 阈值：`lp.height > 0 && Math.abs(lp.height - newHeight) <= 2` 时直接 return，
+    容差用于规避亚像素取整导致的 1px 抖动。
+- **兜底轮询无上限**：`maybeFallbackToGallery()` 在 `postWebImgPending > 0` 时
+  每 600ms 自我重排，原无次数上限；而 `postWebImgPending++` 位于 JavaBridge 线程
+  （`imgFailed` 为 `@JavascriptInterface` 回调）、`--` 位于主线程，存在数据竞争。
+  计数若卡住将永远轮询。新增 `fallbackGalleryPolls` 上限 10 次（约 6 秒）。
+
+### 排查记录
+- 已排除「图片无限重试」假设：`PostWebImageScript` 用 `data-mt-retried` 保证一张图只重试一次，
+  `setImgDataUriJs` 先打标记再换 src，回填失败也不会再次触发。
+- 已排除「onReady 重复触发」假设：`bindPostWebReady` 有 `done` 标志，只回调一次。
+
 ## v5.32 (build115) — 踢帖修复 · 预选理由
 
 ### 修复
