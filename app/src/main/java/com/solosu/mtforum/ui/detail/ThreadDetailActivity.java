@@ -5762,6 +5762,24 @@ private void viewHiddenContent() {
                 .replaceAll("(?i)\son[a-z]+\s*=\s*'[^']*'", "")
                 .replaceAll("(?i)javascript:", "#");
 
+        // build109：Comiis 懒加载图片必须在进 WebView 前把真实地址写回 src。
+        //
+        // 站点移动模板的正文配图长这样：
+        //   <img src="https://cdn.binmt.cc/template/comiis_app/pic/none.png"
+        //        comiis_loadimages="https://oos.binmt.cc/forum/202610/09/175607....jpg"
+        //        class="comiis_loadimages">
+        // 真图放在 comiis_loadimages 属性里，靠站点自己的
+        //   $("img.comiis_loadimages").lazyload()
+        // 在滚动到视口时才写进 src。而上面我们为了防 XSS 已经把 <script> 全剥掉了，
+        // 这段 JS 永远不会执行 —— WebView 里显示的永远是那张 500x320 的占位图，
+        // 用户看到的就是「整片空白」。（这也是为什么只有部分帖子白屏：老帖子的图
+        // 直接写在 src 上，不走懒加载。）
+        //
+        // 评论区 ReplyAdapter 早就调了 upgradeThumbnailsToFull 所以图正常，
+        // 主楼这条渲染路径漏了这一步。该方法幂等，重复调用无害。
+        body = com.solosu.mtforum.util.PostImageHtml.upgradeThumbnailsToFull(
+                body, com.solosu.mtforum.network.HttpClient.BASE_URL);
+
         // 游客态站点会把附件换成「登录可见」，此时正文里一张 <img> 都没有。
         // 用列表页带过来的真实 CDN 图补进去，至少图能看到。
         // （缩略图升级已在 bindData 里做过，这里只兜底补图；该方法幂等）

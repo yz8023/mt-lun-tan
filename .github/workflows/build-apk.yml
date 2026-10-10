@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.25
+        default: v5.26
 
 permissions:
   contents: write
@@ -178,11 +178,9 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **帖子内图片白屏修复**：修复部分帖子（如 tid=174306 / 174257 / 174255 / 174248）打开后图片整片空白的问题。这些帖子的图是 Discuz 附件，站点对没有登录态的请求返回提示页，WebView 里的图「加载完成但零像素」，屏幕上就是一片白。现在正文一张图都没真正加载出来时，自动启用底部图廊兜底显示列表页的真实图片，不再留空白。
-          - **判定口径**：只有 complete 且 naturalWidth 大于 0 的图才算加载成功；提示页那种零像素的图不算，正在用原生带会话重取的图会等它落地再判断，不会误判成「没救了」。
-          - **不影响正常帖子**：正文正常出图时兜底不介入，原来「不在正文和图廊各显示一次」的语义保持不变。
-          - **顺带修复**：evaluateJavascript 的返回值按 JSON 解析（原来只认裸数字，带引号的字符串会解析失败，导致这类兜底逻辑静默失效）。
-          - **顺带修复**：登录页 formhash 解析支持单引号属性（站点部分页面用单引号，原正则只认双引号，会误报「登录页解析失败（可能被风控）」）。
+          - **帖子内图片白屏修复**：真正的原因找到了 —— 站点移动模板把正文配图的真实地址放在 comiis_loadimages 属性里，src 上挂的是一张 500x320 的占位图，靠页面自己的 jQuery lazyload 在滚动到视口时才把真图写回 src。App 为了防 XSS 会先把正文里的 script 全部剥掉，那段懒加载脚本永远不会执行，于是 WebView 里显示的永远是占位图，看起来就是整片空白。评论区早就做了这一步所以图正常，主楼渲染路径漏了。现在补上，进 WebView 前先把真实地址写回 src。
+          - **跟登录态无关**：这次用账号实机登录验证过，四个帖子的图都是 CDN 外链，游客也能直接下载，不是「附件需要登录才能看」。之前按这个方向修是判断错了。
+          - **不影响其它帖子**：改写只对带懒加载属性的图片生效，老帖子那种直接把地址写在 src 上的图、表情、头像都不受影响。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -197,14 +195,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 帖子内图片白屏修复 · 图廊兜底" \
+              --title "MTForum v${VERSION} — 帖子内图片白屏修复（懒加载）" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 帖子内图片白屏修复 · 图廊兜底" \
+              --title "MTForum v${VERSION} — 帖子内图片白屏修复（懒加载）" \
               --notes-file release-notes.md \
               --latest
           fi

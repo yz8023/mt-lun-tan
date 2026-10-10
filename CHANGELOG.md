@@ -1,5 +1,53 @@
 # 更新日志
 
+## v5.26 (build109) — 帖子内图片白屏修复（真正原因：懒加载）
+
+> 这一版推翻了 v5.25 的判断。v5.25 以为「附件需要登录态才可见」，
+> 本版用账号登录实机验证后确认：**与登录态无关**，是懒加载没被改写。
+
+### 真正的原因
+
+站点移动模板的正文配图长这样：
+
+    <img src="https://cdn.binmt.cc/template/comiis_app/pic/none.png"
+         comiis_loadimages="https://oos.binmt.cc/forum/202610/09/175607....jpg"
+         class="comiis_loadimages">
+
+真图放在 **`comiis_loadimages`** 属性里，`src` 上挂的是一张 **500x320 的占位图**，
+靠站点自己的 `$("img.comiis_loadimages").lazyload()` 在滚动到视口时才把真图写回 `src`。
+
+而 `renderContentInWeb()` 为了防 XSS，第一步就把正文里的 `<script>` 全部剥掉了 ——
+**那段懒加载脚本永远不会执行**，于是 WebView 里显示的永远是那张占位图，
+用户看到的就是「整片空白」。
+
+这也解释了两个现象：
+- 为什么**只有部分帖子**白屏：老帖子的图直接写在 `src` 上，不走懒加载。
+- 为什么**评论区图片正常**：`ReplyAdapter` 一直调了 `upgradeThumbnailsToFull()`。
+
+### 修复
+
+在 `renderContentInWeb()` 里、进 WebView 之前，补上
+`PostImageHtml.upgradeThumbnailsToFull(body, HttpClient.BASE_URL)`，
+把 `comiis_loadimages` 等懒加载属性的真实地址写回 `src`。该方法幂等。
+
+### 实机验证（本轮用账号登录后才做得到）
+
+- 登录卡在 ESA 挑战上：之前只给 GET 解了 WAF 挑战，**POST 没解**，
+  所以 POST 一直被拦（返回挑战页，早先那个「非法字符」也是它）。
+  补全后登录成功（站点支持手机号直接登录）。
+- 4 个帖子（174306 / 174257 / 174255 / 174248）登录态下正文图共 14 张，
+  全在 `oos.binmt.cc` 这个 CDN 上。
+- **游客不带任何 cookie 也能 200 取到原图**（image/jpeg 282360 字节）→ 与登录态无关。
+- 占位图实测 500x320 → `naturalWidth > 0` → **v5.25 那套「一张都没加载出来才兜底」的
+  判据不会触发**，所以 v5.25 对这个白屏无效。
+
+### 构建
+
+- versionCode **61** / versionName **5.26**（build109）
+- 签名不变，可直接覆盖升级。
+
+---
+
 ## v5.25 (build108) — 帖子内图片白屏修复 · 图廊兜底
 
 ### 用户反馈（本轮）
