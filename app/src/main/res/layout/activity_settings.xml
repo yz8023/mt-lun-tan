@@ -91,6 +91,26 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout android:id="@+id/layout_browser_ua" style="@style/SettingsRow" android:clickable="true" android:focusable="true" android:background="?attr/selectableItemBackground">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                        <TextView style="@style/SettingsTitle" android:text="内置浏览器 UA" />
+                        <TextView style="@style/SettingsSummary" android:text="仅影响应用内浏览器打开外链，论坛数据请求不变" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/tv_browser_ua" style="@style/SettingsValue" android:text="内置移动版（默认）" android:maxWidth="160dp" android:ellipsize="end" android:singleLine="true" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout android:id="@+id/layout_reply_prefetch" style="@style/SettingsRow" android:clickable="true" android:focusable="true" android:background="?attr/selectableItemBackground">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                        <TextView style="@style/SettingsTitle" android:text="评论预加载页数" />
+                        <TextView style="@style/SettingsSummary" android:text="进帖子时后台提前取回的评论页数，滑下去不用等；0 为关闭" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/tv_reply_prefetch" style="@style/SettingsValue" android:text="预加载 3 页" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
                 <LinearLayout android:id="@+id/layout_error_log" style="@style/SettingsRow" android:clickable="true" android:focusable="true" android:background="?attr/selectableItemBackground">
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                         <TextView style="@style/SettingsTitle" android:text="错误日志" />

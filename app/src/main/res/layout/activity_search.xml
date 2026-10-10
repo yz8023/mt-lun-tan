@@ -22,6 +22,38 @@
         android:layout_height="0.5dp"
         android:background="@color/divider" />
 
+    <!-- build110: 搜索范围切换（帖子 / 用户） -->
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/toggle_search_scope"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="10dp"
+        app:singleSelection="true"
+        app:checkedButton="@id/btn_scope_thread"
+        app:selectionRequired="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_scope_thread"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="72dp"
+            android:text="搜帖子"
+            android:textSize="13sp"
+            app:cornerRadius="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_scope_user"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="72dp"
+            android:text="搜用户"
+            android:textSize="13sp"
+            app:cornerRadius="18dp" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
+
     <!-- 搜索输入区域 -->
     <LinearLayout
         android:layout_width="match_parent"

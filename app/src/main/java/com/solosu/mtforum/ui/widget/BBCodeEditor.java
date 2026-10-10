@@ -111,21 +111,25 @@ public final class BBCodeEditor {
         float d = act.getResources().getDisplayMetrics().density;
         int gap = (int) (6 * d), padH = (int) (10 * d), padV = (int) (6 * d);
 
+        // build110: 先把所有按钮收集起来，再按双行铺开。
+        // 原来是一条横向长条，找「表格」「彩虹字」这类靠后的标签要滑很久。
+        final java.util.List<View> chips = new java.util.ArrayList<>();
+
         if (extraColor) {
-            bar.addView(chip(act, "取色", padH, padV, gap,
+            chips.add(chip(act, "取色", padH, padV, gap,
                     v -> showColorPicker(act, input)));
-            bar.addView(chip(act, "彩虹字", padH, padV, gap,
+            chips.add(chip(act, "彩虹字", padH, padV, gap,
                     v -> applyRainbow(act, input)));
-            bar.addView(chip(act, "渐变字", padH, padV, gap,
+            chips.add(chip(act, "渐变字", padH, padV, gap,
                     v -> showGradientPicker(act, input)));
         }
         // build98: 带参数的四条排在最前面（弹窗填充），随后是免输入的固定标签
         for (final String[] f : FILLS) {
-            bar.addView(chip(act, f[0], padH, padV, gap,
+            chips.add(chip(act, f[0], padH, padV, gap,
                     v -> showFillDialog(act, input, f)));
         }
         for (final String[] p : PRESETS) {
-            bar.addView(chip(act, p[0], padH, padV, gap,
+            chips.add(chip(act, p[0], padH, padV, gap,
                     v -> wrapSelection(input, p[1], p[2])));
         }
         // 快速色板
@@ -142,7 +146,28 @@ public final class BBCodeEditor {
             Motion.pressFeedback(dot, 0.88f);
             dot.setOnClickListener(v -> wrapSelection(input,
                     "[color=" + hex(c) + "]", "[/color]"));
-            bar.addView(dot);
+            chips.add(dot);
+        }
+
+        final int rows = 2;   // 双行
+        int perRow = (chips.size() + rows - 1) / rows;   // 向上取整，第一行不少放
+        for (int r = 0; r < rows; r++) {
+            LinearLayout row = new LinearLayout(act);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            int from = r * perRow, to = Math.min(chips.size(), from + perRow);
+            if (from >= to) continue;
+            if (r > 0) {
+                // 行间距
+                LinearLayout.LayoutParams lp =
+                        (LinearLayout.LayoutParams) row.getLayoutParams();
+                lp.topMargin = gap;
+                row.setLayoutParams(lp);
+            }
+            for (int i = from; i < to; i++) row.addView(chips.get(i));
+            bar.addView(row);
         }
     }
 

@@ -120,6 +120,28 @@ public class SettingsActivity extends AppCompatActivity {
             DialogHelper.applyToAlertDialog(dialog, this);
         });
 
+        // build110: 评论预加载页数
+        updateReplyPrefetchText();
+        binding.layoutReplyPrefetch.setOnClickListener(v -> {
+            String[] opts = {"关闭（不预加载）", "预加载 1 页", "预加载 2 页",
+                    "预加载 3 页", "预加载 4 页", "预加载 5 页"};
+            int cur = com.solosu.mtforum.ui.ReplyPrefetchPreferences.getPages(this);
+            android.app.Dialog dialog = new AlertDialog.Builder(this)
+                    .setTitle("评论预加载页数")
+                    .setSingleChoiceItems(opts, cur, (d, which) -> {
+                        com.solosu.mtforum.ui.ReplyPrefetchPreferences.setPages(this, which);
+                        updateReplyPrefetchText();
+                        d.dismiss();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+            DialogHelper.applyToAlertDialog(dialog, this);
+        });
+
+        // build110: 内置浏览器 UA（只影响应用内浏览器，论坛请求 UA 不动）
+        updateBrowserUaText();
+        binding.layoutBrowserUa.setOnClickListener(v -> showBrowserUaDialog());
+
         // 错误日志查看
         binding.layoutErrorLog.setOnClickListener(v -> showErrorLogDialog());
         updateErrorLogCount();
@@ -214,6 +236,90 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     /** 账号数量摘要 */
+    private void updateReplyPrefetchText() {
+        binding.tvReplyPrefetch.setText(
+                com.solosu.mtforum.ui.ReplyPrefetchPreferences.label(this));
+    }
+
+    private void updateBrowserUaText() {
+        binding.tvBrowserUa.setText(com.solosu.mtforum.ui.UserAgentPreferences.label(this));
+    }
+
+    /**
+     * build110：内置浏览器 UA 选择。
+     *
+     * <p>两条内置项（移动版 / 电脑版）不可删；下面是用户自己加的自定义 UA，
+     * 可就地新增，长按可删除。默认仍是「内置移动版」，与改动前行为一致。
+     */
+    private void showBrowserUaDialog() {
+        java.util.List<com.solosu.mtforum.ui.UserAgentPreferences.Entry> items =
+                com.solosu.mtforum.ui.UserAgentPreferences.entries(this);
+        String[] labels = new String[items.size()];
+        int checked = 0;
+        String sel = com.solosu.mtforum.ui.UserAgentPreferences.selectedId(this);
+        for (int i = 0; i < items.size(); i++) {
+            labels[i] = items.get(i).label;
+            if (items.get(i).id.equals(sel)) checked = i;
+        }
+
+        android.app.Dialog dialog = new AlertDialog.Builder(this)
+                .setTitle("内置浏览器 UA")
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    com.solosu.mtforum.ui.UserAgentPreferences.setSelectedId(
+                            this, items.get(which).id);
+                    updateBrowserUaText();
+                    d.dismiss();
+                })
+                .setPositiveButton("新增自定义", null)
+                .setNegativeButton("取消", null)
+                .show();
+
+        // 接管「新增自定义」，避免点一下就把弹窗关掉
+        ((AlertDialog) dialog).getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            final android.widget.EditText input = new android.widget.EditText(this);
+            input.setSingleLine(false);
+            input.setMaxLines(4);
+            input.setHint("Mozilla/5.0 ...");
+            android.app.Dialog add = new AlertDialog.Builder(this)
+                    .setTitle("新增自定义 UA")
+                    .setView(input)
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("保存", (dd, w) -> {
+                        String ua = input.getText().toString().trim();
+                        if (ua.isEmpty()) return;
+                        if (!com.solosu.mtforum.ui.UserAgentPreferences.addCustom(this, ua)) {
+                            android.widget.Toast.makeText(this, "这条已经存在了",
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        com.solosu.mtforum.ui.UserAgentPreferences.setSelectedId(this, ua);
+                        updateBrowserUaText();
+                        showBrowserUaDialog();   // 刷新列表
+                    })
+                    .show();
+            DialogHelper.applyToAlertDialog(add, this);
+        });
+
+        // 长按自定义项删除
+        ((AlertDialog) dialog).getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            com.solosu.mtforum.ui.UserAgentPreferences.Entry e = items.get(position);
+            if (!e.custom) return true;
+            new AlertDialog.Builder(this)
+                    .setTitle("删除自定义 UA")
+                    .setMessage(e.ua)
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (dd, w) -> {
+                        com.solosu.mtforum.ui.UserAgentPreferences.removeCustom(this, e.ua);
+                        updateBrowserUaText();
+                        showBrowserUaDialog();
+                    })
+                    .show();
+            return true;
+        });
+
+        DialogHelper.applyToAlertDialog(dialog, this);
+    }
+
     private void updateAccountCount() {
         int count = AccountManager.count(this);
         binding.tvAccountCount.setText(count > 0 ? count + " 个账号" : "管理");

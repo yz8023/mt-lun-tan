@@ -82,7 +82,9 @@ public class InAppBrowserActivity extends AppCompatActivity {
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        settings.setUserAgentString(HttpClient.USER_AGENT);
+        // build110: 用设置里选的 UA（默认仍是内置移动版，与改动前一致）
+        settings.setUserAgentString(
+                com.solosu.mtforum.ui.UserAgentPreferences.resolve(this));
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebViewClient(new WebViewClient() {
@@ -132,7 +134,9 @@ public class InAppBrowserActivity extends AppCompatActivity {
             Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show();
         } else if (item.getItemId() == 3) {
             desktop = !desktop;
-            web.getSettings().setUserAgentString(desktop ? HttpClient.DESKTOP_USER_AGENT : HttpClient.USER_AGENT);
+            web.getSettings().setUserAgentString(desktop
+                    ? HttpClient.DESKTOP_USER_AGENT
+                    : com.solosu.mtforum.ui.UserAgentPreferences.resolve(this));
             web.getSettings().setUseWideViewPort(true);
             web.reload();
         }

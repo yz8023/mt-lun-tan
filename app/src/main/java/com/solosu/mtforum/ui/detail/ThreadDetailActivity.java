@@ -163,6 +163,15 @@ public class ThreadDetailActivity extends AppCompatActivity {
     private boolean isFavorited = false;
     private int favoriteCount = 0;   // 真实收藏数(来自 ForumParser #comiis_favorite_a)
     private String currentReplyTarget = "";
+    // ===== build110: 评论预加载 =====
+    /** 已预取到的评论页：页码 -> 该页回复列表 */
+    private final java.util.Map<Integer, java.util.List<ReplyItem>> prefetchedPages =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** 预取线程在跑就不要重复起 */
+    private volatile boolean replyPrefetchRunning = false;
+    /** 预取用的代号，切页/刷新后让旧预取结果作废 */
+    private volatile int replyPrefetchGeneration = 0;
+
     private boolean isLoadingMore = false;
     private String currentReplyPid = "";
     // build98: 快捷回复变量 {to} / {floor} 的值（正在回复谁、哪一层）
@@ -763,6 +772,10 @@ public class ThreadDetailActivity extends AppCompatActivity {
         this.lastImagesInline = com.solosu.mtforum.ui.UiSettings.isImagesInline(this);
         this.lastWebRender = com.solosu.mtforum.ui.UiSettings.isWebRender(this);
         this.postDetail = postDetail;
+        // build110: 主楼渲染完就开始在后台预取后面几页评论，
+        // 用户滑下去时直接接上，不用再转圈等一次网络请求。
+        prefetchedPages.clear();
+        scheduleReplyPrefetch();
         this.binding.progressBar.setVisibility(8);
         this.binding.swipeRefresh.setEnabled(true);
         if (!TextUtils.isEmpty(postDetail.getForumName())) {
@@ -2517,10 +2530,83 @@ private void viewHiddenContent() {
     // build77: maybeAutoUnlock() 已删除 —— 它是第二条解锁链路，
     // 与 runUnlockInBackground() 并行触发，是「自动解锁重复回复」的根因。
 
+    /**
+     * build110：进帖子后在后台把后面几页评论抓下来存着。
+     *
+     * <p>原来「加载更多」是滑到底才发请求，用户每次都要等一个来回；
+     * 现在进入时就提前把最多 N 页（设置里可调，默认 3，设 0 关闭）取回来。
+     * 只往下取、且有硬上限 —— 不会变成「一口气预加载所有楼层」。
+     */
+    private void scheduleReplyPrefetch() {
+        if (this.postDetail == null) return;
+        int want = com.solosu.mtforum.ui.ReplyPrefetchPreferences.getPages(this);
+        if (want <= 0) return;                       // 用户关掉了
+        final int from = this.postDetail.getCurrentPage() + 1;
+        final int total = this.postDetail.getTotalPages();
+        if (from > total) return;                    // 已经到底了
+        final int to = Math.min(total, from + want - 1);
+        final String tidSnapshot = this.tid;   // 注意：tid 是 String
+        final String order = getReplyOrder();
+        final int generation = ++replyPrefetchGeneration;
+        if (replyPrefetchRunning) return;
+        replyPrefetchRunning = true;
+
+        // 注意：本项目有个 Thread 模型类，这里必须写全限定 java.lang.Thread，
+        // 否则 new Thread(...) / Thread.sleep(...) 会解析到那个模型类上去。
+        new java.lang.Thread(() -> {
+            try {
+                for (int page = from; page <= to; page++) {
+                    if (generation != replyPrefetchGeneration) return;
+                    if (isFinishing() || isDestroyed()) return;
+                    if (prefetchedPages.containsKey(page)) continue;
+                    // 上一页刚抓完，稍微缓一下，别把 ESA 惹毛
+                    if (page > from) {
+                        try { java.lang.Thread.sleep(250); }
+                        catch (java.lang.InterruptedException ie) { return; }
+                    }
+                    try {
+                        String html = this.httpClient.get(
+                                ForumParser.getThreadDetailUrl(tidSnapshot, page, order));
+                        if (html == null || html.isEmpty()) break;
+                        if (ForumParser.isLoginPage(html)) break;
+                        PostDetail d = ForumParser.parseThreadDetail(html);
+                        List<ReplyItem> rs = d == null ? null : d.getReplies();
+                        if (rs == null || rs.isEmpty()) break;
+                        if (generation != replyPrefetchGeneration) return;
+                        prefetchedPages.put(page, new ArrayList<>(rs));
+                    } catch (Exception ignored) {
+                        break;                       // 出错就停，不重试、不打扰用户
+                    }
+                }
+            } finally {
+                replyPrefetchRunning = false;
+            }
+        }, "reply-prefetch").start();
+    }
+
+    /** 把已预取到的下一页直接接上（不经过网络） */
+    private boolean applyPrefetchedPage() {
+        if (this.postDetail == null) return false;
+        int next = this.postDetail.getCurrentPage() + 1;
+        List<ReplyItem> cached = prefetchedPages.remove(next);
+        if (cached == null || cached.isEmpty()) return false;
+        List<ReplyItem> merged = new ArrayList<>(this.postDetail.getReplies());
+        merged.addAll(cached);
+        this.postDetail.setReplies(merged);
+        this.postDetail.setCurrentPage(next);
+        this.allReplies = new ArrayList<>(merged);
+        updateReplyFilterAndOrder();
+        this.binding.btnLoadMore.setVisibility(
+                next < this.postDetail.getTotalPages() ? View.VISIBLE : View.GONE);
+        return true;
+    }
+
     private void loadMoreReplies() {
         if (this.postDetail == null || this.isLoadingMore) {
             return;
         }
+        // build110: 命中预取就立刻接上，零等待
+        if (applyPrefetchedPage()) return;
         this.isLoadingMore = true;
         this.binding.btnLoadMore.setEnabled(false);
         this.binding.btnLoadMore.setText(R.string.loading);
@@ -5298,7 +5384,7 @@ private void viewHiddenContent() {
             // build71: 改成实时预览，默认就展开 —— 之前要来回点「预览/编辑」切换，
             // 改一个字得切两次，很难用。
             android.view.ViewGroup.LayoutParams lp = previewBox.getLayoutParams();
-            lp.height = (int) (150 * getResources().getDisplayMetrics().density);
+            lp.height = (int) (110 * getResources().getDisplayMetrics().density);
             previewBox.setLayoutParams(lp);
             previewBox.setVisibility(View.VISIBLE);
             com.solosu.mtforum.ui.widget.BBCodeEditor.bindLivePreview(this, input, previewText);
@@ -5475,17 +5561,40 @@ private void viewHiddenContent() {
         filenameLabelLp.topMargin = dpToPx(18);
         cardContent.addView(filenameLabel, filenameLabelLp);
 
-        TextView filename = attachmentDialogText(fileName, 15f, getColor(R.color.text_primary), true);
-        filename.setMaxLines(2);
-        filename.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        // build110: 文件名可以直接点开改。
+        // 论坛附件名经常是 20151012_abc123.zip 这种，用户想存成自己的名字，
+        // 原来是只读的一行字，只能下载完再去文件管理器里重命名。
+        final android.widget.EditText filename = new android.widget.EditText(this);
+        filename.setText(fileName);
+        filename.setTextSize(15f);
+        filename.setTextColor(getColor(R.color.text_primary));
+        filename.setHintTextColor(getColor(R.color.text_hint));
+        filename.setHint("保存为的文件名");
+        filename.setSingleLine(true);
+        filename.setBackgroundResource(android.R.color.transparent);
         android.graphics.drawable.GradientDrawable filenameBg = new android.graphics.drawable.GradientDrawable();
         filenameBg.setColor(getColor(R.color.background_secondary));
         filenameBg.setCornerRadius(dpToPx(14));
+        filenameBg.setStroke(dpToPx(1), getColor(R.color.divider));   // 描边提示「这里能改」
         filename.setBackground(filenameBg);
         filename.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
         LinearLayout.LayoutParams filenameLp = new LinearLayout.LayoutParams(-1, -2);
         filenameLp.topMargin = dpToPx(7);
         cardContent.addView(filename, filenameLp);
+
+        // 「保存到 Download/xxx」跟随输入实时更新
+        final TextView[] destinationRef = new TextView[1];
+        filename.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                if (destinationRef[0] == null) return;
+                String typed = e == null ? "" : e.toString().trim();
+                if (TextUtils.isEmpty(typed)) typed = fileName;
+                destinationRef[0].setText("保存到  Download/"
+                        + com.solosu.mtforum.util.AttachmentFileName.sanitize(typed));
+            }
+        });
 
         boolean browserMode = com.solosu.mtforum.ui.DownloadPreferences.getMode(this)
                 == com.solosu.mtforum.ui.DownloadPreferences.MODE_BROWSER;
@@ -5493,6 +5602,7 @@ private void viewHiddenContent() {
                 browserMode ? "系统浏览器将接管下载，最终文件名由浏览器/服务器响应决定"
                         : "保存到  Download/" + fileName,
                 12f, getColor(R.color.text_hint), false);
+        destinationRef[0] = destination;
         destination.setMaxLines(2);
         LinearLayout.LayoutParams destinationLp = new LinearLayout.LayoutParams(-1, -2);
         destinationLp.topMargin = dpToPx(9);
@@ -5563,7 +5673,9 @@ private void viewHiddenContent() {
         });
         download.setOnClickListener(v -> {
             dialog.dismiss();
-            startAttachmentDownload(a, fileName);
+            // build110: 用用户改过的名字；清空则回落到论坛原名
+            String typed = filename.getText() == null ? "" : filename.getText().toString().trim();
+            startAttachmentDownload(a, TextUtils.isEmpty(typed) ? fileName : typed);
         });
         dialog.show();
     }

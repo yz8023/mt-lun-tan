@@ -10,6 +10,16 @@
     app:cardElevation="0dp"
     app:cardBackgroundColor="@android:color/transparent">
 
+    <!-- build110: 整个内容可滚动。
+         原来内容一高（输入框 + 工具条 + 预览 + 快捷回复 + 按钮行）就顶出屏幕，
+         而 BottomSheet 又关掉了拖拽手势，发送按钮沉到屏幕外根本点不到。 -->
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="false"
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="none">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -48,8 +58,8 @@
                 android:id="@+id/et_reply_dialog"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minLines="4"
-                android:maxLines="10"
+                android:minLines="3"
+                android:maxLines="8"
                 android:scrollbars="vertical"
                 android:overScrollMode="ifContentScrolls"
                 android:hint="@string/reply_hint"
@@ -68,11 +78,13 @@
             android:overScrollMode="never"
             android:scrollbars="none">
 
+            <!-- build110: 快捷代码改双行。单行横排时要滑很久才找得到想要的标签，
+                 两行一次能看到约两倍，超出部分仍可横向滑动。行由 BBCodeEditor 生成。 -->
             <LinearLayout
                 android:id="@+id/ll_bbcode_tools"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal" />
+                android:orientation="vertical" />
         </HorizontalScrollView>
 
         <!-- build70: BBCode 预览区（默认隐藏，点「预览」切换） -->
@@ -221,4 +233,6 @@
                 app:backgroundTint="@color/primary" />
         </LinearLayout>
     </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
 </com.google.android.material.card.MaterialCardView>

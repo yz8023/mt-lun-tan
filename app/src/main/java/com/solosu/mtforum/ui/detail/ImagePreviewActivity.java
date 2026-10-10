@@ -73,6 +73,9 @@ public class ImagePreviewActivity extends AppCompatActivity {
         final List<String> fUrls = urls; // lambda 引用需 final
         PagerAdapter adapter = new PagerAdapter(fUrls);
         pager.setAdapter(adapter);
+        // build110: 预加载左右各一页。原来翻页时才开始下载，
+        // 每次切换都要等一张大图从零加载完，观感很卡。
+        pager.setOffscreenPageLimit(1);
         pager.setCurrentItem(initPos, false);
         if (fUrls.size() > 1) {
             tvIndicator.setText((initPos + 1) + "/" + fUrls.size());

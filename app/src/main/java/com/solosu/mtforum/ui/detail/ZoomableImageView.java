@@ -145,20 +145,26 @@ public class ZoomableImageView extends AppCompatImageView {
                 savedMatrix.set(suppMatrix);
                 lastFinger.set(event.getX(), event.getY());
                 mode = DRAG;
+                // build110: 放大状态下把手势留给本控件，别让外层 ViewPager2 抢走。
+                // 原来放大后横向拖一下就直接翻到下一张，根本没法平移看细节。
+                requestPagerIntercept(zoomed());
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
                 savedMatrix.set(suppMatrix);
                 mode = ZOOM;
+                requestPagerIntercept(true);   // 双指缩放中一律不要翻页
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                if (mode == DRAG && event.getPointerCount() == 1 && currentScale() > fitScale * 1.01f) {
+                if (mode == DRAG && event.getPointerCount() == 1 && zoomed()) {
                     float dx = event.getX() - lastFinger.x;
                     float dy = event.getY() - lastFinger.y;
                     suppMatrix.set(savedMatrix);
                     suppMatrix.postTranslate(dx, dy);
                     applyMatrix();
+                    clampTranslation();       // build110: 别把图拖出屏幕找不回来
+                    requestPagerIntercept(true);
                 }
                 break;
 
@@ -169,10 +175,63 @@ public class ZoomableImageView extends AppCompatImageView {
                 if (currentScale() < fitScale) {
                     suppMatrix.reset();
                     applyMatrix();
+                } else {
+                    clampTranslation();
                 }
+                // 回到原始大小就把翻页手势还给 ViewPager2
+                requestPagerIntercept(zoomed());
                 break;
         }
         return true;
+    }
+
+    /** 当前是否处于放大状态（比贴合比例大一点就算） */
+    private boolean zoomed() {
+        return currentScale() > fitScale * 1.01f;
+    }
+
+    /** 放大时禁止外层 ViewPager2 拦截横滑手势；复原后交还 */
+    private void requestPagerIntercept(boolean disallow) {
+        android.view.ViewParent parent = getParent();
+        if (parent != null) parent.requestDisallowInterceptTouchEvent(disallow);
+    }
+
+    /**
+     * build110：把平移限制在图片实际范围内。
+     *
+     * <p>原来放大后可以一直把图拖到屏幕外，图就"丢了"，只能退出重进。
+     * 这里算一下当前图片矩形与视口的交集，允许看到边缘但不留大片空白。
+     */
+    private void clampTranslation() {
+        android.graphics.drawable.Drawable d = getDrawable();
+        if (d == null) return;
+        float vw = getWidth() - getPaddingLeft() - getPaddingRight();
+        float vh = getHeight() - getPaddingTop() - getPaddingBottom();
+        if (vw <= 0 || vh <= 0) return;
+
+        android.graphics.Matrix m = new android.graphics.Matrix(getImageMatrix());
+        android.graphics.RectF r = new android.graphics.RectF(
+                0, 0, d.getIntrinsicWidth(), d.getIntrinsicHeight());
+        m.mapRect(r);
+
+        float dx = 0f, dy = 0f;
+        if (r.width() <= vw) {
+            // 比视口窄：居中
+            dx = (vw - r.width()) / 2f - r.left + getPaddingLeft();
+        } else {
+            if (r.left > getPaddingLeft()) dx = getPaddingLeft() - r.left;
+            else if (r.right < vw + getPaddingLeft()) dx = vw + getPaddingLeft() - r.right;
+        }
+        if (r.height() <= vh) {
+            dy = (vh - r.height()) / 2f - r.top + getPaddingTop();
+        } else {
+            if (r.top > getPaddingTop()) dy = getPaddingTop() - r.top;
+            else if (r.bottom < vh + getPaddingTop()) dy = vh + getPaddingTop() - r.bottom;
+        }
+        if (dx != 0f || dy != 0f) {
+            suppMatrix.postTranslate(dx, dy);
+            applyMatrix();
+        }
     }
 
     private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {

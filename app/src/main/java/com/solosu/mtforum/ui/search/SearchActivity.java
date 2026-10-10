@@ -72,6 +72,8 @@ public class SearchActivity extends AppCompatActivity {
     private boolean loading = false;
     private boolean exhausted = false;
     private volatile int searchGeneration = 0;
+    /** build110: true = 按账号名搜用户，false = 搜帖子 */
+    private boolean searchUserMode = false;
     private final ExecutorService searchExecutor = Executors.newSingleThreadExecutor();
     /** 上一次请求的时刻，用于给相邻两页之间强制留间隔，避免被风控 */
     private long lastRequestAt = 0L;
@@ -142,6 +144,17 @@ public class SearchActivity extends AppCompatActivity {
             }
         });
 
+        // build110: 搜索范围切换（帖子 / 用户）
+        com.google.android.material.button.MaterialButtonToggleGroup scopeToggle =
+                findViewById(R.id.toggle_search_scope);
+        if (scopeToggle != null) {
+            scopeToggle.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+                if (!isChecked) return;
+                searchUserMode = (checkedId == R.id.btn_scope_user);
+                etSearch.setHint(searchUserMode ? "输入账号名查找用户" : getString(R.string.search_hint));
+            });
+        }
+
         // === 搜索按钮 ===
         findViewById(R.id.btn_search).setOnClickListener(v -> performSearch());
 
@@ -205,12 +218,84 @@ public class SearchActivity extends AppCompatActivity {
             etSearch.setError(getString(R.string.search_hint));
             return;
         }
+        SearchHistoryStore.add(this, keyword);
+        renderSearchHistory();
+        // build110: 按账号名直接找人
+        if (searchUserMode) {
+            searchUserByAccount(keyword);
+            return;
+        }
         currentSortBy = DEFAULT_SORT;
         updateSortChips();
         layoutSortBar.setVisibility(View.VISIBLE);
-        SearchHistoryStore.add(this, keyword);
-        renderSearchHistory();
         startSearch(keyword);
+    }
+
+    /**
+     * build110：按账号名直接定位用户。
+     *
+     * <p>Discuz 的 {@code home.php?mod=space&username=xxx} 会自动跳转到该用户的
+     * 空间页（{@code &uid=nnn}），我们拿到 uid 后交给已有的 UserProfileActivity，
+     * 这样搜到的人跟点帖子作者进的是同一个页面。
+     */
+    private void searchUserByAccount(String account) {
+        progressBar.setVisibility(View.VISIBLE);
+        recyclerView.setVisibility(View.GONE);
+        tvEmpty.setVisibility(View.GONE);
+        tvError.setVisibility(View.GONE);
+        if (layoutSortBar != null) layoutSortBar.setVisibility(View.GONE);
+
+        final String name = account;
+        final int generation = ++searchGeneration;
+        searchExecutor.execute(() -> {
+            String uid = null;
+            String failure = null;
+            try {
+                String url = com.solosu.mtforum.network.HttpClient.BASE_URL
+                        + "home.php?mod=space&username="
+                        + java.net.URLEncoder.encode(name, "UTF-8") + "&mobile=2";
+                com.solosu.mtforum.network.HttpClient client =
+                        com.solosu.mtforum.network.HttpClient.getInstance();
+                client.syncFromCookieManager();
+                String html = client.get(url);
+                if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(html)) {
+                    failure = "站点触发人机验证，请稍后再试";
+                } else if (html == null || html.isEmpty()) {
+                    failure = "没有拿到用户页";
+                } else {
+                    // 空间页里到处都是 uid=nnn，出现次数最多的那个就是本人
+                    java.util.regex.Matcher m =
+                            java.util.regex.Pattern.compile("uid=(\\d+)").matcher(html);
+                    java.util.Map<String, Integer> hits = new java.util.HashMap<>();
+                    while (m.find()) {
+                        String id = m.group(1);
+                        hits.put(id, hits.containsKey(id) ? hits.get(id) + 1 : 1);
+                    }
+                    int best = 0;
+                    for (java.util.Map.Entry<String, Integer> e : hits.entrySet()) {
+                        if (e.getValue() > best) { best = e.getValue(); uid = e.getKey(); }
+                    }
+                    if (uid == null) failure = "没有找到该用户";
+                }
+            } catch (Exception e) {
+                failure = e.getMessage();
+            }
+            final String fUid = uid, fFailure = failure;
+            runOnUiThread(() -> {
+                if (generation != searchGeneration) return;
+                progressBar.setVisibility(View.GONE);
+                if (fUid != null) {
+                    Intent it = new Intent(SearchActivity.this,
+                            com.solosu.mtforum.ui.space.UserProfileActivity.class);
+                    it.putExtra("uid", fUid);
+                    it.putExtra("username", name);
+                    startActivity(it);
+                    return;
+                }
+                tvError.setText(fFailure != null ? fFailure : "没有找到该用户");
+                tvError.setVisibility(View.VISIBLE);
+            });
+        });
     }
 
     /** 显示最近搜索；点选重搜，点芯片上的叉号删除单项。 */

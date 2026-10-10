@@ -1,5 +1,77 @@
 # 更新日志
 
+## v5.27 (build110) — 反馈清单第 3~9 项
+
+一次性做完用户列的 7 项（3~9）。
+
+### 3. 评论预加载（最高 3 页，设置可自定义）
+
+- 新增 `ReplyPrefetchPreferences`：默认 3 页，可在设置里 0~5 调，0 为关闭。
+- `ThreadDetailActivity.scheduleReplyPrefetch()`：主楼渲染完就在后台顺序抓取
+  `currentPage+1 .. currentPage+N`，每页间隔 250ms，存进内存 `prefetchedPages`。
+- `loadMoreReplies()` 先查缓存，命中就零等待接上；没命中才走原来的网络分支。
+- **刻意保持"不要预加载所有楼层"**：只往下取、有硬上限、单线程串行、可关闭。
+
+### 4. 切换用户后消息界面不会更新
+
+- 根因：`NoticeActivity.onResume()` 有个 60 秒节流（build68 加的，防 ESA 403）。
+  切完账号马上进消息页，正好落在节流窗口里直接 `return`，于是继续显示上一个账号的数据。
+- 数据层本来就是按 uid 隔离的（`NoticeBadgeManager.activeAccountUid`、
+  `isCurrentBadgeRequest` 都会校验 uid），所以唯一要修的就是这个节流。
+- 现在记录上次拉取时的 uid，**换号就无视节流立刻重拉**；同账号来回进出仍享受节流。
+
+### 5. 下载弹窗美化 + 可改文件名
+
+- 文件名从只读 `TextView` 换成可直接编辑的 `EditText`，加描边提示"这里能改"。
+- 下方"保存到 Download/xxx"用 `TextWatcher` 跟随输入实时更新。
+- 下载时取输入框里的名字，留空回落到论坛原名。
+
+### 6. 帖子外可直接点图片预览 + 缩放优化
+
+- `ThreadAdapter`：列表卡片上的缩略图（单图 / 双图网格）都可点开 `ImagePreviewActivity`，
+  并把整张贴的图片列表一起传过去，进去后能左右翻。以前只有帖子详情里点正文的图才行。
+- `ImagePreviewActivity`：`setOffscreenPageLimit(1)`，翻页不再从头加载。
+- `ZoomableImageView`：
+  - 放大后 `requestDisallowInterceptTouchEvent(true)`，横向拖动变成平移而不是翻页；
+  - 双指缩放中一律禁止翻页；
+  - 新增 `clampTranslation()`，把平移限制在图片范围内，不会把图拖出屏幕找不回来；
+  - 回到原始大小就把翻页手势交还给 ViewPager2。
+
+### 7. 账号名直接搜索用户
+
+- 搜索页新增"搜帖子 / 搜用户"切换（`MaterialButtonToggleGroup`）。
+- 搜用户走 `home.php?mod=space&username=xxx`，Discuz 会跳到该用户空间页，
+  从中取出现次数最多的 `uid=nnn`，再交给已有的 `UserProfileActivity`。
+
+### 8. 内置浏览器自定义 UA
+
+- 新增 `UserAgentPreferences`：两条内置（移动版/电脑版，不可删）+ 用户自定义多条（长按可删）。
+- 默认仍是内置移动版，与改动前行为一致。
+- **只影响应用内浏览器**（`InAppBrowserActivity`）；论坛数据请求的 UA 一动不动 ——
+  站点靠它区分移动/桌面模板，改了会直接把解析逻辑搞坏。
+
+### 9. 评论窗口抬高 + 快捷代码双行
+
+- 回复弹窗内容整体套进 `NestedScrollView`：原来内容一高就把发送按钮顶到屏幕外，
+  而 BottomSheet 又关掉了拖拽手势，按钮根本点不到。
+- 预览区高度 150dp → 110dp，输入框 `minLines` 4 → 3，给下面腾空间。
+- `BBCodeEditor.buildToolbar()`：先把所有按钮收集起来再均分到两行，
+  一次能看到约两倍，不用横着滑很久找标签。
+
+### 验证
+
+- 本地无 Android SDK，跑不了 Gradle，改用 javac 做语法校验：
+  11 个改动文件过滤掉"包不存在/无法解析"后 **0 语法错误**；
+  4 个改过的布局 XML 全部 `minidom` 解析通过。
+- 真机行为待用户在 v5.27 上确认。
+
+### 构建
+
+- versionCode **62** / versionName **5.27**（build110）
+- 签名不变，可直接覆盖升级。
+
+---
+
 ## v5.26 (build109) — 帖子内图片白屏修复（真正原因：懒加载）
 
 > 这一版推翻了 v5.25 的判断。v5.25 以为「附件需要登录态才可见」，

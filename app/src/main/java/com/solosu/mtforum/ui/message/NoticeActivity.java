@@ -37,6 +37,8 @@ public class NoticeActivity extends AppCompatActivity {
     private ExecutorService executor;
     private static final long BADGE_RESUME_THROTTLE_MS = 60000; // build68: 六类角标 onResume 拉取节流
     private long lastBadgeLoadAt = 0L; // build68: 上次六类角标拉取时间戳(节流用)
+    /** build110: 上次拉取时的账号 uid，换号后必须无视节流立刻重拉 */
+    private String lastBadgeUid = null;
     private final AtomicInteger badgeLoadGeneration = new AtomicInteger();
 
     @Override
@@ -59,10 +61,18 @@ public class NoticeActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         // build68: 加 60 秒节流——频繁返回不再重复全量拉 6 类(防 ESA 403)。
+        //
+        // build110: 但「换了账号」不算"频繁返回"。
+        // 原来切完号马上进消息页，会正好落在这 60 秒里直接 return，
+        // 于是新账号看到的是上一个号的消息数——用户报的「切号后消息界面不更新」就是这个。
+        // 换号时无视节流，立刻按新账号重拉；同账号的来回进出仍然享受节流。
         long now = System.currentTimeMillis();
-        if (now - lastBadgeLoadAt < BADGE_RESUME_THROTTLE_MS) {
+        String uid = getUid();
+        boolean accountChanged = lastBadgeUid != null && !lastBadgeUid.equals(uid);
+        if (!accountChanged && now - lastBadgeLoadAt < BADGE_RESUME_THROTTLE_MS) {
             return;
         }
+        lastBadgeUid = uid;
         if (mainHandler != null) {
             mainHandler.removeCallbacksAndMessages(null);
         }
@@ -123,6 +133,7 @@ public class NoticeActivity extends AppCompatActivity {
 
     private void loadAllBadgeCounts() {
         lastBadgeLoadAt = System.currentTimeMillis(); // build68: 记录本次拉取时刻
+        lastBadgeUid = getUid();                    // build110: 记录本次是哪个账号
         final int generation = badgeLoadGeneration.incrementAndGet();
         final String accountUid = NoticeBadgeManager.activeAccountUid(this);
         final int readEpoch = NoticeBadgeManager.getReadEpochForAccount(this, accountUid);

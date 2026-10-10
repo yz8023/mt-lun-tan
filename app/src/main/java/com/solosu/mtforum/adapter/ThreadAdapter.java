@@ -308,6 +308,9 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
                         .error(R.drawable.ic_image_error)
                         .centerCrop()
                         .into(holder.ivThumbnail);
+                // build110: 列表页（帖子外）缩略图直接点开大图预览
+                holder.ivThumbnail.setOnClickListener(
+                        v -> openImagePreview(context, imageUrls, 0));
             } else {
                 // 首页最多两张；每张图在固定比例容器里居中裁切，保持列表几何尺寸一致。
                 int count = Math.min(2, imageUrls.size());
@@ -341,6 +344,10 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
                             .error(R.drawable.ic_image_error)
                             .centerCrop()
                             .into(imageView);
+                    // build110: 列表页（帖子外）缩略图直接点开大图预览
+                    final int clickIndex = i;
+                    imageView.setOnClickListener(
+                            v -> openImagePreview(context, imageUrls, clickIndex));
                     holder.llThreadImages.addView(imageView);
                 }
                 // 首次 bind 时容器宽度可能尚未测量；下一帧用真实宽度校准，避免第二张只露出边角。
@@ -478,6 +485,29 @@ public class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.ViewHolder
             tvSticky = itemView.findViewById(R.id.tv_sticky);
             btnAiSummarize = itemView.findViewById(R.id.btn_ai_summary);
             tvHiddenTag = itemView.findViewById(R.id.tv_hidden_tag);
+        }
+    }
+
+    /**
+     * build110：从列表页（帖子外）直接打开大图预览。
+     *
+     * <p>以前只有进到帖子详情里点正文的图才有预览，列表卡片上的缩略图点了没反应 ——
+     * 而列表页一屏能看到十几张图，是最自然的看图入口。
+     * 这里把整张贴的图片列表一起传过去，进去后还能左右翻。
+     */
+    private static void openImagePreview(Context context, List<String> imageUrls, int index) {
+        if (context == null || imageUrls == null || imageUrls.isEmpty()) return;
+        try {
+            Intent intent = new Intent(context,
+                    com.solosu.mtforum.ui.detail.ImagePreviewActivity.class);
+            intent.putStringArrayListExtra("image_urls", new ArrayList<>(imageUrls));
+            intent.putExtra("image_index", Math.max(0, Math.min(index, imageUrls.size() - 1)));
+            if (!(context instanceof android.app.Activity)) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            context.startActivity(intent);
+        } catch (Exception ignored) {
+            // 起不来就算了，至少不能让列表点一下就崩
         }
     }
 
