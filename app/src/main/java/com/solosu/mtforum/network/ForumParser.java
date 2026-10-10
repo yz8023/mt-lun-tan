@@ -924,6 +924,77 @@ public class ForumParser {
     }
 
     /**
+     * build112：桌面模板的个人空间页解析。
+     *
+     * <p>为什么需要它：本站在<b>移动模板</b>（{@code &mobile=2}）下的空间页里
+     * <b>根本没有目标用户的数据</b> —— 实测 {@code home.php?mod=space&uid=<他人>}
+     * 带 mobile=2 时，页面上目标用户名出现 0 次、目标 uid 出现 0 次，
+     * 只剩下全局头部里当前登录用户的信息。于是通用兜底
+     * {@code img[src*=avatar]} 一抓就抓到"我自己的头像"，
+     * 表现就是「不管点谁都显示成自己的资料」。
+     *
+     * <p>桌面模板（不带 mobile=2）里目标用户数据是齐的，但没有 Comiis 那套
+     * {@code .comiis_space_tx} / {@code h2.fyy} / {@code .kmlevs} 类名，
+     * 所以 {@link #parseUserProfile} 的选择器在桌面页上一个也命中不了。
+     * 这里改用两个在桌面页上稳定的锚点：
+     * <ol>
+     *   <li>用户名：{@code <title>一束挽风的广播 - MT论坛</title>}，
+     *       去掉「 - 站名」和「的广播/的个人资料」等后缀。</li>
+     *   <li>头像：{@code <img src="...avatar.php?uid=<uid>&size=middle">}，
+     *       按 uid 精确匹配，避免抓到头部里当前用户的小头像。</li>
+     * </ol>
+     *
+     * @param html 桌面模板空间页 HTML
+     * @param uid  目标用户 uid（已知，用来精确挑头像、并回填）
+     */
+    public static UserProfile parseUserProfileDesktop(String html, String uid) {
+        UserProfile profile = new UserProfile();
+        if (html == null || html.isEmpty()) return profile;
+        if (uid != null && !uid.isEmpty()) profile.setUid(uid);
+
+        try {
+            Document doc = Jsoup.parse(html);
+
+            // 1) 用户名：从 <title> 反推
+            String title = doc.title();
+            if (title != null) {
+                String name = title.trim();
+                int dash = name.lastIndexOf(" - ");
+                if (dash > 0) name = name.substring(0, dash).trim();
+                String[] suffixes = {"的广播", "的个人资料", "的个人空间", "的主页", "的空间"};
+                for (String suf : suffixes) {
+                    if (name.endsWith(suf)) {
+                        name = name.substring(0, name.length() - suf.length()).trim();
+                        break;
+                    }
+                }
+                if (!name.isEmpty()) profile.setUsername(name);
+            }
+
+            // 2) 头像：按 uid 精确匹配，别抓到头部当前登录用户的小头像
+            if (uid != null && !uid.isEmpty()) {
+                for (Element img : doc.select("img")) {
+                    String src = img.attr("src");
+                    if (src == null || src.isEmpty()) continue;
+                    if (!src.contains("avatar.php")) continue;
+                    if (!src.contains("uid=" + uid)) continue;      // 只要这个人的
+                    // size=middle 比 small 清晰，能换就换
+                    src = src.replace("size=small", "size=middle");
+                    if (!src.startsWith("http")) {
+                        src = src.startsWith("//") ? "https:" + src : BASE_DOMAIN + src;
+                    }
+                    profile.setAvatarUrl(src);
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            // 解析失败就交回调用方按"没解析到"处理，不让异常冒出去
+        }
+        return profile;
+    }
+
+
+    /**
      * 解析消息/私信列表
      */
     public static List<Message> parseMessageList(String html) {

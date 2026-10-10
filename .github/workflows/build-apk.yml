@@ -20,7 +20,7 @@ on:
         description: Release 标签（发布时使用）
         required: true
         type: string
-        default: v5.28
+        default: v5.29
 
 permissions:
   contents: write
@@ -178,9 +178,10 @@ jobs:
         run: |
           test "$TAG" = "v$VERSION" || { echo "标签 $TAG 与应用版本 v$VERSION 不一致"; exit 1; }
           cat > release-notes.md <<EOF
-          - **修复：账号名搜索结果永远是自己**：搜用户时带了 &mobile=2，而移动模板不认 username= 参数，且不会报错，是静默回落成「我的空间」——页面里满是我自己的 uid，于是搜谁都定位到自己。改为去掉 mobile=2 走桌面模板。
-          - **顺带加固：不再只靠 uid 判定成功**：用户不存在时同样会回落到自己的空间，uid 照样取得到。现在多验一步：空间页标题形如「用户名的广播 - MT论坛」，不存在时站点给的是「提示信息」，标题里没有搜的名字就判定没找到。
-          - **实测验证**：用真实账号登录，取帖子里的 6 个真实用户名逐个验证，6/6 命中正确 uid；再拿 1 个不存在的名字验证，正确提示「没有找到该用户」。
+          - **修复：个人主页一律显示成自己**：真因不在搜索，而在个人主页。本站在移动模板（&mobile=2）的空间页里根本不下发目标用户的数据——实测目标用户名出现 0 次、目标 uid 出现 0 次，页面里只剩全局头部当前登录用户的信息。于是头像兜底选择器抓到的就是"我自己的头像"，表现成「不管点谁都像在看自己」。
+          - **改法**：移动页解析不到用户名时，改抓桌面模板空间页（不带 mobile=2，那里数据是齐的），用新增的 ForumParser.parseUserProfileDesktop() 解析——从页面标题取用户名，按 uid 精确匹配头像，避免抓到头部当前用户的小头像。
+          - **影响范围**：不只是搜索。帖子里点任意作者名进个人主页，以前也是同一个毛病，一并修好。
+          - **实测**：登录真实账号，7 个 uid 逐个验证（6 个他人 + 1 个自己），用户名与头像 7/7 全部正确。
 
           **APK 大小：** ${APK_SIZE}
 
@@ -195,14 +196,14 @@ jobs:
             gh release upload "$TAG" "$APK" "$SOURCE" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "MTForum v${VERSION} — 修复账号名搜索永远搜到自己" \
+              --title "MTForum v${VERSION} — 修复个人主页一律显示成自己" \
               --notes-file release-notes.md \
               --latest
           else
             gh release create "$TAG" "$APK" "$SOURCE" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "MTForum v${VERSION} — 修复账号名搜索永远搜到自己" \
+              --title "MTForum v${VERSION} — 修复个人主页一律显示成自己" \
               --notes-file release-notes.md \
               --latest
           fi

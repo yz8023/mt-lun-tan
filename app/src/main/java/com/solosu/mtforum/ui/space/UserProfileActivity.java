@@ -135,6 +135,36 @@ public class UserProfileActivity extends AppCompatActivity {
                         } else {
                             profile = ForumParser.parseUserProfile(altHtml);
                         }
+
+                        // build112：以上两条都是移动模板（&mobile=2）。
+                        // 本站在移动模板的空间页里根本不下发目标用户的数据 ——
+                        // 目标用户名/uid 出现 0 次，页面里只剩全局头部当前登录用户的信息。
+                        // 结果就是：头像兜底 img[src*=avatar] 抓到"我自己"的头像，
+                        // 用户名也拿不到，于是「点谁都像在看自己的资料」。
+                        // 桌面模板里数据是齐的，只是没有 Comiis 那套类名，
+                        // 所以换用专门针对桌面页的解析。
+                        if (profile == null || profile.getUsername() == null) {
+                            String deskUrl = HttpClient.BASE_URL
+                                    + "home.php?mod=space&uid=" + targetUid;
+                            String deskHtml;
+                            com.solosu.mtforum.network.RequestThrottle.markForeground();
+                            try {
+                                deskHtml = httpClient.get(deskUrl);
+                            } finally {
+                                com.solosu.mtforum.network.RequestThrottle.clearForeground();
+                            }
+                            if (com.solosu.mtforum.session.SiteAccessManager.isChallengePage(deskHtml)) {
+                                error = "站点触发人机验证，正在打开内置验证页";
+                            } else if (ForumParser.isLoginPage(deskHtml)) {
+                                error = "登录已过期";
+                            } else {
+                                UserProfile deskProfile =
+                                        ForumParser.parseUserProfileDesktop(deskHtml, targetUid);
+                                if (deskProfile != null && deskProfile.getUsername() != null) {
+                                    profile = deskProfile;
+                                }
+                            }
+                        }
                     }
 
                     // 关注状态由当前资料页 HTML 中的 followmod 控件直接解析；不要再遍历
