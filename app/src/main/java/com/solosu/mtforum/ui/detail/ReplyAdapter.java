@@ -262,6 +262,10 @@ public class ReplyAdapter extends RecyclerView.Adapter<ReplyAdapter.ViewHolder> 
                 layoutReplyQuote.setVisibility(View.VISIBLE);
                 tvReplyQuote.setText(parseCached(
                         item, true, quotedText, tvReplyQuote, itemView.getContext()));
+                // build107: 引用块以前也没挂 linkify —— 被引用的正文里带网址时点不动。
+                // 必须放在 attachCopyOnLongClick 之前：后者要把 longClickable 打开，
+                // 而 setupClickableLinks 会先关掉它。
+                setupClickableLinks(tvReplyQuote);
                 attachCopyOnLongClick(tvReplyQuote);
                 // build63: 长引用默认折 4 行，可展开；旁边给一键复制
                 setupQuoteControls(tvReplyQuote, btnQuoteToggle, btnQuoteCopy);

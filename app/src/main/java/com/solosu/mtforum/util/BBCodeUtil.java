@@ -220,10 +220,15 @@ public final class BBCodeUtil {
         result = sb1.toString();
 
         // 2) 常用标签替换(每次替换都是编译好的 Pattern)
+        // build106: 以前把裸 [attach]aid[/attach] 拼成 mod=image&aid=…&key= 的
+        // 缩略图地址 —— Discuz 的 mod=image 要求服务端签发的 key，空 key 一律
+        // HTTP 500（实测），等于每张都变空白块。裸 aid 也拼不出带签名的
+        // mod=attachment 路由，所以不再伪造图片地址：站点没把附件内联渲染出来
+        // （游客/未回帖/无权限）时，给一个看得见的占位说明，绝不静默留白。
         result = P_ATTACHIMG.matcher(result).replaceAll(
-                "<img src=\"https://bbs.binmt.cc/forum.php?mod=image&aid=$1&size=300x300&key=&nocache=1\">");
+                "<span class=\"mt-attach-ph\">[图片附件]</span>");
         result = P_ATTACH.matcher(result).replaceAll(
-                "<img src=\"https://bbs.binmt.cc/forum.php?mod=image&aid=$1&size=300x300&key=&nocache=1\">");
+                "<span class=\"mt-attach-ph\">[图片附件]</span>");
         result = P_IMG.matcher(result).replaceAll("<img src=\"$1\">");
         result = P_B.matcher(result).replaceAll("<strong>$1</strong>");
         result = P_I.matcher(result).replaceAll("<em>$1</em>");

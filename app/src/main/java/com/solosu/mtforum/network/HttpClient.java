@@ -1008,6 +1008,13 @@ public class HttpClient {
         restoreCookieStore(context);
         // ★ 初始化后立即从 WebView CookieManager 拉取 Cookie，确保双向同步
         syncFromCookieManager();
+        // build106: 还要把会话推回 WebView。登录走原生 OkHttp 表单，Cookie 只进
+        // HttpClient 的罐子；只有「切换账号」才会 syncToCookieManager。于是
+        // 单账号/新安装/清数据后的设备，WebView CookieManager 里没有登录态 ——
+        // 正文 WebView 里 forum.php?mod=attachment 的附件图全按游客处理，
+        // 站点返回「无法读取」提示页，图就是一片空白（tid=160198 整帖附件空白）。
+        // 启动时推一次，WebView 里任何需要登录态的请求都带得上会话。
+        syncToCookieManager();
     }
 
     /**

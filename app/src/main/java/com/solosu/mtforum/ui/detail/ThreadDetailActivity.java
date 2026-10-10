@@ -5663,6 +5663,10 @@ private void viewHiddenContent() {
             + "a:has(img){display:block;}"
             + "a{color:#337ecc;text-decoration:none;word-break:break-all;}"
             + "a:active{opacity:.6;}"
+            // build107: 自动识别出来的链接加下划线。站点自己的 <a> 通常带样式或上下文，
+            // 而我们补的那批是「作者直接把网址贴进正文」的纯文本，不给点视觉提示，
+            // 用户根本不知道那几个字能点 —— 这正是本轮要修的问题。
+            + "a.mt-autolink{text-decoration:underline;}"
             + "pre,.blk_code,.blockcode{background:#f4f5f7;padding:10px;border-radius:6px;"
             + "overflow-x:auto;font-size:12.5px;line-height:1.55;white-space:pre-wrap;"
             + "word-break:break-all;font-family:monospace;}"
@@ -5679,6 +5683,15 @@ private void viewHiddenContent() {
             + ".mt-code-bd{margin:0;padding:10px;background:transparent;color:#e6e6e6;"
             + "overflow-x:auto;font-size:12.5px;line-height:1.6;white-space:pre;"
             + "word-break:normal;font-family:monospace;}"
+            // build106: 图片加载失败的可视样式。此前附件图取不到时只剩一片空白
+            // （tid=160198 整帖附件空白），现在至少看得出这里有一张没加载出来的图。
+            + "img.mt-img-failed{min-width:60%;max-width:100% !important;min-height:56px;"
+            + "height:56px !important;background:#f2f3f5;border:1px dashed #c9ced6;"
+            + "border-radius:6px;}"
+            // build106: [attach] 附件未被站点内联渲染时的占位（BBCodeUtil 生成）
+            + ".mt-attach-ph{display:inline-block;margin:4px 2px;padding:2px 10px;"
+            + "border-radius:12px;background:#f2f3f5;color:#8a919c;font-size:12px;"
+            + "border:1px dashed #d5d9e0;}"
             + "blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid #d8d8d8;"
             + "background:#fafafa;color:#555;}"
             + "table{width:auto !important;max-width:100% !important;}"
@@ -5709,6 +5722,9 @@ private void viewHiddenContent() {
             } else {
                 this.binding.tvContent.setText("");
             }
+            // build107: 这条兜底分支以前没挂 linkify —— 正文里纯文本网址照样点不动。
+            // 退回 TextView 时它就是唯一的正文视图，必须和 !webRender 那条路一样处理。
+            setupClickableLinks(this.binding.tvContent);
             return;
         }
         final android.webkit.WebView web = this.binding.webContent;
@@ -5778,11 +5794,18 @@ private void viewHiddenContent() {
 
             @Override
             public void onPageFinished(android.webkit.WebView view, String url) {
+                // build107: 先补纯文本链接，再挂其余脚本。顺序有讲究 ——
+                // 链接化只动文本节点，且跳过 <pre>/<code>/<a> 与 .mt-code 卡片，
+                // 所以代码块里 curl https://… 这类示例网址不会被改成链接；
+                // 反过来先跑复制注入，就可能把按钮文案里的网址包进来。
+                bindPostWebLinkify(view);
                 bindPostWebImageClicks(view);
                 bindPostWebReady(view);
                 // build97: 给代码块注入复制按钮（WebView 原样渲染后 CodeBlockView 卡片
                 // 不再渲染，复制能力必须在这里补回来）
                 bindPostWebCodeCopy(view);
+                // build106: 附件图取不到时原生重试回填，绝不静默空白
+                bindPostWebImageErrors(view);
                 measurePostWebHeight(view);
             }
         });
@@ -5806,6 +5829,17 @@ private void viewHiddenContent() {
             @android.webkit.JavascriptInterface
             public void onReady() {
                 runOnUiThread(() -> measurePostWebHeight(web));
+            }
+
+            /**
+             * build106: 正文图片加载失败回调。用带会话的 OkHttp 重取一次：
+             * 成功转 data: URI 回填，失败打可视样式 —— 不再留静默空白块。
+             */
+            @android.webkit.JavascriptInterface
+            public void imgFailed(String index, String src) {
+                final int idx = parseIntSafe(index);
+                if (idx < 0) return;
+                retryPostWebImage(web, idx, src);
             }
 
             /**
@@ -5838,8 +5872,37 @@ private void viewHiddenContent() {
 
         web.setVisibility(View.VISIBLE);
         this.binding.tvContent.setVisibility(View.GONE);
+        // build106: 正文里的附件图（forum.php?mod=attachment…）必须带登录 Cookie。
+        // 会话在 OkHttp 罐子里，渲染前把最新会话推进 WebView CookieManager，
+        // 避免「单账号/新装设备 WebView 无会话 → 附件按游客处理 → 整帖空白」。
+        this.httpClient.syncToCookieManager();
         web.loadDataWithBaseURL(com.solosu.mtforum.network.HttpClient.BASE_URL,
                 html, "text/html", "utf-8", "about:blank");
+    }
+
+    /**
+     * build107: 把正文里的纯文本网址补成可点链接。
+     *
+     * <h3>为什么必须补这一步</h3>
+     * <p>build92 起主楼默认走 {@link #renderContentInWeb}：站点下发的正文 HTML 原样
+     * 丢进 WebView，图才会落在作者插入的位置。但给 TextView 用的那套 linkify
+     * （{@link com.solosu.mtforum.util.PlainTextUrlPattern} + {@code matcherLinkify}）
+     * 只在 {@code if (!webRender)} 分支里被调用 —— WebView 这条路上一次都没跑。
+     *
+     * <p>于是作者没用 {@code [url]} BBCode、直接把网址贴进正文时，Discuz 不会替他
+     * 生成 {@code <a href>}，WebView 里就只是一段普通文字：点不动，也不像链接。
+     * 用户报的「帖子内链接无法自动识别为可直接点击打开的超链接」就是这一条。
+     *
+     * <p>补出来的 {@code <a>} 不设 target，导航留在当前 WebView，
+     * {@code shouldOverrideUrlLoading} 才能把它交给 {@link #handlePostWebLink} ——
+     * 也就是沿用统一的「应用内浏览器 / 系统浏览器」设置，不绕过用户的选择。
+     *
+     * <p>脚本幂等，每次 onPageFinished 都跑一遍不会重复包。
+     */
+    private void bindPostWebLinkify(android.webkit.WebView web) {
+        if (web == null) return;
+        web.evaluateJavascript(
+                com.solosu.mtforum.util.PostWebLinkifyScript.js(), null);
     }
 
     /** build92: 给正文里所有 <img> 挂点击，点了走全屏预览 */
@@ -5879,6 +5942,85 @@ private void viewHiddenContent() {
         // 脚本本体在 util/PostWebCodeCopyScript（纯字符串、零 Android 依赖，
         // 有 JVM 单测守着选择器与「复制内容不带按钮文案」这两条不变量）
         web.evaluateJavascript(com.solosu.mtforum.util.PostWebCodeCopyScript.js(), null);
+    }
+
+    /**
+     * build106: 给正文 WebView 的图片挂失败兜底。
+     * 脚本在 {@link com.solosu.mtforum.util.PostWebImageScript}，纯字符串可单测。
+     */
+    private void bindPostWebImageErrors(android.webkit.WebView web) {
+        if (web == null) return;
+        web.evaluateJavascript(com.solosu.mtforum.util.PostWebImageScript.bindErrorsJs(), null);
+    }
+
+    /**
+     * build106: WebView 正文图片加载失败后的原生重试。
+     *
+     * <p>WebView 里的附件请求只有浏览器 CookieManager 那点会话；真出问题时
+     * （会话没同步过去、站点风控只认原生请求头等），这里用带完整论坛会话的
+     * OkHttp 再取一次，成功就以 data: URI 回填。整条链再失败才允许「失败样式」，
+     * 绝不再出现无提示的空白块。
+     */
+    private void retryPostWebImage(final android.webkit.WebView web, final int index, final String src) {
+        if (web == null) return;
+        if (android.text.TextUtils.isEmpty(src)
+                || !(src.startsWith("http://") || src.startsWith("https://"))) {
+            markPostWebImageFailed(web, index);
+            return;
+        }
+        new java.lang.Thread(() -> {
+            try {
+                // getBytes 走共享 OkHttpClient：自动带论坛 Cookie 与 UA
+                byte[] bytes = com.solosu.mtforum.network.HttpClient.getInstance()
+                        .getBytes(src, 8 * 1024 * 1024);
+                String mime = sniffImageMime(bytes);
+                if (bytes == null || bytes.length == 0 || mime == null) {
+                    markPostWebImageFailed(web, index);
+                    return;
+                }
+                final String dataUri = "data:" + mime + ";base64,"
+                        + java.util.Base64.getEncoder().encodeToString(bytes);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    web.evaluateJavascript(
+                            com.solosu.mtforum.util.PostWebImageScript
+                                    .setImgDataUriJs(index, dataUri), null);
+                    // 回填后图片高度变化，重新量一次正文高度
+                    measurePostWebHeight(web);
+                });
+            } catch (Throwable t) {
+                markPostWebImageFailed(web, index);
+            }
+        }, "post-img-retry").start();
+    }
+
+    private void markPostWebImageFailed(final android.webkit.WebView web, final int index) {
+        if (web == null) return;
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            web.evaluateJavascript(
+                    com.solosu.mtforum.util.PostWebImageScript.markImgFailedJs(index), null);
+            measurePostWebHeight(web);
+        });
+    }
+
+    private static int parseIntSafe(String value) {
+        try {
+            return value == null ? -1 : Integer.parseInt(value.trim());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 按文件头识别图片类型；认不出来返回 null（避免把提示页塞成 data: URI）。 */
+    private static String sniffImageMime(byte[] bytes) {
+        if (bytes == null || bytes.length < 12) return null;
+        if ((bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8) return "image/jpeg";
+        if (bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') return "image/png";
+        if (bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') return "image/gif";
+        if (bytes[0] == 'B' && bytes[1] == 'M') return "image/bmp";
+        if (bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') return "image/webp";
+        return null;
     }
 
     /**

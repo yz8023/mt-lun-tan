@@ -1,5 +1,98 @@
 # 更新日志
 
+## v5.24 (build107) — 帖子内纯文本链接自动识别为可点链接
+
+### 用户反馈（本轮）
+
+1. 帖子内链接无法自动识别为可直接点击打开的超链接。
+
+### 根因
+
+- v5.11（build92）起主楼默认走 `renderContentInWeb`：把站点下发的正文 HTML 原样丢进
+  WebView，图才会落在作者插入的位置。但给 TextView 用的那套链接识别
+  （`PlainTextUrlPattern` + `FixNestedScrollLinkMovementMethod.matcherLinkify`）
+  只在 `if (!webRender)` 分支里被调用 —— WebView 这条路上一次都没跑过。
+- 作者用 `[url]` BBCode 时 Discuz 会生成 `<a href>`，点击没问题；直接把网址贴进正文
+  时不会，WebView 里就是一段普通文字：点不动，也不像链接。用户报的正是这一条。
+- 顺带发现两处同类缺口：① `renderContentInWeb` 里 WebView 不可用、退回 TextView 的
+  兜底分支也没调 `setupClickableLinks`；② 回复里的引用块（`tvReplyQuote`）同样没挂。
+
+### ① 正文 WebView 自动补链接（主修复）
+
+- 新增 `PostWebLinkifyScript`（纯字符串、零 Android 依赖，JVM 可测）：遍历正文文本节点，
+  把纯文本网址包成 `<a href>`，在 `onPageFinished` 里注入。
+- 覆盖 `https?://`、`//host`、`www.` 与常见裸域名（含 `.cn`），分别补成 `https://`；
+  收尾的 `.,;:!?` 不吞进链接；邮箱（`user@example.com`）与文件名（`readme.html`）不误判。
+- 跳过 `<a>`、`<pre>`、`<code>`、`<script>`、`<style>`、`<textarea>` 与自建的
+  `.mt-code` 代码卡片：示例网址不被改坏，已有链接不重复包；脚本幂等，可反复执行。
+- 只放行 http/https，不生成 `javascript:` 等其它 scheme 的链接。
+- 链接数封顶 400，长帖不会把主线程拖死。
+- 补出来的 `<a>` 不设 `target`：导航留在当前 WebView，`shouldOverrideUrlLoading`
+  才能把它交给 `handlePostWebLink`，沿用统一的应用内/系统浏览器设置。
+
+### ② 规则只留一份来源
+
+- `PlainTextUrlPattern` 的 `URL_CHARS` 与 `TLD_ALTERNATION` 改为包内可见，
+  `PostWebLinkifyScript` 直接用它们拼出 JS 侧正则；Java 正则里的两个后行断言
+  在 JS 侧用等价的手写守卫替代（被挡掉时逐格前进，与正则引擎的推进方式一致）。
+  两边从此不可能漂移成「TextView 里是链接、WebView 里不是」。
+
+### ③ 另外两处缺口
+
+- `renderContentInWeb` 的 TextView 兜底分支补上 `setupClickableLinks`。
+- `ReplyAdapter` 引用块补上 `setupClickableLinks`（须在 `attachCopyOnLongClick` 之前调用）。
+
+### 测试
+
+- 新增 `PostWebLinkifyScriptTest`（9 项）：JS 侧正则与 `WEB_URL` 在 16 条语料上认出
+  完全一致的链接；跳过名单、幂等、不设 target、只补 https、条数封顶等不变量。
+- 另用 jsdom 对生成的脚本做了 30 项真实 DOM 端到端验证（链接生成、代码块不动、
+  邮箱不误判、属性不被改、连跑三次幂等、900 个链接封顶、无 `javascript:` href）。
+- `PlainTextUrlPatternTest` 5 项仍全绿（重构常量后行为不变）。
+
+### 构建
+
+- versionCode **59** / versionName **5.24**（build107）
+- 签名不变，可直接覆盖升级。
+
+---
+
+## v5.23 (build106) — 帖子附件图整帖空白修复 · WebView 会话同步
+
+### 用户反馈（本轮）
+
+1. 帖子《【逆向工具】手机版新一代反汇编工具RzDroid发布》（tid=160198）正文图片全是空白不显示；已登录，其它帖子图片正常，使用默认的原帖渲染。
+
+### 根因
+
+- 该帖正文图全部是 Discuz `[attach]` 附件，地址走 `forum.php?mod=attachment&aid=…`。这类路由**必须带登录 Cookie**；站点把游客请求换成「该附件无法读取」提示页（HTTP 200 的 HTML），对 `<img>` 就是永远加载不出来的空白块。
+- 本 App 登录走原生 OkHttp 表单，会话只存在 HttpClient 的 Cookie 罐里；此前**只有「切换账号」才会把会话推进 WebView CookieManager**。单账号、新装、清数据或 Cookie 登录后，正文 WebView 里没有登录态 —— 附件图全按游客处理，整帖空白。其它帖子的图多为 CDN 直链或带 key 的 `mod=image` 缩略图，不需要登录态，所以只有这类纯附件帖暴露问题。
+- 附带发现两条次生缺陷：① `BBCodeUtil` 把残留的裸 `[attach]aid[/attach]` 拼成 `mod=image&aid=…&key=` 的缩略图地址，而 Discuz 的 `mod=image` 要求服务端签发的 key，空 key 实测一律 HTTP 500；② Glide 图片栈对「200 + HTML 提示页」不做内容类型校验，静默失败。
+
+### ① WebView 会话同步（主修复）
+
+- `HttpClient.init()`：启动恢复会话后把会话推进 WebView CookieManager。
+- Cookie 登录、后台签到重登刷新的前台账号（`AccountManager.updateCookieHeader`）：同步推进。
+- 正文 WebView 渲染前（`renderContentInWeb`）：再同步一次，确保任何进入路径下附件请求都带当前会话。
+
+### ② 图片失败兜底：不再静默空白
+
+- 正文 WebView 给每张图挂 error 兜底（含挂监听前已失败的图）：首次失败回调原生，用带完整论坛会话的 OkHttp 重取，成功以 data: URI 回填；重试仍失败打上可视的失败样式（灰底虚线框）。
+- 新增 `PostWebImageScript`（纯字符串、JVM 可测）。
+- `OkHttpStreamLoader`：附件/图片路由返回 `text/html`（站点提示页）时按加载失败处理，不再对 HTML 解码出空白。
+
+### ③ 裸 [attach] 不再伪造必 500 的图片地址
+
+- 站点没把附件内联渲染出来（游客/未回帖/无权限）时，残留的 `[attach]`/`[attachimg]` 渲染为可见占位「[图片附件]」，不再是空 key 的假缩略图。
+
+### 测试与构建
+
+- 新增 `PostWebImageScriptTest`、`BBCodeAttachRenderTest`（索引定位、重试守卫、特殊字符转义、占位不再含 mod=image）。
+- versionCode **58** / versionName **5.23**（build106）
+- 签名不变，可直接覆盖升级。
+
+---
+
 ## v5.22 (build105) — Markdown 导入 · 用户留言板 · 本机 MCP · 通知与账号修复
 
 ### ① Markdown 转 Discuz BBCode

@@ -372,6 +372,9 @@ public class AccountManager {
                         .edit().putString(COOKIE_KEY, a.cookies).apply();
                 HttpClient.getInstance().clearCookies();
                 HttpClient.getInstance().restoreCookieStore(c.getApplicationContext());
+                // build106: 后台签到重登/轮换 Cookie 后，WebView 也要拿到新会话，
+                // 否则正文 WebView 里的附件图按游客处理，整片空白。
+                HttpClient.getInstance().syncToCookieManager();
             } catch (Exception ignored) {
             }
         }

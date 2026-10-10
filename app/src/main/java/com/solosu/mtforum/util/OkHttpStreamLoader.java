@@ -109,6 +109,18 @@ public final class OkHttpStreamLoader implements ModelLoader<GlideUrl, InputStre
                             "图片请求失败 HTTP " + response.code() + " " + url.toStringUrl()));
                     return;
                 }
+                // build106: Discuz 附件路由（mod=attachment / mod=image）在
+                // 会话缺失或签名无效时返回 200 的「该附件无法读取」HTML 提示页。
+                // 不放行 HTML —— 让 Glide 明确失败走错误处理，而不是对着一页
+                // HTML 解码出空白/裂图。
+                String contentType = response.header("Content-Type");
+                if (contentType != null
+                        && contentType.toLowerCase(java.util.Locale.ROOT)
+                                .startsWith("text/html")) {
+                    callback.onLoadFailed(new IOException(
+                            "服务器返回页面而非图片 " + url.toStringUrl()));
+                    return;
+                }
                 if (response.body().contentLength() > MAX_BYTES) {
                     callback.onLoadFailed(new IOException("图片过大: " + url.toStringUrl()));
                     return;

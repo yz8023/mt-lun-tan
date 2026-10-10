@@ -396,6 +396,9 @@ public class LoginBottomSheet {
 
                 // Cookie 有效,保存并获取用户信息
                 HttpClient.getInstance().commitCookieStore(activity);
+                // build106: Cookie 登录不经过 WebView，登录态只在 OkHttp 罐子里；
+                // 推进 WebView CookieManager，正文 WebView 的附件图才能带会话加载。
+                HttpClient.getInstance().syncToCookieManager();
                 try {
                     UserProfile profile = ForumParser.parseUserProfile(verifyHtml);
                     Map<String, String> loginInfo = new HashMap<>();
